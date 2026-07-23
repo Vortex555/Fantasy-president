@@ -1,0 +1,24 @@
+{
+  "name": "fantasy-president",
+  "version": "1.0.0",
+  "description": "An AI-powered political simulator. Take the presidency, write free-form policy in response to monthly crises, and watch the consequences ripple across voters, stakeholders, Congress, the economy and the press over a 48-month term.",
+  "type": "module",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node --env-file-if-exists=.env src/server.js",
+    "dev": "node --env-file-if-exists=.env --watch src/server.js"
+  },
+  "keywords": [
+    "game",
+    "simulation",
+    "politics",
+    "claude",
+    "anthropic",
+    "ai"
+  ],
+  "license": "MIT",
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.68.0",
+    "express": "^5.1.0"
+  }
+}
