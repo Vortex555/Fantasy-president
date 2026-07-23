@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Fantasy President — Your Career in Power</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="stylesheet" href="./styles.css" />
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%F0%9F%8F%9B%EF%B8%8F%3C/text%3E%3C/svg%3E" />
+</head>
+<body>
+
+  <!-- ===================== SETUP ===================== -->
+  <section id="setup" class="screen active">
+    <div class="setup-inner">
+      <div class="seal">🏛️</div>
+      <h1 class="title">Fantasy President</h1>
+      <p class="tagline">Take the oath. Face a nation of crises. Every policy you write ripples across
+        voters, donors, Congress, the markets and the press. Survive 48 months — and the ballot box.</p>
+
+      <div id="modeBadge" class="mode-badge">checking simulation mode…</div>
+
+      <form id="setupForm" class="setup-card">
+        <div class="field">
+          <label>Your name, Mr./Madam President</label>
+          <input id="presidentName" type="text" maxlength="60" value="Alex Rivera" autocomplete="off" />
+        </div>
+
+        <div class="field">
+          <label>Party</label>
+          <div class="party-picker" id="partyPicker">
+            <button type="button" data-party="Democrat" class="party dem">Democrat</button>
+            <button type="button" data-party="Independent" class="party ind active">Independent</button>
+            <button type="button" data-party="Republican" class="party rep">Republican</button>
+          </div>
+        </div>
+
+        <div class="field">
+          <label>Scenario</label>
+          <select id="eraSelect">
+            <option value="The present day, 2025. A polarized nation, thin margins in Congress, and a restless electorate.">Modern Era — 2025</option>
+            <option value="The 1960s. Cold War tensions, a civil-rights reckoning, and the shadow of nuclear brinkmanship.">The Sixties</option>
+            <option value="The 1990s. Post-Cold-War optimism, a booming economy, and the dawn of the internet age.">The Nineties</option>
+            <option value="The 2008 financial crisis. Markets in free-fall, banks collapsing, and a terrified public.">Crisis of 2008</option>
+            <option value="A near-future America, 2032. Climate shocks, an AI labor upheaval, and fraying alliances.">Near Future — 2032</option>
+          </select>
+        </div>
+
+        <div class="field">
+          <label>Starting approval — <span id="approvalVal">52</span>%</label>
+          <input id="startApproval" type="range" min="30" max="65" value="52" />
+          <div class="range-hint"><span>Embattled</span><span>Honeymoon</span></div>
+        </div>
+
+        <button type="submit" class="btn primary big" id="beginBtn">Take the Oath of Office</button>
+      </form>
+      <p class="footnote">All events, figures and reactions are fictional and AI-generated for gameplay.</p>
+    </div>
+  </section>
+
+  <!-- ===================== GAME ===================== -->
+  <section id="game" class="screen">
+    <aside id="dashboard" class="dashboard">
+      <div class="dash-head">
+        <div class="dash-name" id="dashName">—</div>
+        <div class="dash-sub" id="dashSub">—</div>
+      </div>
+
+      <div class="approval-block">
+        <svg class="ring" viewBox="0 0 120 120">
+          <circle class="ring-bg" cx="60" cy="60" r="52" />
+          <circle class="ring-fg" id="approvalRing" cx="60" cy="60" r="52" />
+        </svg>
+        <div class="ring-center">
+          <div class="ring-num" id="approvalNum">52</div>
+          <div class="ring-label">approval</div>
+          <div class="ring-delta" id="approvalDelta"></div>
+        </div>
+      </div>
+
+      <div class="mini-stats">
+        <div class="mini"><span id="stabilityVal">72</span><label>stability</label></div>
+        <div class="mini"><span id="monthVal">1</span><label>of 48 mo.</label></div>
+        <div class="mini"><span id="evVal">0</span><label>elec. votes</label></div>
+      </div>
+
+      <div class="panel">
+        <h3>Economy</h3>
+        <div class="eco-grid">
+          <div class="eco"><label>GDP</label><span id="ecoGdp">2.4%</span></div>
+          <div class="eco"><label>Unemp.</label><span id="ecoUnemp">4.1%</span></div>
+          <div class="eco"><label>Inflation</label><span id="ecoInf">3.0%</span></div>
+          <div class="eco"><label>Debt</label><span id="ecoDebt">$34.2T</span></div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <h3>Congress</h3>
+        <div class="chamber"><label>House</label><div class="seatbar" id="houseBar"></div></div>
+        <div class="chamber"><label>Senate</label><div class="seatbar" id="senateBar"></div></div>
+      </div>
+
+      <div class="panel">
+        <h3>Supreme Court</h3>
+        <div class="court-bar" id="courtBar"></div>
+        <div class="court-label" id="courtLabel">—</div>
+      </div>
+
+      <div class="panel">
+        <h3>Stakeholders</h3>
+        <div id="stakeList" class="stake-list"></div>
+      </div>
+
+      <div class="panel">
+        <h3>The Map <span class="map-legend"><i class="lo"></i>oppose <i class="mid"></i> <i class="hi"></i>support</span></h3>
+        <div id="usMap" class="us-map"></div>
+      </div>
+    </aside>
+
+    <main id="main" class="main">
+      <div class="main-scroll" id="mainScroll">
+        <!-- Event + policy composer -->
+        <div id="briefingView">
+          <div class="month-chip" id="monthChip">Month 1</div>
+          <div class="event-card" id="eventCard">
+            <h2 id="eventTitle">—</h2>
+            <p id="eventBrief">—</p>
+          </div>
+
+          <div class="warroom">
+            <div class="warroom-head">🎙️ Situation Room — consult your team before you decide</div>
+            <div class="advisor-chips" id="advisorChips"></div>
+          </div>
+
+          <div class="composer">
+            <label class="composer-label">Your policy response</label>
+            <textarea id="policyInput" maxlength="1600" rows="6"
+              placeholder="Write, in your own words, exactly how you will respond. Be specific — name the agencies, the money, the message. Vague gestures play poorly."></textarea>
+            <div class="composer-row">
+              <input id="publicMessage" type="text" maxlength="240"
+                placeholder="Optional: a public message / spin for the cameras…" />
+            </div>
+            <div class="composer-actions">
+              <span class="char-count" id="charCount">0 / 1600</span>
+              <button class="btn primary" id="enactBtn">Enact Policy →</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Consequences -->
+        <div id="consequenceView" class="hidden"></div>
+      </div>
+    </main>
+  </section>
+
+  <!-- ===================== GAME OVER ===================== -->
+  <section id="gameover" class="screen">
+    <div class="over-inner" id="overInner"></div>
+  </section>
+
+  <!-- Advisor chat -->
+  <div id="chatModal" class="chat-modal hidden">
+    <div class="chat-box">
+      <div class="chat-head">
+        <div class="chat-who">
+          <span class="chat-emoji" id="chatEmoji">🎖️</span>
+          <div>
+            <div class="chat-name" id="chatName">—</div>
+            <div class="chat-role" id="chatRole">—</div>
+          </div>
+        </div>
+        <button class="chat-close" id="chatClose" aria-label="Close">✕</button>
+      </div>
+      <div class="chat-log" id="chatLog"></div>
+      <div class="chat-input-row">
+        <input id="chatInput" type="text" placeholder="Ask for their honest counsel…" maxlength="300" autocomplete="off" />
+        <button class="btn primary" id="chatSend">Send</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="loader" class="loader hidden">
+    <div class="loader-card">
+      <div class="spinner"></div>
+      <div class="loader-text" id="loaderText">The situation is developing…</div>
+    </div>
+  </div>
+
+  <script src="./app.js"></script>
+</body>
+</html>
