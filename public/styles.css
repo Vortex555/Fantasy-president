@@ -130,6 +130,57 @@ input[type=range] { width: 100%; accent-color: var(--gold); }
 .stake-fill { height: 100%; border-radius: 4px; transition: width .5s ease, background .5s; }
 .stake-val { font-weight: 700; text-align: right; }
 
+/* Supreme Court */
+.court-bar { display: flex; height: 20px; border-radius: 6px; overflow: hidden; gap: 2px; }
+.court-seat { flex: 1; border-radius: 2px; }
+.court-seat.con { background: var(--rep); }
+.court-seat.lib { background: var(--dem); }
+.court-label { font-size: 11px; color: var(--muted); margin-top: 6px; text-align: center; }
+
+/* Situation Room */
+.warroom { margin-bottom: 18px; }
+.warroom-head { font-size: 12px; color: var(--muted); font-weight: 600; margin-bottom: 10px; }
+.advisor-chips { display: flex; flex-wrap: wrap; gap: 7px; }
+.advisor-chip { display: flex; align-items: center; gap: 6px; background: var(--panel); border: 1px solid var(--line);
+  border-radius: 20px; padding: 6px 12px 6px 8px; font-size: 12px; color: var(--ink); cursor: pointer; transition: border-color .15s, background .15s; }
+.advisor-chip:hover { border-color: var(--gold-soft); background: #212d44; }
+.advisor-chip .ce { font-size: 15px; }
+.advisor-chip .cr { color: var(--muted); }
+
+/* Chat modal */
+.chat-modal { position: fixed; inset: 0; background: rgba(8,12,20,.7); backdrop-filter: blur(3px);
+  display: flex; align-items: center; justify-content: center; z-index: 60; padding: 20px; }
+.chat-box { width: 100%; max-width: 560px; height: min(680px, 88vh); background: var(--bg-2);
+  border: 1px solid var(--line); border-radius: 16px; display: flex; flex-direction: column; overflow: hidden;
+  box-shadow: 0 30px 80px rgba(0,0,0,.5); }
+.chat-head { display: flex; align-items: center; justify-content: space-between; padding: 16px 18px;
+  border-bottom: 1px solid var(--line); background: var(--panel); }
+.chat-who { display: flex; align-items: center; gap: 12px; }
+.chat-emoji { font-size: 30px; }
+.chat-name { font-family: var(--serif); font-size: 18px; }
+.chat-role { font-size: 12px; color: var(--gold); }
+.chat-close { background: none; border: none; color: var(--muted); font-size: 20px; line-height: 1; padding: 4px 8px; border-radius: 8px; }
+.chat-close:hover { background: var(--panel-2); color: var(--ink); }
+.chat-log { flex: 1; overflow-y: auto; padding: 18px; display: flex; flex-direction: column; gap: 12px; }
+.bubble { max-width: 82%; padding: 11px 15px; border-radius: 14px; font-size: 14px; line-height: 1.55; }
+.bubble.advisor { align-self: flex-start; background: var(--panel); border: 1px solid var(--line); border-bottom-left-radius: 4px; color: #d7deec; }
+.bubble.me { align-self: flex-end; background: linear-gradient(180deg, var(--gold), var(--gold-soft)); color: #201a0c; border-bottom-right-radius: 4px; font-weight: 500; }
+.bubble.typing { color: var(--muted); font-style: italic; }
+.chat-hint { align-self: center; color: #5f6f8a; font-size: 12px; font-style: italic; text-align: center; max-width: 80%; }
+.chat-input-row { display: flex; gap: 8px; padding: 14px; border-top: 1px solid var(--line); }
+.chat-input-row input { flex: 1; }
+
+/* Checks & balances */
+.checks-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.check { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; border-left: 4px solid var(--muted); }
+.check.good { border-left-color: var(--good); }
+.check.bad { border-left-color: var(--bad); }
+.check.warn { border-left-color: var(--warn); }
+.check .ct { font-size: 11px; text-transform: uppercase; letter-spacing: .5px; color: var(--muted); margin-bottom: 4px; }
+.check .cs { font-weight: 700; font-size: 15px; margin-bottom: 5px; }
+.check.good .cs { color: var(--good); } .check.bad .cs { color: var(--bad); } .check.warn .cs { color: var(--warn); }
+.check .cn { font-size: 13px; color: #b8c2d6; line-height: 1.5; }
+
 .map-legend { font-size: 9px; color: var(--muted); display: flex; align-items: center; gap: 2px; font-weight: 500; letter-spacing: 0; }
 .map-legend i { width: 10px; height: 10px; border-radius: 2px; display: inline-block; }
 .map-legend i.lo { background: #b5453f; }

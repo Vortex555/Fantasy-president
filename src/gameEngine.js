@@ -58,10 +58,61 @@ export function createGame(scenario) {
     stakeholders,
     stateApproval,
     congress,
+    // The Supreme Court is inherited, not chosen — a standing constraint.
+    court: { conservative: 6, liberal: 3 },
+    cabinet: buildCabinet(scenario),
     history: [],
     over: false,
     ending: null,
   };
+}
+
+// ---------------------------------------------------------------------------
+// Cabinet & inner circle — the people the player can consult before deciding.
+// ---------------------------------------------------------------------------
+
+export const CABINET_ROLES = [
+  { id: "vp",       role: "Vice President",           emoji: "🎖️", focus: "politics & the next election",
+    persona: "a seasoned political operator: loyal in public but always thinking two elections ahead, occasionally protecting your own future" },
+  { id: "spouse",   role: "First Spouse",             emoji: "💐", focus: "you, your family & your legacy",
+    persona: "the President's spouse — candid and personal, protective of the President's health, family and legacy, and largely unmoved by polls" },
+  { id: "chief",    role: "Chief of Staff",           emoji: "🗂️", focus: "what's actually possible",
+    persona: "a blunt pragmatist who manages what is politically possible and tells the President hard truths about the votes and the clock" },
+  { id: "state",    role: "Secretary of State",       emoji: "🌐", focus: "allies & the world",
+    persona: "a career diplomat focused on allies, adversaries and the international fallout of any decision" },
+  { id: "defense",  role: "Secretary of Defense",     emoji: "🪖", focus: "security & the military",
+    persona: "a measured but hawkish former general focused on national security, military options and their risks" },
+  { id: "treasury", role: "Secretary of the Treasury", emoji: "💵", focus: "the economy & the deficit",
+    persona: "a markets-and-numbers economist focused on cost, the deficit, inflation and how Wall Street will react" },
+  { id: "ag",       role: "Attorney General",         emoji: "⚖️", focus: "the law & the courts",
+    persona: "the nation's top lawyer, focused on what is legal and what will survive a challenge at the Supreme Court" },
+  { id: "press",    role: "Press Secretary",          emoji: "🎤", focus: "optics & messaging",
+    persona: "a sharp communications strategist focused entirely on optics, messaging and how a decision will play on the news" },
+];
+
+const FIRST_NAMES = ["Margaret", "James", "Elena", "Marcus", "Priya", "David", "Sofia", "Nathan", "Yuki", "Andre", "Rachel", "Tomás", "Grace", "Omar", "Nina", "Caleb", "Dana", "Ibrahim"];
+const LAST_NAMES = ["Whitfield", "Okafor", "Castellano", "Nguyen", "Brennan", "Al-Rashid", "Sundqvist", "Delgado", "Harrington", "Petrov", "Osei", "Kaplan", "Romano", "Fairbanks", "Mbeki", "Larsson"];
+
+export function buildCabinet(scenario) {
+  const rng = mulberry32(hashString(scenario.presidentName + scenario.party));
+  const usedFirst = new Set();
+  const usedLast = new Set();
+  const pick = (pool, used) => {
+    let n;
+    do { n = pool[Math.floor(rng() * pool.length)]; } while (used.has(n) && used.size < pool.length);
+    used.add(n);
+    return n;
+  };
+  return CABINET_ROLES.map((r) => ({
+    id: r.id,
+    role: r.role,
+    emoji: r.emoji,
+    focus: r.focus,
+    persona: r.persona,
+    name: `${pick(FIRST_NAMES, usedFirst)} ${pick(LAST_NAMES, usedLast)}`,
+    loyalty: Math.round(45 + rng() * 45),     // 45-90
+    competence: Math.round(45 + rng() * 50),  // 45-95
+  }));
 }
 
 function seedCongress(sign) {
@@ -92,9 +143,99 @@ export function electoralCount(state) {
   return { win, lose, tossup, total: TOTAL_EV };
 }
 
+// ---------------------------------------------------------------------------
+// Checks & balances — does Congress pass it, and do the courts let it stand?
+// Returns human-readable statuses plus an effectMultiplier the mock engine
+// uses to dampen the impact of a blocked or struck-down policy.
+// ---------------------------------------------------------------------------
+
+export function classifyPolicy(text) {
+  const t = text.toLowerCase();
+  const executive = /executive order|executive action|by executive|i will direct|i'll direct|instruct the|order the|directive|by decree|emergency power|unilateral/.test(t);
+  const legislation =
+    /\b(legislation|bill|statute|laws?|fund|funding|budget|appropriations?|taxes?|repeal|amendment)\b/.test(t) ||
+    /through congress|pass (a|the|this|new|my|it through|legislation)|sign(ed)? into law|act of congress|get congress to/.test(t);
+  const aggressive = executive && /\b(ban|mandate|seize|nationaliz|suspend|ignore|bypass|bypassing|emergency|shut down|override|unilateral(ly)?)\b/.test(t);
+  const bipartisan = /bipartisan|across the aisle|both parties|compromise|work with (congress|republicans|democrats|the other)/.test(t);
+  const appointsJustice = /(nominat|appoint)/.test(t) && /(justice|supreme court|the court)/.test(t);
+  return { executive, legislation, aggressive, bipartisan, appointsJustice };
+}
+
+export function computeChecks(state, policyText) {
+  const sign = partySign(state.scenario.party);
+  const kind = classifyPolicy(policyText);
+  const control = partyControl(state);
+  const party = state.scenario.party;
+  const roll = hashString(policyText + state.month) % 100; // deterministic 0-99
+
+  const checks = {
+    congress: { status: "executive", note: "" },
+    court: { status: "none", note: "" },
+    effectMultiplier: 1,
+  };
+
+  // --- Congress ---
+  if (kind.legislation) {
+    const holdsBoth = party !== "Independent" && control.house === party && control.senate === party;
+    const oppositionBoth = party !== "Independent" && control.house !== party && control.senate !== party;
+    let score = (state.approval - 50);
+    if (holdsBoth) score += 28;
+    else if (oppositionBoth) score -= 28;
+    else score -= 8; // divided government
+    if (party === "Independent") score -= 12; // no bloc of your own
+    if (kind.bipartisan) score += 16;
+
+    if (score > 14) {
+      checks.congress = { status: "passed", note: `Congress passed your measure — the ${control.house} House and ${control.senate} Senate delivered the votes.` };
+    } else if (score > -12) {
+      checks.congress = { status: "compromised", note: "Congress passed a watered-down version after horse-trading stripped out your boldest provisions." };
+      checks.effectMultiplier *= 0.65;
+    } else {
+      checks.congress = { status: "blocked", note: `Congress killed it. The opposition-held ${control.house === party ? control.senate + " Senate" : control.house + " House"} refused to bring it to a vote.` };
+      checks.effectMultiplier *= 0.35;
+    }
+  } else if (kind.executive) {
+    checks.congress = { status: "executive", note: "You acted by executive authority, sidestepping Congress entirely — faster, but on shakier legal ground." };
+  } else {
+    checks.congress = { status: "executive", note: "Implemented through the powers of the office; no act of Congress was required." };
+  }
+
+  // --- Supreme Court --- (mainly scrutinizes aggressive executive action)
+  if (kind.aggressive || (kind.executive && roll < 22)) {
+    const conservativeCourt = state.court.conservative > state.court.liberal;
+    // A court is more hostile when the action's ideological thrust opposes it.
+    const opposesCourt = (conservativeCourt && sign < 0) || (!conservativeCourt && sign > 0);
+    let strike = 42 + (opposesCourt ? 26 : -14) + (kind.aggressive ? 10 : 0);
+    strike = Math.max(8, Math.min(88, strike));
+    const margin = conservativeCourt
+      ? `${state.court.conservative}–${state.court.liberal} conservative majority`
+      : `${state.court.liberal}–${state.court.conservative} liberal majority`;
+    if (roll < strike) {
+      checks.court = { status: "struck_down", note: `The Supreme Court's ${margin} struck it down as executive overreach. A humiliating defeat.` };
+      checks.effectMultiplier *= 0.4;
+      checks.courtPenalty = -3;
+    } else {
+      checks.court = { status: "upheld", note: `Challenged all the way to the Supreme Court — but its ${margin} let it stand, at least for now.` };
+    }
+  }
+
+  return checks;
+}
+
 // Fold a TurnResult (from Claude or the mock engine) into a new game state.
 export function applyResult(state, policy, result) {
   const next = structuredClone(state);
+
+  // Ensure a checks-and-balances narrative exists (AI may omit it).
+  if (!result.checks) result.checks = computeChecks(state, policy);
+
+  // A Supreme Court appointment shifts the bench toward the president.
+  const kind = classifyPolicy(policy);
+  if (kind.appointsJustice) {
+    const s = partySign(state.scenario.party);
+    if (s > 0 && next.court.liberal > 0) { next.court.conservative++; next.court.liberal--; }
+    else if (s < 0 && next.court.conservative > 0) { next.court.liberal++; next.court.conservative--; }
+  }
 
   next.approval = clamp(round1(next.approval + (result.approvalChange || 0)));
 
@@ -273,6 +414,14 @@ export function mockTurn(state, policy, publicMessage) {
   if (words < 8) approvalChange -= 2;
   if (publicMessage && publicMessage.trim().length > 20) approvalChange += 1;
 
+  // Checks & balances: Congress and the courts can blunt or kill your policy.
+  const checks = computeChecks(state, `${policy} ${publicMessage || ""}`);
+  const mult = checks.effectMultiplier;
+  approvalChange = approvalChange * mult + (checks.courtPenalty || 0);
+  if (checks.congress.status === "blocked") approvalChange -= 1; // looking ineffective
+  for (const key of Object.keys(economy)) economy[key] *= mult;
+  for (const key of Object.keys(stakeDelta)) stakeDelta[key] = Math.round(stakeDelta[key] * mult);
+
   approvalChange = Math.max(-14, Math.min(14, round1(approvalChange)));
 
   const stakeholders = STAKEHOLDERS.map((s) => {
@@ -323,9 +472,59 @@ export function mockTurn(state, policy, publicMessage) {
     press,
     personas,
     stateEffects,
+    checks: { congress: checks.congress, court: checks.court },
     nextEvent: { title: ev.title, brief: ev.brief },
     flags,
   };
+}
+
+// ---------------------------------------------------------------------------
+// Advisor chat fallback (local sim). Role-flavored, lightly reactive.
+// ---------------------------------------------------------------------------
+
+const ADVISOR_LINES = {
+  vp: [
+    "Politically? Watch the map. This helps us in the suburbs but the base back home won't love it — and I have to run on this record too.",
+    "I'll back you publicly, of course. But if we spend capital here, we won't have it for the midterms. Is this the hill?",
+  ],
+  spouse: [
+    "Forget the polls for a second — is this the person you want to be remembered as? Do what you can defend to yourself at 2 a.m.",
+    "You look exhausted. Whatever you decide, decide it and then actually sleep. The country needs you clear-headed, not frantic.",
+  ],
+  chief: [
+    "Here's the reality: you don't have the votes for the clean version. Give me a week and I can get you 80% of it. Take the win.",
+    "We can do this, but it eats the whole month. Everything else on the agenda slips. Say the word and I'll clear the schedule.",
+  ],
+  state: [
+    "Our allies are watching this closely. Move too hard and we spook them; move too soft and our adversaries read it as weakness.",
+    "I can get you a coalition on this, but it takes quiet diplomacy, not a podium speech. Let me work the phones first.",
+  ],
+  defense: [
+    "Militarily it's feasible. The risk isn't the operation — it's the second and third move after the other side responds. Plan for those.",
+    "I'd advise against tying our hands publicly. Keep options open. Once you say it out loud, you own every consequence.",
+  ],
+  treasury: [
+    "The markets will read this in about four minutes. Expect a dip, then a recovery if the details are credible. The deficit hit is real, though.",
+    "I can find the money, but not without borrowing or cutting elsewhere. There's no free version of this. Which pocket do we pick?",
+  ],
+  ag: [
+    "If you do this by executive order, expect a lawsuit within the week. A 6–3 Court is not friendly ground. Legislation is slower but bulletproof.",
+    "Constitutionally you're on the edge here. I can defend it, but I can't promise the Court sees it our way. Know the risk before you sign.",
+  ],
+  press: [
+    "The headline writes itself either way — the question is who writes it first. Give me the message and I'll get ahead of it tonight.",
+    "Optics are mixed. It plays great on one network, terribly on another. If we frame it around families, not policy, we win the morning.",
+  ],
+};
+
+export function mockAdvisor(state, event, advisor, userMessage) {
+  const rng = mulberry32(hashString((userMessage || "") + advisor.id + state.month));
+  const lines = ADVISOR_LINES[advisor.id] || ["Let me look into it and get back to you, Mr./Madam President."];
+  let line = lines[Math.floor(rng() * lines.length)];
+  // A disloyal advisor is blunter; a loyal one softens the edges.
+  if (advisor.loyalty < 55) line += " I'll say what others won't: think hard about whether this is worth it.";
+  else if (advisor.loyalty > 80) line = "You know I'm with you. " + line;
+  return line;
 }
 
 function describeStake(change) {

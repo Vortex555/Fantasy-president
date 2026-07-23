@@ -5,11 +5,12 @@ import {
   createGame,
   applyResult,
   mockTurn,
+  mockAdvisor,
   openingEvent,
   STAKEHOLDERS,
 } from "./gameEngine.js";
 import { STATES } from "./states.js";
-import { claudeAvailable, claudeTurn, claudeOpening } from "./claude.js";
+import { claudeAvailable, claudeTurn, claudeOpening, claudeAdvisor } from "./claude.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -81,6 +82,34 @@ app.post("/api/turn", async (req, res) => {
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "Failed to resolve the turn." });
+  }
+});
+
+// Talk to a cabinet member, the VP, or the First Spouse before you decide.
+app.post("/api/advisor", async (req, res) => {
+  try {
+    const { state, event, advisorId, history, message } = req.body || {};
+    if (!state || !advisorId || !message || !message.trim()) {
+      return res.status(400).json({ error: "advisorId and message are required." });
+    }
+    const advisor = (state.cabinet || []).find((a) => a.id === advisorId);
+    if (!advisor) return res.status(400).json({ error: "Unknown advisor." });
+
+    let reply;
+    if (USING_AI) {
+      try {
+        reply = await claudeAdvisor(state, event, advisor, history, message.trim());
+      } catch (err) {
+        console.error("Advisor chat failed, using fallback:", err.message);
+        reply = mockAdvisor(state, event, advisor, message.trim());
+      }
+    } else {
+      reply = mockAdvisor(state, event, advisor, message.trim());
+    }
+    res.json({ reply });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "The advisor could not respond." });
   }
 });
 

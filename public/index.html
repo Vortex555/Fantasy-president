@@ -101,6 +101,12 @@
       </div>
 
       <div class="panel">
+        <h3>Supreme Court</h3>
+        <div class="court-bar" id="courtBar"></div>
+        <div class="court-label" id="courtLabel">—</div>
+      </div>
+
+      <div class="panel">
         <h3>Stakeholders</h3>
         <div id="stakeList" class="stake-list"></div>
       </div>
@@ -119,6 +125,11 @@
           <div class="event-card" id="eventCard">
             <h2 id="eventTitle">—</h2>
             <p id="eventBrief">—</p>
+          </div>
+
+          <div class="warroom">
+            <div class="warroom-head">🎙️ Situation Room — consult your team before you decide</div>
+            <div class="advisor-chips" id="advisorChips"></div>
           </div>
 
           <div class="composer">
@@ -146,6 +157,27 @@
   <section id="gameover" class="screen">
     <div class="over-inner" id="overInner"></div>
   </section>
+
+  <!-- Advisor chat -->
+  <div id="chatModal" class="chat-modal hidden">
+    <div class="chat-box">
+      <div class="chat-head">
+        <div class="chat-who">
+          <span class="chat-emoji" id="chatEmoji">🎖️</span>
+          <div>
+            <div class="chat-name" id="chatName">—</div>
+            <div class="chat-role" id="chatRole">—</div>
+          </div>
+        </div>
+        <button class="chat-close" id="chatClose" aria-label="Close">✕</button>
+      </div>
+      <div class="chat-log" id="chatLog"></div>
+      <div class="chat-input-row">
+        <input id="chatInput" type="text" placeholder="Ask for their honest counsel…" maxlength="300" autocomplete="off" />
+        <button class="btn primary" id="chatSend">Send</button>
+      </div>
+    </div>
+  </div>
 
   <div id="loader" class="loader hidden">
     <div class="loader-card">

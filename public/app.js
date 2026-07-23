@@ -6,6 +6,8 @@ const G = {
   event: null,        // current situation awaiting a policy
   pendingEvent: null, // next month's event, revealed on "continue"
   party: "Independent",
+  chats: {},          // per-advisor conversation history
+  currentAdvisor: null,
 };
 
 const $ = (id) => document.getElementById(id);
@@ -41,6 +43,7 @@ async function init() {
     badge.textContent = "● Local simulation mode — set ANTHROPIC_API_KEY for live AI turns";
   }
   wireSetup();
+  wireChat();
   show("setup");
 }
 
@@ -79,6 +82,7 @@ async function startGame() {
     if (data.error) throw new Error(data.error);
     G.state = data.state;
     G.event = data.event;
+    G.chats = {};
     renderDashboard(G.state, null);
     renderBriefing(G.event, G.state);
     show("game");
@@ -129,7 +133,20 @@ function renderDashboard(state, delta) {
   renderSeats("senateBar", state.congress.senateD, state.congress.senateR, 100);
 
   renderStakeholders(state);
+  renderCourt(state);
   renderMap(state);
+}
+
+function renderCourt(state) {
+  const bar = $("courtBar");
+  bar.innerHTML = "";
+  const { conservative, liberal } = state.court;
+  for (let i = 0; i < conservative; i++) bar.appendChild(el("div", "court-seat con"));
+  for (let i = 0; i < liberal; i++) bar.appendChild(el("div", "court-seat lib"));
+  const label = conservative >= liberal
+    ? `${conservative}–${liberal} conservative majority`
+    : `${liberal}–${conservative} liberal majority`;
+  $("courtLabel").textContent = label;
 }
 
 function electoralFavorable(state) {
@@ -198,12 +215,99 @@ function renderMap(state) {
 }
 
 // ---------------- briefing / composer ----------------
+const ROLE_SHORT = {
+  vp: "Vice President", spouse: "First Spouse", chief: "Chief of Staff",
+  state: "Sec. of State", defense: "Sec. of Defense", treasury: "Sec. of Treasury",
+  ag: "Attorney General", press: "Press Secretary",
+};
+
+function renderAdvisorChips() {
+  const wrap = $("advisorChips");
+  wrap.innerHTML = "";
+  for (const a of G.state.cabinet) {
+    const chip = el("button", "advisor-chip",
+      `<span class="ce">${a.emoji}</span><span>${ROLE_SHORT[a.id] || a.role} <span class="cr">· ${escapeHtml(a.name.split(" ")[0])}</span></span>`);
+    chip.type = "button";
+    chip.onclick = () => openChat(a.id);
+    wrap.appendChild(chip);
+  }
+}
+
+function openChat(advisorId) {
+  G.currentAdvisor = advisorId;
+  const a = G.state.cabinet.find((x) => x.id === advisorId);
+  $("chatEmoji").textContent = a.emoji;
+  $("chatName").textContent = a.name;
+  $("chatRole").textContent = a.role;
+  $("chatModal").classList.remove("hidden");
+  renderChatLog(advisorId);
+  const input = $("chatInput");
+  input.value = "";
+  input.focus();
+}
+function closeChat() { $("chatModal").classList.add("hidden"); }
+
+function renderChatLog(id) {
+  const log = $("chatLog");
+  log.innerHTML = "";
+  const msgs = G.chats[id] || [];
+  if (!msgs.length) {
+    const a = G.state.cabinet.find((x) => x.id === id);
+    log.appendChild(el("div", "chat-hint", `${escapeHtml(a.name)}, your ${escapeHtml(a.role)}, is ready. Ask about ${escapeHtml(a.focus)} — their advice reflects their loyalty and competence.`));
+  }
+  for (const m of msgs) {
+    log.appendChild(el("div", "bubble " + (m.role === "advisor" ? "advisor" : "me"), escapeHtml(m.text)));
+  }
+  log.scrollTop = log.scrollHeight;
+}
+
+async function sendChat() {
+  const id = G.currentAdvisor;
+  const input = $("chatInput");
+  const text = input.value.trim();
+  if (!text || !id) return;
+  G.chats[id] = G.chats[id] || [];
+  const priorHistory = G.chats[id].slice();
+  G.chats[id].push({ role: "me", text });
+  input.value = "";
+  renderChatLog(id);
+
+  const log = $("chatLog");
+  const typing = el("div", "bubble advisor typing", "…");
+  log.appendChild(typing);
+  log.scrollTop = log.scrollHeight;
+  $("chatSend").disabled = true;
+  try {
+    const res = await fetch("/api/advisor", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ state: G.state, event: G.event, advisorId: id, history: priorHistory, message: text }),
+    }).then((r) => r.json());
+    G.chats[id].push({ role: "advisor", text: res.reply || res.error || "…" });
+  } catch {
+    G.chats[id].push({ role: "advisor", text: "(The line dropped — try again.)" });
+  } finally {
+    $("chatSend").disabled = false;
+    renderChatLog(id);
+    input.focus();
+  }
+}
+
+function wireChat() {
+  $("chatClose").onclick = closeChat;
+  $("chatModal").addEventListener("click", (e) => { if (e.target.id === "chatModal") closeChat(); });
+  $("chatSend").onclick = sendChat;
+  $("chatInput").addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); sendChat(); } });
+  document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeChat(); });
+}
+
 function renderBriefing(event, state) {
   $("consequenceView").classList.add("hidden");
   $("briefingView").classList.remove("hidden");
   $("monthChip").textContent = "Month " + state.month + " of 48";
   $("eventTitle").textContent = event.title;
   $("eventBrief").textContent = event.brief;
+  renderAdvisorChips();
   const input = $("policyInput");
   input.value = "";
   $("publicMessage").value = "";
@@ -266,6 +370,15 @@ function renderConsequences(result, policy) {
   block.appendChild(el("div", "briefing",
     `<span class="kicker">West Wing Briefing</span>${escapeHtml(result.analysis || "")}`));
 
+  // Checks & balances
+  if (result.checks) {
+    block.appendChild(el("div", "section-title", "Checks & Balances"));
+    const grid = el("div", "checks-grid");
+    grid.appendChild(checkCard("Congress", result.checks.congress));
+    grid.appendChild(checkCard("Supreme Court", result.checks.court));
+    block.appendChild(grid);
+  }
+
   // Press
   if (result.press?.length) {
     block.appendChild(el("div", "section-title", "The Morning Front Pages"));
@@ -325,6 +438,22 @@ function renderConsequences(result, policy) {
 
   view.appendChild(block);
   $("mainScroll").scrollTop = 0;
+}
+
+const CHECK_STATUS = {
+  passed:      { cls: "good", txt: "Passed Congress" },
+  compromised: { cls: "warn", txt: "Watered Down" },
+  blocked:     { cls: "bad",  txt: "Blocked" },
+  executive:   { cls: "warn", txt: "Executive Action" },
+  none:        { cls: "",     txt: "Unchallenged" },
+  upheld:      { cls: "good", txt: "Upheld by the Court" },
+  struck_down: { cls: "bad",  txt: "Struck Down" },
+};
+function checkCard(label, c) {
+  const info = CHECK_STATUS[c?.status] || CHECK_STATUS.none;
+  const note = c?.note || (c?.status === "none" ? "No legal challenge was mounted." : "");
+  return el("div", "check " + info.cls,
+    `<div class="ct">${label}</div><div class="cs">${info.txt}</div>${note ? `<div class="cn">${escapeHtml(note)}</div>` : ""}`);
 }
 
 function continueToNext() {

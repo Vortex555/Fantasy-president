@@ -7,9 +7,17 @@ free-form policy in your own words**. An AI simulation engine then plays out the
 consequences across every corner of American politics:
 
 - **National approval** and a **state-by-state map** that shifts with every decision
-- **32→8 stakeholder blocs** (Wall Street, Labor, the Pentagon, Environmentalists,
+- **8 stakeholder blocs** (Wall Street, Labor, the Pentagon, Environmentalists,
   Gun Owners, Faith Communities…) that reward and punish you
 - **A living economy** — GDP, unemployment, inflation, national debt
+- **Checks & balances** — Congress can **pass, water down, or block** your policy
+  depending on who controls each chamber, and the **Supreme Court** (with a real
+  6–3 composition you can reshape by appointing justices) can **strike down**
+  executive overreach
+- **A cabinet & inner circle you can talk to** — before you decide, consult your
+  Vice President, Chief of Staff, Attorney General, Treasury Secretary — even the
+  First Spouse. Each has a name, a loyalty score, and a competence score that
+  color their advice.
 - **Congress** (House & Senate) with a midterm shake-up at month 24
 - **Three-slant press** — left, center and right outlets spin the same policy
 - **Focus-group voices** — invented voters from across the country react in their own words
@@ -44,6 +52,27 @@ Open the URL, set up your president, and take the oath.
 The app auto-detects which mode it's in and shows a badge on the title screen.
 Get a key at [console.anthropic.com](https://console.anthropic.com/).
 
+### Keeping the cost down (how a free tier is even possible)
+
+Depth doesn't have to mean a huge AI bill. This build uses the same levers a
+real free-to-play version would:
+
+- **Most systems are code, not AI.** Congress vote math, whether the Court
+  strikes a policy down, the economy, the electoral map and stakeholder
+  bookkeeping are deterministic game logic in `gameEngine.js`. The expensive
+  model is used once per month to judge your policy and narrate the fallout.
+- **A cheap-model tier.** Advisor chat and opening crises run on **Haiku**
+  (`FP_CHAT_MODEL`) — 5–25× cheaper than the main model — so the many small
+  calls barely register.
+- **Prompt caching.** The large rules prompt is identical every turn, so it's
+  marked `cache_control: ephemeral` and billed at ~10% on repeat turns.
+- **Short, structured output.** Turns return compact JSON, keeping the
+  expensive output tokens small.
+
+Net effect: a full monthly turn is a fraction of a cent to a few cents, and an
+entire capped free game costs pennies — which is exactly how a site like the
+original can offer a (rate-limited) free mode and let subscriptions cover it.
+
 ## How a turn works
 
 1. You're shown the month's **situation** (a crisis, an opportunity, a quiet month).
@@ -58,15 +87,24 @@ Get a key at [console.anthropic.com](https://console.anthropic.com/).
 
 ```
 src/
-  server.js      Express server + API (/api/meta, /api/start, /api/turn)
-  claude.js      Anthropic API integration (prompt + JSON parsing)
-  gameEngine.js  Game state, turn application, elections, local-sim fallback
+  server.js      Express server + API (/api/meta, /api/start, /api/turn, /api/advisor)
+  claude.js      Anthropic integration: turn simulation (Opus, cached) + advisor chat (Haiku)
+  gameEngine.js  Game state, checks & balances, cabinet, elections, local-sim fallback
   states.js      50 states + DC: electoral votes, tile-map layout, partisan lean
 public/
-  index.html     Setup, dashboard, consequences, and legacy screens
+  index.html     Setup, dashboard, situation room, consequences, chat modal, legacy screen
   styles.css     Presidential dark theme
-  app.js         Client rendering, dashboard, US tile-map, turn flow
+  app.js         Client rendering, dashboard, US tile-map, advisor chat, turn flow
 ```
+
+## API
+
+| Endpoint | Purpose |
+|----------|---------|
+| `GET /api/meta` | Mode (AI vs local), state metadata, stakeholder list. |
+| `POST /api/start` | Begin a career; returns initial state (incl. cabinet & court) + opening crisis. |
+| `POST /api/turn` | Resolve a month; returns consequences (incl. `checks`) + the new state. |
+| `POST /api/advisor` | Chat with a cabinet member — `{ advisorId, message, history }`. |
 
 The server is stateless — the full game state lives on the client and is sent
 with each turn, so you can extend it toward multiple saved careers easily.
