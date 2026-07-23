@@ -10,18 +10,25 @@ consequences across every corner of American politics:
 - **8 stakeholder blocs** (Wall Street, Labor, the Pentagon, Environmentalists,
   Gun Owners, Faith Communities…) that reward and punish you
 - **A living economy** — GDP, unemployment, inflation, national debt
-- **Checks & balances** — Congress can **pass, water down, or block** your policy
-  depending on who controls each chamber, and the **Supreme Court** (with a real
-  6–3 composition you can reshape by appointing justices) can **strike down**
-  executive overreach
-- **A cabinet & inner circle you can talk to** — before you decide, consult your
-  Vice President, Chief of Staff, Attorney General, Treasury Secretary — even the
-  First Spouse. Each has a name, a loyalty score, and a competence score that
-  color their advice.
+- **Checks & balances with real roll-call votes** — big bills get an actual
+  **House and Senate vote tally** (party by party, against the majority
+  threshold). Congress can **pass, water down, or block** you depending on who
+  controls each chamber, and the **Supreme Court** (a real 6–3 bench you can
+  reshape by appointing justices) can **strike down** executive overreach.
+- **A cabinet you can talk to — and command.** Before you decide, consult your
+  Vice President, Chief of Staff, Attorney General, Treasury Secretary — even
+  the First Spouse. Each has a name plus **loyalty** and **competence** scores.
+  Competence actually matters: a weak secretary **fumbles the rollout** of
+  policies in their domain, so you can **dismiss and replace** underperformers
+  (at a political cost) via cabinet direct-orders.
+- **A campaign-season finale.** At month 46 you enter re-election: a **live,
+  three-round presidential debate** against an AI challenger from the opposing
+  party. Win the room to build momentum — your debate performance swings the
+  final vote.
 - **Congress** (House & Senate) with a midterm shake-up at month 24
 - **Three-slant press** — left, center and right outlets spin the same policy
 - **Focus-group voices** — invented voters from across the country react in their own words
-- Elections and a **legacy screen** at the end of the 48-month term
+- An **election result and legacy screen** at the end of the 48-month term
 
 There are no multiple-choice options. Type any policy you want; vague gestures
 play poorly, and every choice can create new problems down the road.
@@ -103,8 +110,15 @@ public/
 |----------|---------|
 | `GET /api/meta` | Mode (AI vs local), state metadata, stakeholder list. |
 | `POST /api/start` | Begin a career; returns initial state (incl. cabinet & court) + opening crisis. |
-| `POST /api/turn` | Resolve a month; returns consequences (incl. `checks`) + the new state. |
+| `POST /api/turn` | Resolve a month; returns consequences (incl. `checks` roll-call + `rollout`) + the new state. |
 | `POST /api/advisor` | Chat with a cabinet member — `{ advisorId, message, history }`. |
+| `POST /api/cabinet/order` | Cabinet direct-order, e.g. dismiss & replace — `{ advisorId, action }`. |
+| `POST /api/debate` | Score one debate round & get the challenger's rebuttal. |
+| `POST /api/campaign/finish` | Resolve the campaign into an election result. |
+
+At **month 46** a turn returns a state with `phase: "campaign"` — the client
+then runs the debate flow and calls `/api/campaign/finish` to produce the
+ending.
 
 The server is stateless — the full game state lives on the client and is sent
 with each turn, so you can extend it toward multiple saved careers easily.

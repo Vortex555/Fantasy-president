@@ -6,11 +6,14 @@ import {
   applyResult,
   mockTurn,
   mockAdvisor,
+  mockDebate,
+  fireAdvisor,
+  finishCampaign,
   openingEvent,
   STAKEHOLDERS,
 } from "./gameEngine.js";
 import { STATES } from "./states.js";
-import { claudeAvailable, claudeTurn, claudeOpening, claudeAdvisor } from "./claude.js";
+import { claudeAvailable, claudeTurn, claudeOpening, claudeAdvisor, claudeDebate } from "./claude.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -110,6 +113,58 @@ app.post("/api/advisor", async (req, res) => {
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "The advisor could not respond." });
+  }
+});
+
+// Cabinet direct order — dismiss and replace an advisor.
+app.post("/api/cabinet/order", (req, res) => {
+  try {
+    const { state, advisorId, action } = req.body || {};
+    if (!state || !advisorId) return res.status(400).json({ error: "state and advisorId are required." });
+    if (action !== "fire") return res.status(400).json({ error: "Unsupported order." });
+    const out = fireAdvisor(state, advisorId);
+    res.json(out);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "The order could not be carried out." });
+  }
+});
+
+// One round of the presidential debate.
+app.post("/api/debate", async (req, res) => {
+  try {
+    const { state, round, topic, playerLine, history } = req.body || {};
+    if (!state || !playerLine || !playerLine.trim()) {
+      return res.status(400).json({ error: "A debate answer is required." });
+    }
+    let out;
+    if (USING_AI) {
+      try {
+        out = await claudeDebate(state, round, topic, playerLine, history);
+      } catch (err) {
+        console.error("Debate round failed, using fallback:", err.message);
+        out = mockDebate(state, round, topic, playerLine);
+      }
+    } else {
+      out = mockDebate(state, round, topic, playerLine);
+    }
+    res.json(out);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "The debate round could not be scored." });
+  }
+});
+
+// Resolve the campaign into an election result.
+app.post("/api/campaign/finish", (req, res) => {
+  try {
+    const { state, debateScore } = req.body || {};
+    if (!state) return res.status(400).json({ error: "state is required." });
+    const finalState = finishCampaign(state, Number(debateScore) || 0);
+    res.json({ state: finalState });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "The election could not be resolved." });
   }
 });
 

@@ -153,6 +153,51 @@
     </main>
   </section>
 
+  <!-- ===================== CAMPAIGN / DEBATE ===================== -->
+  <section id="campaign" class="screen">
+    <div class="campaign-inner">
+      <div class="month-chip">🗳️ Election Season · Month 46</div>
+      <h1 class="campaign-title">The Campaign</h1>
+      <p class="campaign-sub">Four years of governing come down to this. Face your challenger on the debate
+        stage — three rounds, live, before the nation. Win the room and you win the momentum.</p>
+
+      <div class="debate-stage">
+        <div class="podium you">
+          <div class="pemoji">🎙️</div>
+          <div class="pname" id="youName">You</div>
+          <div class="pmeta" id="youMeta">—</div>
+        </div>
+        <div class="vs">VS</div>
+        <div class="podium opp">
+          <div class="pemoji">🧑‍⚖️</div>
+          <div class="pname" id="oppName">—</div>
+          <div class="pmeta" id="oppMeta">—</div>
+        </div>
+      </div>
+
+      <div class="scorebar">
+        <div class="scorebar-track"><div class="scorebar-fill" id="scoreFill"></div></div>
+        <div class="scorebar-label" id="scoreText">Debate momentum: even</div>
+      </div>
+
+      <div class="debate-log" id="debateLog"></div>
+
+      <div class="debate-composer" id="debateComposer">
+        <div class="debate-round" id="debateRound">Round 1 of 3</div>
+        <div class="moderator" id="moderatorQ">—</div>
+        <textarea id="debateInput" rows="4" maxlength="700" placeholder="Deliver your answer to the nation… (be specific, stay on message, and don't be afraid to go on offense)"></textarea>
+        <div class="debate-actions">
+          <span class="char-count" id="debateCount">0 / 700</span>
+          <button class="btn primary" id="debateSend">Respond →</button>
+        </div>
+      </div>
+
+      <div class="continue-wrap hidden" id="debateFinish">
+        <button class="btn primary big" id="finishBtn" style="max-width:340px">See the Election Result →</button>
+      </div>
+    </div>
+  </section>
+
   <!-- ===================== GAME OVER ===================== -->
   <section id="gameover" class="screen">
     <div class="over-inner" id="overInner"></div>
@@ -169,8 +214,12 @@
             <div class="chat-role" id="chatRole">—</div>
           </div>
         </div>
-        <button class="chat-close" id="chatClose" aria-label="Close">✕</button>
+        <div class="chat-actions">
+          <button class="chat-fire" id="chatFire" title="Dismiss & replace this advisor">Dismiss</button>
+          <button class="chat-close" id="chatClose" aria-label="Close">✕</button>
+        </div>
       </div>
+      <div class="chat-stats" id="chatStats"></div>
       <div class="chat-log" id="chatLog"></div>
       <div class="chat-input-row">
         <input id="chatInput" type="text" placeholder="Ask for their honest counsel…" maxlength="300" autocomplete="off" />

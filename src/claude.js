@@ -128,6 +128,37 @@ DASHBOARD: approval ${state.approval}%, stability ${state.stability}%. Congress:
   return resp.content.filter((b) => b.type === "text").map((b) => b.text).join("").trim();
 }
 
+// One debate round: role-play the challenger's rebuttal and score the President.
+export async function claudeDebate(state, round, topic, playerLine, history) {
+  const opp = state.campaign.opponent;
+  const sys = `You are running one round of a televised U.S. presidential debate for a strategy game, playing two roles at once and staying strictly non-partisan.
+
+ROLE 1 — the challenger, ${opp.name}, ${opp.style} (${opp.party}). Deliver a punchy 2-3 sentence rebuttal to the President's answer, in character, hammering the theme of "${opp.attack}". Sharp but not cartoonish.
+ROLE 2 — a neutral debate analyst. Score the PRESIDENT's answer for this round from -10 (a gaffe/non-answer) to +10 (a commanding, specific, on-message answer). Reward substance, specificity, confidence and staying on topic; penalize vagueness, rambling, and unforced errors. Then write a one-sentence pundit reaction.
+
+Debate topic this round: ${topic}.
+President: ${state.scenario.presidentName} (${state.scenario.party}), current approval ${state.approval}%.
+
+Respond with ONLY JSON: {"opponentLine": "...", "score": number, "pundit": "..."}. No markdown.`;
+
+  const messages = [];
+  for (const h of (history || []).slice(-6)) {
+    messages.push({ role: h.role === "opponent" ? "assistant" : "user", content: h.text });
+  }
+  messages.push({ role: "user", content: `The President's answer this round:\n"""${playerLine}"""` });
+
+  const resp = await getClient().messages.create({
+    model: CHAT_MODEL,
+    max_tokens: 500,
+    system: [{ type: "text", text: sys, cache_control: { type: "ephemeral" } }],
+    messages,
+  });
+  const text = resp.content.filter((b) => b.type === "text").map((b) => b.text).join("");
+  const out = extractJson(text);
+  out.score = Math.max(-10, Math.min(10, Math.round(Number(out.score) || 0)));
+  return out;
+}
+
 const OPENING_SYSTEM = `You are the simulation engine for "Fantasy President." Generate the opening crisis a newly inaugurated president must face in their first weeks. It should be vivid, specific, and appropriate to the given era and president. Respond with ONLY JSON: {"title": "short headline", "brief": "3-5 sentence situation the player must respond to"}. No markdown, no prose outside the JSON.`;
 
 export async function claudeOpening(scenario) {
