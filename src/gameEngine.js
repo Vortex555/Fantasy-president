@@ -2,6 +2,7 @@ import { STATES, STATE_CODES, TOTAL_EV } from "./states.js";
 
 export const TERM_LENGTH = 48; // months
 export const MIDTERM_MONTH = 24;
+export const CAMPAIGN_MONTH = 46; // general-election campaign season begins
 
 export const STAKEHOLDERS = [
   { id: "wall_street", name: "Wall Street",       lean:  1 },
@@ -161,6 +162,49 @@ export function classifyPolicy(text) {
   return { executive, legislation, aggressive, bipartisan, appointsJustice };
 }
 
+// Simulate a roll-call vote in each chamber, party by party.
+export function computeRollCall(state, bipartisan) {
+  const party = state.scenario.party;
+  const approvalFactor = (state.approval - 50) / 100; // ~ -0.3..+0.2
+  const c = state.congress;
+
+  const chamber = (dSeats, rSeats) => {
+    let dYes, rYes;
+    if (party === "Democrat") {
+      dYes = Math.round(dSeats * clamp(0.82 + approvalFactor, 0.45, 0.98));
+      rYes = Math.round(rSeats * clamp(0.08 + (bipartisan ? 0.32 : 0) + approvalFactor * 0.5, 0.02, 0.7));
+    } else if (party === "Republican") {
+      rYes = Math.round(rSeats * clamp(0.82 + approvalFactor, 0.45, 0.98));
+      dYes = Math.round(dSeats * clamp(0.08 + (bipartisan ? 0.32 : 0) + approvalFactor * 0.5, 0.02, 0.7));
+    } else {
+      const rate = clamp(0.34 + (bipartisan ? 0.22 : 0) + approvalFactor, 0.1, 0.75);
+      dYes = Math.round(dSeats * rate);
+      rYes = Math.round(rSeats * rate);
+    }
+    const total = dSeats + rSeats;
+    const yes = dYes + rYes;
+    return { dYes, rYes, yes, no: total - yes, total, threshold: Math.floor(total / 2) + 1, passed: yes >= Math.floor(total / 2) + 1 };
+  };
+
+  const house = chamber(c.houseD, c.houseR);
+  const senate = chamber(c.senateD, c.senateR);
+  let status;
+  if (house.passed && senate.passed) status = "passed";
+  else if (house.passed || senate.passed) status = "compromised";
+  else status = "blocked";
+  return { house, senate, status };
+}
+
+// Which cabinet secretary owns the implementation of this policy?
+export function leadDepartment(policyText) {
+  const t = policyText.toLowerCase();
+  if (/\b(tax|budget|deficit|spend|stimulus|econom|jobs|wage|trade|market|inflation|bank|debt)\b/.test(t)) return "treasury";
+  if (/\b(war|troops|military|defense|deploy|strike|security|nuclear|invade|weapons)\b/.test(t)) return "defense";
+  if (/\b(ally|allies|foreign|diplomat|treaty|nato|sanction|embassy|summit|negotiat)\b/.test(t)) return "state";
+  if (/\b(law|legal|court|justice|crime|police|prosecut|executive order|constitution|regulation)\b/.test(t)) return "ag";
+  return "chief"; // general implementation
+}
+
 export function computeChecks(state, policyText) {
   const sign = partySign(state.scenario.party);
   const kind = classifyPolicy(policyText);
@@ -176,22 +220,20 @@ export function computeChecks(state, policyText) {
 
   // --- Congress ---
   if (kind.legislation) {
-    const holdsBoth = party !== "Independent" && control.house === party && control.senate === party;
-    const oppositionBoth = party !== "Independent" && control.house !== party && control.senate !== party;
-    let score = (state.approval - 50);
-    if (holdsBoth) score += 28;
-    else if (oppositionBoth) score -= 28;
-    else score -= 8; // divided government
-    if (party === "Independent") score -= 12; // no bloc of your own
-    if (kind.bipartisan) score += 16;
-
-    if (score > 14) {
-      checks.congress = { status: "passed", note: `Congress passed your measure — the ${control.house} House and ${control.senate} Senate delivered the votes.` };
-    } else if (score > -12) {
-      checks.congress = { status: "compromised", note: "Congress passed a watered-down version after horse-trading stripped out your boldest provisions." };
+    const roll = computeRollCall(state, kind.bipartisan);
+    const h = roll.house, s = roll.senate;
+    if (roll.status === "passed") {
+      checks.congress = { status: "passed", tally: roll,
+        note: `Passed both chambers — House ${h.yes}–${h.no}, Senate ${s.yes}–${s.no}.` };
+    } else if (roll.status === "compromised") {
+      const cleared = h.passed ? "House" : "Senate";
+      const stuck = h.passed ? "Senate" : "House";
+      checks.congress = { status: "compromised", tally: roll,
+        note: `Cleared the ${cleared} but stalled in the ${stuck}; a watered-down compromise limped through.` };
       checks.effectMultiplier *= 0.65;
     } else {
-      checks.congress = { status: "blocked", note: `Congress killed it. The opposition-held ${control.house === party ? control.senate + " Senate" : control.house + " House"} refused to bring it to a vote.` };
+      checks.congress = { status: "blocked", tally: roll,
+        note: `Died in Congress — failed the House ${h.yes}–${h.no} and the Senate ${s.yes}–${s.no}.` };
       checks.effectMultiplier *= 0.35;
     }
   } else if (kind.executive) {
@@ -235,6 +277,22 @@ export function applyResult(state, policy, result) {
     const s = partySign(state.scenario.party);
     if (s > 0 && next.court.liberal > 0) { next.court.conservative++; next.court.liberal--; }
     else if (s < 0 && next.court.conservative > 0) { next.court.liberal++; next.court.conservative--; }
+  }
+
+  // The competence of the responsible secretary shapes the rollout.
+  const deptId = leadDepartment(policy);
+  const lead = (state.cabinet || []).find((a) => a.id === deptId);
+  if (lead) {
+    const mod = round1((lead.competence - 68) / 9); // ~ -2.6 .. +3
+    result.approvalChange = (result.approvalChange || 0) + mod;
+    result.rollout = {
+      role: lead.role,
+      name: lead.name,
+      competence: lead.competence,
+      note: lead.competence >= 80 ? "executed the rollout crisply — barely a hitch"
+        : lead.competence >= 60 ? "managed a serviceable rollout"
+        : "fumbled the rollout; implementation was messy and slow",
+    };
   }
 
   next.approval = clamp(round1(next.approval + (result.approvalChange || 0)));
@@ -284,13 +342,17 @@ export function applyResult(state, policy, result) {
 
   next.month = state.month + 1;
 
-  // Endings.
+  // Endings & phases.
   if (result.flags?.removedFromOffice) {
     next.over = true;
     next.ending = { type: "removed", reason: result.flags.reason || "You were forced from office." };
   } else if (next.stability <= 8) {
     next.over = true;
     next.ending = { type: "collapse", reason: "Government stability collapsed. You were removed from power." };
+  } else if (next.month >= CAMPAIGN_MONTH && next.phase !== "campaign") {
+    // The re-election campaign begins — the debate decides the term.
+    next.phase = "campaign";
+    next.campaign = createCampaign(next);
   } else if (next.month > TERM_LENGTH) {
     next.over = true;
     next.ending = evaluateReelection(next);
@@ -336,6 +398,148 @@ function resolveStakeholder(name) {
   // fuzzy contains
   const f = STAKEHOLDERS.find((x) => n.includes(x.name.toLowerCase()) || x.name.toLowerCase().includes(n));
   return f ? f.id : null;
+}
+
+// ---------------------------------------------------------------------------
+// Cabinet direct orders — dismiss and replace an advisor.
+// ---------------------------------------------------------------------------
+
+export function fireAdvisor(state, advisorId) {
+  const next = structuredClone(state);
+  const idx = next.cabinet.findIndex((a) => a.id === advisorId);
+  if (idx === -1) return { state: next, note: "No such advisor." };
+  const fired = next.cabinet[idx];
+  if (fired.id === "spouse") return { state: next, note: "You cannot dismiss your own spouse.", rejected: true };
+
+  const role = CABINET_ROLES.find((r) => r.id === advisorId);
+  const rng = mulberry32(hashString(fired.name + next.month + "replace"));
+  const usedFirst = new Set(next.cabinet.map((a) => a.name.split(" ")[0]));
+  const usedLast = new Set(next.cabinet.map((a) => a.name.split(" ")[1]));
+  const pick = (pool, used) => {
+    let n, tries = 0;
+    do { n = pool[Math.floor(rng() * pool.length)]; tries++; } while (used.has(n) && tries < 40);
+    used.add(n);
+    return n;
+  };
+  const replacement = {
+    id: role.id, role: role.role, emoji: role.emoji, focus: role.focus, persona: role.persona,
+    name: `${pick(FIRST_NAMES, usedFirst)} ${pick(LAST_NAMES, usedLast)}`,
+    loyalty: Math.round(55 + rng() * 40),    // fresh appointees skew loyal to you
+    competence: Math.round(45 + rng() * 50),
+  };
+  next.cabinet[idx] = replacement;
+
+  // Churn is politically costly and unsettles the rest of the team — unless you
+  // were clearly cleaning house of someone disloyal.
+  const vpCost = advisorId === "vp" ? 2 : 0;
+  next.approval = clamp(round1(next.approval - 1.5 - vpCost));
+  const wasDisloyal = fired.loyalty < 50;
+  for (const a of next.cabinet) {
+    if (a.id === advisorId) continue;
+    a.loyalty = clamp(a.loyalty + (wasDisloyal ? 2 : -3));
+  }
+  const stakeAvg = Object.values(next.stakeholders).reduce((x, y) => x + y, 0) / STAKEHOLDERS.length;
+  const misery = next.economy.unemployment + next.economy.inflation;
+  next.stability = clamp(Math.round(0.5 * next.approval + 0.35 * stakeAvg + 0.15 * (100 - misery * 2)));
+
+  const note = `You dismissed ${fired.name} as ${fired.role}. ${replacement.name} is sworn in — loyalty ${replacement.loyalty}, competence ${replacement.competence}. ${wasDisloyal ? "Cleaning house of a disloyal aide steadied the rest of the team." : "The abrupt firing rattled the rest of your cabinet."}`;
+  return { state: next, note, replacement, fired: { name: fired.name, role: fired.role } };
+}
+
+// ---------------------------------------------------------------------------
+// Campaign season & the presidential debate.
+// ---------------------------------------------------------------------------
+
+const OPPONENTS = {
+  Republican: [
+    { name: "Gov. Caroline Hastings", party: "Republican", style: "a polished, disciplined governor", attack: "reckless spending and a weak hand abroad" },
+    { name: "Sen. Roy Callahan", party: "Republican", style: "a folksy, combative senator", attack: "out-of-touch elitism and a bad economy" },
+  ],
+  Democrat: [
+    { name: "Gov. Marisol Reyes", party: "Democrat", style: "an energetic, progressive governor", attack: "cruelty to working families and cuts to the safety net" },
+    { name: "Sen. Daniel Okonkwo", party: "Democrat", style: "a cerebral, principled senator", attack: "corruption, division, and broken promises" },
+  ],
+  Independent: [
+    { name: "Gov. Marisol Reyes", party: "Democrat", style: "an energetic Democratic governor", attack: "a chaotic, rudderless presidency" },
+    { name: "Sen. Roy Callahan", party: "Republican", style: "a combative Republican senator", attack: "a chaotic, rudderless presidency" },
+  ],
+};
+
+const DEBATE_TOPICS = [
+  { topic: "The economy & cost of living", q: "Prices are still high and families are hurting. In one answer: why do you deserve four more years to run this economy?" },
+  { topic: "Your record & broken promises", q: "You made big promises four years ago. Look into the camera and tell voters what you actually delivered — and where you fell short." },
+  { topic: "The future & national security", q: "The world is more dangerous than when you took office. What is your closing argument for why you, not your opponent, should be trusted with it?" },
+];
+
+export function createCampaign(state) {
+  const rng = mulberry32(hashString(state.scenario.presidentName + "campaign"));
+  // The challenger comes from the opposing party.
+  const oppKey = state.scenario.party === "Democrat" ? "Republican"
+    : state.scenario.party === "Republican" ? "Democrat" : "Independent";
+  const pool = OPPONENTS[oppKey] || OPPONENTS.Independent;
+  const opponent = pool[Math.floor(rng() * pool.length)];
+  return {
+    opponent,
+    topics: DEBATE_TOPICS,
+    round: 1,
+    scores: [],
+    warChest: Math.round(180 + rng() * 220), // $M, flavor
+  };
+}
+
+export function mockDebate(state, round, topic, playerLine) {
+  const rng = mulberry32(hashString(playerLine + round));
+  const words = playerLine.trim().split(/\s+/).filter(Boolean).length;
+  let score = 0;
+  if (words > 55) score += 4; else if (words > 25) score += 2; else if (words < 10) score -= 4;
+  if (/\b(record|delivered|jobs|families|future|safe|freedom|together|results)\b/i.test(playerLine)) score += 2;
+  if (/\b(my opponent|they|failed|weak|extreme|dangerous)\b/i.test(playerLine)) score += 1; // going on offense
+  if (/[!?]/.test(playerLine)) score += 1;
+  score += Math.round((rng() - 0.5) * 4);
+  score = Math.max(-10, Math.min(10, score));
+
+  const opp = state.campaign.opponent;
+  const winning = score > 2;
+  const lines = winning
+    ? [`A fine speech, but the President's record speaks louder — ${opp.attack} is what Americans have actually lived through.`,
+       `You can dress it up, but the country knows the truth about ${opp.attack}. It's time for a change.`]
+    : [`Even you don't sound like you believe that. The President is dodging — this is exactly the ${opp.attack} we've come to expect.`,
+       `That's a non-answer, and the voters can hear it. My friends, we can do so much better than ${opp.attack}.`];
+  const opponentLine = lines[Math.floor(rng() * lines.length)];
+  const pundit = winning
+    ? "Snap polls give the President the edge on that exchange — crisp, on-message, and on offense."
+    : score < -2 ? "A shaky answer. The pundits scored that round for the challenger."
+    : "A wash — neither landed a knockout blow.";
+
+  return { opponentLine, score, pundit };
+}
+
+export function finishCampaign(state, debateScore) {
+  const next = structuredClone(state);
+  const adj = Math.max(-8, Math.min(8, round1(debateScore * 0.28)));
+  next.approval = clamp(round1(next.approval + adj));
+  // The debate ripples out to the states.
+  for (const code of STATE_CODES) {
+    next.stateApproval[code] = clamp(Math.round(next.stateApproval[code] + adj * 0.5));
+  }
+  const ec = electoralCount(next);
+  next.month = TERM_LENGTH + 1;
+  next.phase = "concluded";
+  next.over = true;
+
+  const debateWord = debateScore > 8 ? "Your commanding debate performance" :
+    debateScore > 0 ? "A solid debate showing" :
+    debateScore < -8 ? "A disastrous debate" : "An uneven debate";
+
+  if (ec.win >= 270 && next.approval >= 46) {
+    next.ending = { type: "reelected", reason: `${debateWord} sealed it. You won re-election with roughly ${ec.win} electoral votes — a second term begins.` };
+  } else if (next.approval >= 47) {
+    next.ending = { type: "narrow", reason: `${debateWord} kept it agonizingly close. The networks won't call it — it comes down to recounts in three states.` };
+  } else {
+    next.ending = { type: "defeated", reason: `${debateWord} wasn't enough. ${next.campaign.opponent.name} defeated you, and the country turns the page after a single term.` };
+  }
+  next.ending.electoral = ec.win;
+  return next;
 }
 
 // ---------------------------------------------------------------------------
@@ -394,7 +598,7 @@ export function mockTurn(state, policy, publicMessage) {
   const seed = hashString(text + state.month);
   const rng = mulberry32(seed);
 
-  let approvalChange = (rng() - 0.45) * 6;
+  let approvalChange = (rng() - 0.5) * 6; // zero-mean noise
   const economy = { gdpGrowth: 0, unemployment: 0, inflation: 0, debt: 0 };
   const stakeDelta = {};
 
@@ -418,7 +622,13 @@ export function mockTurn(state, policy, publicMessage) {
   const checks = computeChecks(state, `${policy} ${publicMessage || ""}`);
   const mult = checks.effectMultiplier;
   approvalChange = approvalChange * mult + (checks.courtPenalty || 0);
-  if (checks.congress.status === "blocked") approvalChange -= 1; // looking ineffective
+  // Being blocked by your OWN party looks weak; blocked by the opposition is
+  // expected and you can credibly blame them.
+  if (checks.congress.status === "blocked") {
+    const control = partyControl(state);
+    const ownParty = control.house === state.scenario.party || control.senate === state.scenario.party;
+    if (ownParty) approvalChange -= 1.5;
+  }
   for (const key of Object.keys(economy)) economy[key] *= mult;
   for (const key of Object.keys(stakeDelta)) stakeDelta[key] = Math.round(stakeDelta[key] * mult);
 

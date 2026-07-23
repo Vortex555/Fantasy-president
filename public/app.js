@@ -239,6 +239,9 @@ function openChat(advisorId) {
   $("chatEmoji").textContent = a.emoji;
   $("chatName").textContent = a.name;
   $("chatRole").textContent = a.role;
+  renderChatStats(a);
+  const fireBtn = $("chatFire");
+  fireBtn.classList.toggle("hidden", a.id === "spouse");
   $("chatModal").classList.remove("hidden");
   renderChatLog(advisorId);
   const input = $("chatInput");
@@ -246,6 +249,44 @@ function openChat(advisorId) {
   input.focus();
 }
 function closeChat() { $("chatModal").classList.add("hidden"); }
+
+function renderChatStats(a) {
+  const stats = $("chatStats");
+  const bar = (label, v) => {
+    const color = v >= 65 ? "var(--good)" : v >= 45 ? "var(--gold)" : "var(--bad)";
+    return `<div class="stat-mini"><label>${label}<span style="color:${color}">${v}</span></label>
+      <div class="track"><div class="fill" style="width:${v}%;background:${color}"></div></div></div>`;
+  };
+  stats.innerHTML = bar("Loyalty", a.loyalty) + bar("Competence", a.competence);
+}
+
+async function fireCurrentAdvisor() {
+  const id = G.currentAdvisor;
+  const a = G.state.cabinet.find((x) => x.id === id);
+  if (!a || a.id === "spouse") return;
+  if (!confirm(`Dismiss ${a.name} as ${a.role}? A replacement will be sworn in, but firing carries a political cost and can rattle the rest of your cabinet.`)) return;
+  $("chatFire").disabled = true;
+  try {
+    const res = await fetch("/api/cabinet/order", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ state: G.state, advisorId: id, action: "fire" }),
+    }).then((r) => r.json());
+    if (res.error || res.rejected) { alert(res.error || res.note); return; }
+    G.state = res.state;
+    G.chats[id] = []; // new person, fresh conversation
+    const nu = G.state.cabinet.find((x) => x.id === id);
+    $("chatName").textContent = nu.name;
+    renderChatStats(nu);
+    G.chats[id].push({ role: "advisor", text: `${nu.name} here. ${nu.name.split(" ")[0]} reporting for duty as your new ${nu.role}. What do you need?` });
+    renderChatLog(id);
+    renderDashboard(G.state, null);
+    renderAdvisorChips();
+  } catch {
+    alert("The order could not be carried out.");
+  } finally {
+    $("chatFire").disabled = false;
+  }
+}
 
 function renderChatLog(id) {
   const log = $("chatLog");
@@ -295,6 +336,7 @@ async function sendChat() {
 
 function wireChat() {
   $("chatClose").onclick = closeChat;
+  $("chatFire").onclick = fireCurrentAdvisor;
   $("chatModal").addEventListener("click", (e) => { if (e.target.id === "chatModal") closeChat(); });
   $("chatSend").onclick = sendChat;
   $("chatInput").addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); sendChat(); } });
@@ -379,6 +421,12 @@ function renderConsequences(result, policy) {
     block.appendChild(grid);
   }
 
+  // Rollout (cabinet competence)
+  if (result.rollout) {
+    block.appendChild(el("div", "rollout",
+      `<span class="rk">Rollout</span><span>${escapeHtml(result.rollout.name)}, your ${escapeHtml(result.rollout.role)}, ${escapeHtml(result.rollout.note)}.</span>`));
+  }
+
   // Press
   if (result.press?.length) {
     block.appendChild(el("div", "section-title", "The Morning Front Pages"));
@@ -429,6 +477,11 @@ function renderConsequences(result, policy) {
     btn.style.maxWidth = "300px";
     btn.onclick = () => renderGameOver(G.state);
     wrap.appendChild(btn);
+  } else if (G.state.phase === "campaign") {
+    const btn = el("button", "btn primary big", "Enter the Campaign →");
+    btn.style.maxWidth = "300px";
+    btn.onclick = enterCampaign;
+    wrap.appendChild(btn);
   } else {
     const btn = el("button", "btn primary", `Continue to Month ${G.state.month} →`);
     btn.onclick = continueToNext;
@@ -452,14 +505,140 @@ const CHECK_STATUS = {
 function checkCard(label, c) {
   const info = CHECK_STATUS[c?.status] || CHECK_STATUS.none;
   const note = c?.note || (c?.status === "none" ? "No legal challenge was mounted." : "");
-  return el("div", "check " + info.cls,
+  const card = el("div", "check " + info.cls,
     `<div class="ct">${label}</div><div class="cs">${info.txt}</div>${note ? `<div class="cn">${escapeHtml(note)}</div>` : ""}`);
+  if (c?.tally) card.appendChild(voteTally(c.tally));
+  return card;
+}
+
+function voteTally(t) {
+  const wrap = el("div", "tally");
+  for (const [name, ch] of [["House", t.house], ["Senate", t.senate]]) {
+    const yesPct = (ch.yes / ch.total) * 100;
+    const markPct = (ch.threshold / ch.total) * 100;
+    const row = el("div", "tally-row", `
+      <div class="tl-chamber">${name} <span><b>${ch.yes}</b>–${ch.no} ${ch.passed ? "✓ passed" : "✗ failed"}</span></div>
+      <div class="tally-bar"><span class="yes" style="width:${yesPct}%"></span><span class="no" style="width:${100 - yesPct}%"></span><span class="mark" style="left:${markPct}%"></span></div>
+      <div class="tl-split">Democrats ${ch.dYes} yes · Republicans ${ch.rYes} yes · ${ch.threshold} needed</div>`);
+    wrap.appendChild(row);
+  }
+  return wrap;
 }
 
 function continueToNext() {
   G.event = G.pendingEvent || { title: "A Quiet Month", brief: "No single crisis dominates the news, giving you rare room to set your own agenda. What will you push?" };
   renderBriefing(G.event, G.state);
   $("mainScroll").scrollTop = 0;
+}
+
+// ---------------- campaign / debate ----------------
+function enterCampaign() {
+  const c = G.state.campaign;
+  G.debate = { round: 1, scores: [], history: [] };
+  $("youName").textContent = G.state.scenario.presidentName;
+  $("youMeta").textContent = `${G.state.scenario.party} · ${Math.round(G.state.approval)}% approval`;
+  $("oppName").textContent = c.opponent.name;
+  $("oppMeta").textContent = `${c.opponent.party} challenger · ${c.opponent.style}`;
+  $("debateLog").innerHTML = "";
+  $("debateFinish").classList.add("hidden");
+  $("debateComposer").classList.remove("hidden");
+  updateScoreBar(0);
+  renderDebateRound();
+  const input = $("debateInput");
+  input.value = "";
+  input.oninput = () => { $("debateCount").textContent = input.value.length + " / 700"; };
+  $("debateCount").textContent = "0 / 700";
+  $("debateSend").onclick = submitDebate;
+  $("finishBtn").onclick = finishCampaign;
+  show("campaign");
+  window.scrollTo(0, 0);
+}
+
+function renderDebateRound() {
+  const topics = G.state.campaign.topics;
+  const t = topics[G.debate.round - 1];
+  $("debateRound").textContent = `Round ${G.debate.round} of 3 · ${t.topic}`;
+  $("moderatorQ").textContent = `Moderator: “${t.q}”`;
+}
+
+function updateScoreBar(total) {
+  const fill = $("scoreFill");
+  const pct = Math.max(-100, Math.min(100, total * 3.3)); // ±30 → ±100%
+  fill.classList.toggle("neg", pct < 0);
+  if (pct >= 0) { fill.style.left = "50%"; fill.style.width = (pct / 2) + "%"; }
+  else { fill.style.left = (50 + pct / 2) + "%"; fill.style.width = (-pct / 2) + "%"; }
+  const label = total > 4 ? "You are winning the debate" : total < -4 ? "The challenger is winning" : "Debate momentum: even";
+  $("scoreText").textContent = `${label} (${total > 0 ? "+" : ""}${total})`;
+}
+
+async function submitDebate() {
+  const input = $("debateInput");
+  const line = input.value.trim();
+  if (line.length < 3) { input.focus(); return; }
+  const topic = G.state.campaign.topics[G.debate.round - 1].topic;
+  $("debateSend").disabled = true;
+  loader(true, G.meta.ai ? "The challenger is firing back…" : "The room reacts…");
+  try {
+    const res = await fetch("/api/debate", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ state: G.state, round: G.debate.round, topic, playerLine: line, history: G.debate.history }),
+    }).then((r) => r.json());
+    if (res.error) throw new Error(res.error);
+
+    G.debate.scores.push(res.score || 0);
+    G.debate.history.push({ role: "you", text: line });
+    G.debate.history.push({ role: "opponent", text: res.opponentLine });
+    renderExchange(G.debate.round, topic, line, res);
+
+    const total = G.debate.scores.reduce((a, b) => a + b, 0);
+    updateScoreBar(total);
+
+    G.debate.round++;
+    input.value = "";
+    $("debateCount").textContent = "0 / 700";
+    if (G.debate.round > 3) {
+      $("debateComposer").classList.add("hidden");
+      $("debateFinish").classList.remove("hidden");
+      $("debateFinish").scrollIntoView({ behavior: "smooth" });
+    } else {
+      renderDebateRound();
+    }
+  } catch (err) {
+    alert("The debate round failed: " + err.message);
+  } finally {
+    $("debateSend").disabled = false;
+    loader(false);
+  }
+}
+
+function renderExchange(round, topic, youLine, res) {
+  const log = $("debateLog");
+  const score = res.score || 0;
+  const cls = score > 1 ? "up" : score < -1 ? "down" : "flat";
+  const ex = el("div", "debate-exchange", `
+    <div class="dq">Round ${round} · ${escapeHtml(topic)}</div>
+    <div class="debate-turn you"><span class="who">${escapeHtml(G.state.scenario.presidentName)}:</span> ${escapeHtml(youLine)}</div>
+    <div class="debate-turn opp"><span class="who">${escapeHtml(G.state.campaign.opponent.name)}:</span> ${escapeHtml(res.opponentLine || "")}</div>
+    <div class="debate-pundit"><span>${escapeHtml(res.pundit || "")}</span><span class="round-score ${cls}">${score > 0 ? "+" : ""}${score}</span></div>`);
+  log.appendChild(ex);
+}
+
+async function finishCampaign() {
+  const total = G.debate.scores.reduce((a, b) => a + b, 0);
+  loader(true, "The polls are closing. The nation votes…");
+  try {
+    const res = await fetch("/api/campaign/finish", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ state: G.state, debateScore: total }),
+    }).then((r) => r.json());
+    if (res.error) throw new Error(res.error);
+    G.state = res.state;
+    renderGameOver(G.state);
+  } catch (err) {
+    alert("The election could not be resolved: " + err.message);
+  } finally {
+    loader(false);
+  }
 }
 
 // ---------------- game over ----------------
