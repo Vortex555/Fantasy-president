@@ -46,14 +46,16 @@ export function createGame(scenario) {
     stakeholders[s.id] = clamp(Math.round(50 + alignment * 18));
   }
 
-  // Congress: opposition tends to hold at least one chamber. Seed by party.
-  const congress = seedCongress(sign);
+  // Congress: either the composition the player picked, or the party default.
+  const congress = scenario.congress
+    ? seatsFromComposition(scenario.congress, sign)
+    : seedCongress(sign);
 
   return {
     scenario,
     month: 1,
     approval: scenario.startApproval,
-    stability: 72,
+    stability: clamp(scenario.stability ?? 72),
     economy: {
       gdpGrowth: 2.4,
       unemployment: 4.1,
@@ -64,7 +66,7 @@ export function createGame(scenario) {
     stateApproval,
     congress,
     // The Supreme Court is inherited, not chosen — a standing constraint.
-    court: { conservative: 6, liberal: 3 },
+    court: scenario.court ?? { conservative: 6, liberal: 3 },
     cabinet: buildCabinet(scenario),
     // Ongoing situations that carry across months. See arcs.js.
     arcs: [],
@@ -110,16 +112,50 @@ export function buildCabinet(scenario) {
     used.add(n);
     return n;
   };
-  return CABINET_ROLES.map((r) => ({
-    id: r.id,
-    role: r.role,
-    emoji: r.emoji,
-    focus: r.focus,
-    persona: r.persona,
-    name: `${pick(FIRST_NAMES, usedFirst)} ${pick(LAST_NAMES, usedLast)}`,
-    loyalty: Math.round(45 + rng() * 45),     // 45-90
-    competence: Math.round(45 + rng() * 50),  // 45-95
-  }));
+  return CABINET_ROLES.map((r) => {
+    const member = {
+      id: r.id,
+      role: r.role,
+      emoji: r.emoji,
+      focus: r.focus,
+      persona: r.persona,
+      name: `${pick(FIRST_NAMES, usedFirst)} ${pick(LAST_NAMES, usedLast)}`,
+      loyalty: Math.round(45 + rng() * 45),     // 45-90
+      competence: Math.round(45 + rng() * 50),  // 45-95
+    };
+    // The player picks their own running mate, so the VP is not randomised.
+    if (r.id === "vp" && scenario.vp) {
+      const vp = scenario.vp;
+      return {
+        ...member,
+        name: vp.name,
+        loyalty: vp.loyalty,
+        competence: vp.competence,
+        focus: vp.portfolio ? `${vp.portfolio}, politics & the next election` : member.focus,
+        persona: `${member.persona}. Specifically: ${vp.bio || `a ${vp.region} ${vp.background}`}`,
+      };
+    }
+    return member;
+  });
+}
+
+/**
+ * Turn "seats my party holds" into a D/R split. `sign` is +1 for a Republican
+ * president, -1 for a Democrat.
+ */
+function seatsFromComposition({ house, senate }, sign) {
+  const houseMine = Math.max(0, Math.min(435, Math.round(house)));
+  const senateMine = Math.max(0, Math.min(100, Math.round(senate)));
+  if (sign >= 0) {
+    return {
+      houseR: houseMine, houseD: 435 - houseMine,
+      senateR: senateMine, senateD: 100 - senateMine,
+    };
+  }
+  return {
+    houseD: houseMine, houseR: 435 - houseMine,
+    senateD: senateMine, senateR: 100 - senateMine,
+  };
 }
 
 function seedCongress(sign) {
@@ -224,6 +260,12 @@ export function computeChecks(state, policyText) {
     effectMultiplier: 1,
   };
 
+  // Checks & balances switched off in setup: nothing blunts the president.
+  if (state.scenario.checks === false) {
+    checks.congress.note = "Checks and balances are switched off — your decision takes effect as written.";
+    return checks;
+  }
+
   // --- Congress ---
   if (kind.legislation) {
     const roll = computeRollCall(state, kind.bipartisan);
@@ -270,12 +312,31 @@ export function computeChecks(state, policyText) {
   return checks;
 }
 
+/**
+ * Difficulty settings. Hard is the design baseline; the easier tiers cushion
+ * bad months and flatter good ones, and forgive more at the ballot box.
+ */
+const DIFFICULTY = {
+  hard:   { loss: 1,   gain: 1,    winApproval: 46 },
+  medium: { loss: 0.8, gain: 1.1,  winApproval: 44 },
+  easy:   { loss: 0.6, gain: 1.25, winApproval: 42 },
+};
+
+const difficultyOf = (name) => DIFFICULTY[name] || DIFFICULTY.hard;
+
+function softenByDifficulty(change, difficulty) {
+  const d = difficultyOf(difficulty);
+  return round1(change * (change < 0 ? d.loss : d.gain));
+}
+
 // Fold a TurnResult (from Claude or the mock engine) into a new game state.
 export function applyResult(state, policy, result) {
   const next = structuredClone(state);
 
-  // Ensure a checks-and-balances narrative exists (AI may omit it).
-  if (!result.checks) result.checks = computeChecks(state, policy);
+  // Ensure a checks-and-balances narrative exists (AI may omit it). With the
+  // rule switched off in setup, nothing blocks the president at all.
+  if (state.scenario.checks === false) delete result.checks;
+  else if (!result.checks) result.checks = computeChecks(state, policy);
 
   // A Supreme Court appointment shifts the bench toward the president.
   const kind = classifyPolicy(policy);
@@ -324,7 +385,9 @@ export function applyResult(state, policy, result) {
     };
   }
 
-  next.approval = clamp(round1(next.approval + (result.approvalChange || 0)));
+  // Difficulty only ever bends the swing — it never rewrites what happened.
+  result.approvalChange = softenByDifficulty(result.approvalChange || 0, state.scenario.difficulty);
+  next.approval = clamp(round1(next.approval + result.approvalChange));
 
   const eco = result.economy || {};
   next.economy.gdpGrowth = clamp(round1(next.economy.gdpGrowth + (eco.gdpGrowth || 0)), -7, 7);
@@ -563,12 +626,15 @@ export function mockDebate(state, round, topic, playerLine) {
   score = Math.max(-10, Math.min(10, score));
 
   const opp = state.campaign.opponent;
+  // Careers saved by older builds may not carry an attack line; never let a
+  // missing field surface as "undefined" on the debate stage.
+  const attack = opp.attack || "four years of broken promises";
   const winning = score > 2;
   const lines = winning
-    ? [`A fine speech, but the President's record speaks louder — ${opp.attack} is what Americans have actually lived through.`,
-       `You can dress it up, but the country knows the truth about ${opp.attack}. It's time for a change.`]
-    : [`Even you don't sound like you believe that. The President is dodging — this is exactly the ${opp.attack} we've come to expect.`,
-       `That's a non-answer, and the voters can hear it. My friends, we can do so much better than ${opp.attack}.`];
+    ? [`A fine speech, but the President's record speaks louder — ${attack} is what Americans have actually lived through.`,
+       `You can dress it up, but the country knows the truth about ${attack}. It's time for a change.`]
+    : [`Even you don't sound like you believe that. The President is dodging — this is exactly the ${attack} we've come to expect.`,
+       `That's a non-answer, and the voters can hear it. My friends, we can do so much better than ${attack}.`];
   const opponentLine = lines[Math.floor(rng() * lines.length)];
   const pundit = winning
     ? "Snap polls give the President the edge on that exchange — crisp, on-message, and on offense."
@@ -595,9 +661,10 @@ export function finishCampaign(state, debateScore) {
     debateScore > 0 ? "A solid debate showing" :
     debateScore < -8 ? "A disastrous debate" : "An uneven debate";
 
-  if (ec.win >= 270 && next.approval >= 46) {
+  const { winApproval } = difficultyOf(next.scenario.difficulty);
+  if (ec.win >= 270 && next.approval >= winApproval) {
     next.ending = { type: "reelected", reason: `${debateWord} sealed it. You won re-election with roughly ${ec.win} electoral votes — a second term begins.` };
-  } else if (next.approval >= 47) {
+  } else if (next.approval >= winApproval + 1) {
     next.ending = { type: "narrow", reason: `${debateWord} kept it agonizingly close. The networks won't call it — it comes down to recounts in three states.` };
   } else {
     next.ending = { type: "defeated", reason: `${debateWord} wasn't enough. ${next.campaign.opponent.name} defeated you, and the country turns the page after a single term.` };

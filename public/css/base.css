@@ -1,0 +1,128 @@
+/* ---------------------------------------------------------------------------
+   Base: reset, page frame, typography scale, screen router.
+--------------------------------------------------------------------------- */
+
+*, *::before, *::after { box-sizing: border-box; }
+
+html, body { margin: 0; padding: 0; }
+
+body {
+  min-height: 100vh;
+  background: var(--bg);
+  color: var(--body);
+  font-family: var(--sans);
+  font-size: 15px;
+  line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Screen router — one section visible at a time. */
+.screen { display: none; }
+.screen.is-active { display: block; }
+
+/* The two page frames this product uses. */
+.shell {
+  max-width: var(--shell);
+  margin: 0 auto;
+  padding: 34px 20px 60px;
+}
+.shell--menu { max-width: var(--menu); }
+
+/* Menus live inside a single tall white panel; the dashboard does not. */
+.panel {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--r-xl);
+  padding: 40px;
+  box-shadow: var(--shadow-card);
+}
+
+/* --- Type ---------------------------------------------------------------- */
+
+.display {
+  font-family: var(--display);
+  color: var(--ink);
+  font-weight: 700;
+  letter-spacing: -.01em;
+  line-height: 1.15;
+  margin: 0;
+}
+.display--xl { font-size: 40px; }
+.display--lg { font-size: 32px; }
+.display--md { font-size: 24px; }
+.display--sm { font-size: 19px; }
+
+.lede {
+  margin: 12px 0 0;
+  color: var(--muted);
+  font-size: 17px;
+}
+
+/* Uppercase micro-label. The structural workhorse of this design — it names
+   every region of the interface without competing with the content. */
+.eyebrow {
+  display: block;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: .085em;
+  text-transform: uppercase;
+  color: var(--faint);
+}
+
+.hint { font-size: 13px; color: var(--muted); }
+
+.center { text-align: center; }
+.hidden { display: none !important; }
+
+.footer {
+  margin: 26px 0 0;
+  text-align: center;
+  font-size: 13px;
+  color: var(--faint);
+}
+
+/* --- Forms --------------------------------------------------------------- */
+
+input[type="text"],
+input[type="search"],
+textarea,
+select {
+  width: 100%;
+  font: inherit;
+  color: var(--ink);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  padding: 11px 14px;
+}
+textarea { resize: vertical; line-height: 1.6; }
+select {
+  appearance: none;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'><path d='M2 4.5l4 4 4-4' fill='none' stroke='%236a7688' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/></svg>");
+  background-repeat: no-repeat;
+  background-position: right 13px center;
+  padding-right: 34px;
+}
+input::placeholder, textarea::placeholder { color: var(--faint); }
+
+:focus-visible {
+  outline: 2px solid var(--blue);
+  outline-offset: 2px;
+}
+input:focus, textarea:focus, select:focus { outline: none; border-color: var(--blue); }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: .01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: .01ms !important;
+  }
+}
+
+@media (max-width: 700px) {
+  .panel { padding: 24px 18px; border-radius: var(--r-lg); }
+  .shell { padding: 20px 12px 44px; }
+  .display--xl { font-size: 30px; }
+  .display--lg { font-size: 25px; }
+}

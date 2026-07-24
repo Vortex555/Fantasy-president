@@ -146,9 +146,28 @@ tests/
   arcs.test.js       Arc lifecycle (`npm test`)
   personas.test.js   Focus-group scoring, rotation and quote merging
 public/
-  index.html     Setup, dashboard, situation room, consequences, chat modal, legacy screen
-  styles.css     Presidential dark theme
-  app.js         Client rendering, dashboard, US tile-map, advisor chat, turn flow
+  index.html         Screen shells; every screen body is rendered by its module
+  css/
+    tokens.css       Colour, type, radius and layout variables
+    base.css         Reset, page frame, type scale, screen router
+    components.css   Buttons, cards, option pickers, toggles, meters, badges
+    screens.css      Careers, scenario, era, character setup, running mate, turn
+    dashboard.css    Dashboard, debate stage, legacy screen, advisor drawer
+  js/
+    main.js          Screen router and the setup → game handoff
+    api.js           Every server call in one place
+    store.js         In-memory state + saved careers and presidents (localStorage)
+    data.js          Scenario, era, ideology, mandate and composition catalogs
+    util.js          DOM, escaping, meters and month formatting helpers
+    careers.js       "Your Careers" — resume, delete, start new
+    scenario.js      Scenario and era pickers
+    character.js     Character setup
+    runningmate.js   Vice-presidential picker
+    dashboard.js     Dashboard: timeline, tiles, Congress, court, cabinet, map
+    turn.js          Briefing, policy composer, consequences
+    drawer.js        Advisor conversations
+    campaign.js      Debate stage
+    legacy.js        The historical record
 ```
 
 ## API

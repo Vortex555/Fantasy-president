@@ -187,15 +187,68 @@ app.post("/api/campaign/finish", (req, res) => {
   }
 });
 
+const PARTIES = ["Democrat", "Republican", "Independent"];
+const DIFFICULTIES = ["easy", "medium", "hard"];
+
+const str = (v, fallback, max) => String(v ?? fallback ?? "").slice(0, max);
+
+const num = (v, fallback, lo, hi) => {
+  const n = Number(v);
+  return Math.max(lo, Math.min(hi, Number.isFinite(n) ? Math.round(n) : fallback));
+};
+
+/** Everything the setup screens can send, validated at the boundary. */
 function sanitizeScenario(s) {
-  const parties = ["Democrat", "Republican", "Independent"];
-  const name = String(s?.presidentName || "Alex Rivera").slice(0, 60);
-  const party = parties.includes(s?.party) ? s.party : "Independent";
-  const era = String(s?.era || "The present day, 2025").slice(0, 120);
-  let startApproval = Number(s?.startApproval);
-  if (!Number.isFinite(startApproval)) startApproval = 52;
-  startApproval = Math.max(20, Math.min(70, Math.round(startApproval)));
-  return { presidentName: name, party, era, startApproval };
+  const scenario = {
+    presidentName: str(s?.presidentName, "Alex Rivera", 60),
+    party: PARTIES.includes(s?.party) ? s.party : "Independent",
+    gender: ["male", "female"].includes(s?.gender) ? s.gender : "unspecified",
+    ideology: str(s?.ideology, "", 60),
+    style: str(s?.style, "", 60),
+    era: str(s?.era, "The present day, 2025.", 400),
+    startApproval: num(s?.startApproval, 52, 20, 70),
+    difficulty: DIFFICULTIES.includes(s?.difficulty) ? s.difficulty : "hard",
+    checks: s?.checks !== false,
+    debates: s?.debates !== false,
+    scenarioKey: str(s?.scenarioKey, "custom", 40),
+    scenarioName: str(s?.scenarioName, "Custom", 60),
+    eraKey: str(s?.eraKey, "custom", 40),
+    eraTitle: str(s?.eraTitle, "Present day", 60),
+    startYear: num(s?.startYear, 2025, 1900, 2200),
+  };
+
+  if (Number.isFinite(Number(s?.stability))) {
+    scenario.stability = num(s.stability, 72, 10, 100);
+  }
+
+  // A court is nine seats however the scenario splits them.
+  const conservative = num(s?.court?.conservative, 6, 0, 9);
+  scenario.court = { conservative, liberal: 9 - conservative };
+
+  // Seats the president's own party holds. Independents get no bloc.
+  if (s?.congress && scenario.party !== "Independent") {
+    scenario.congress = {
+      house: num(s.congress.house, 218, 0, 435),
+      senate: num(s.congress.senate, 50, 0, 100),
+    };
+  }
+
+  if (s?.vp && typeof s.vp === "object") {
+    scenario.vp = {
+      name: str(s.vp.name, "Morgan Hale", 60),
+      age: str(s.vp.age, "50s", 20),
+      gender: str(s.vp.gender, "unspecified", 20),
+      region: str(s.vp.region, "national", 40),
+      background: str(s.vp.background, "senator", 40),
+      ideology: str(s.vp.ideology, "", 60),
+      bio: str(s.vp.bio, "", 400),
+      portfolio: str(s.vp.portfolio, "", 40),
+      loyalty: num(s.vp.loyalty, 80, 0, 100),
+      competence: num(s.vp.competence, 75, 0, 100),
+    };
+  }
+
+  return scenario;
 }
 
 const PORT = process.env.PORT || 3000;

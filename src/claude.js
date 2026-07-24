@@ -116,6 +116,16 @@ EXAMPLE 11 — The failure modes to avoid, in order of how often they occur.
 5. Symmetrical mush — every stakeholder moving one or two points in the direction of approval. Real policies create winners and losers; some blocs should move hard while others do not move at all.
 6. Escalating every month into catastrophe until the simulation is not believable.`;
 
+/**
+ * The president in one clause. Ideology and communication style come from
+ * character setup and should colour how a policy is written up and received.
+ */
+function presidentProfile(scenario) {
+  return [scenario.party, scenario.ideology, scenario.style]
+    .filter(Boolean)
+    .join(", ");
+}
+
 function stateSummary(state) {
   const stakes = STAKEHOLDERS.map((s) => `${s.name} ${state.stakeholders[s.id]}`).join(", ");
   const control = partyControl(state);
@@ -125,7 +135,7 @@ function stateSummary(state) {
     .filter((_, i, arr) => i < 3 || i >= arr.length - 3)
     .map(([code, v]) => `${code} ${v}%`)
     .join(", ");
-  return `President: ${state.scenario.presidentName} (${state.scenario.party}), ${state.scenario.era}.
+  return `President: ${state.scenario.presidentName} (${presidentProfile(state.scenario)}), ${state.scenario.era}.
 Month ${state.month} of 48.
 National approval: ${state.approval}%   Government stability: ${state.stability}%
 Economy: GDP growth ${state.economy.gdpGrowth}%, unemployment ${state.economy.unemployment}%, inflation ${state.economy.inflation}%, national debt $${state.economy.debt}T.
@@ -278,7 +288,7 @@ export async function claudeDebate(state, round, topic, playerLine, history) {
   const opp = state.campaign.opponent;
   const sys = `You are running one round of a televised U.S. presidential debate for a strategy game, playing two roles at once and staying strictly non-partisan.
 
-ROLE 1 — the challenger, ${opp.name}, ${opp.style} (${opp.party}). Deliver a punchy 2-3 sentence rebuttal to the President's answer, in character, hammering the theme of "${opp.attack}". Sharp but not cartoonish.
+ROLE 1 — the challenger, ${opp.name}, ${opp.style} (${opp.party}). Deliver a punchy 2-3 sentence rebuttal to the President's answer, in character, hammering the theme of "${opp.attack || "four years of broken promises"}". Sharp but not cartoonish.
 ROLE 2 — a neutral debate analyst. Score the PRESIDENT's answer for this round from -10 (a gaffe/non-answer) to +10 (a commanding, specific, on-message answer). Reward substance, specificity, confidence and staying on topic; penalize vagueness, rambling, and unforced errors. Then write a one-sentence pundit reaction.
 
 Debate topic this round: ${topic}.
@@ -314,7 +324,7 @@ export async function claudeOpening(scenario) {
     messages: [
       {
         role: "user",
-        content: `President ${scenario.presidentName}, a ${scenario.party}, has just taken office. Era/setting: ${scenario.era}. Starting approval: ${scenario.startApproval}%. Generate their opening crisis.`,
+        content: `President ${scenario.presidentName}, ${presidentProfile(scenario)}, has just taken office. Era/setting: ${scenario.era}. Starting approval: ${scenario.startApproval}%. Generate their opening crisis.`,
       },
     ],
   });

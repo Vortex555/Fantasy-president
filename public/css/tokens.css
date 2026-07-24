@@ -1,0 +1,57 @@
+/* ---------------------------------------------------------------------------
+   Design tokens.
+   One light, paper-and-ink system: a cool grey page, white cards, a serif for
+   anything that carries authority (titles, headline numbers, party names) and
+   a warm grotesque for everything else. Accent colours are reserved for state,
+   never decoration — blue is "your move", red is "danger", green is "healthy".
+--------------------------------------------------------------------------- */
+
+:root {
+  /* Surfaces */
+  --bg:          #eceef2;
+  --surface:     #ffffff;
+  --surface-2:   #f7f8fa;
+  --surface-3:   #f1f3f6;
+  --line:        #e2e5ea;
+  --line-2:      #edeff3;
+
+  /* Ink */
+  --ink:         #101a2c;
+  --body:        #3c4759;
+  --muted:       #6a7688;
+  --faint:       #97a1b2;
+
+  /* Actions */
+  --navy:        #1e2c48;
+  --navy-hover:  #16223a;
+
+  /* State accents — each with a tint + hairline for panel variants */
+  --blue:        #2563eb;  --blue-bg:   #eff6ff;  --blue-line:   #c3d9fd;
+  --red:         #dc2626;  --red-bg:    #fef2f2;  --red-line:    #fbcaca;
+  --green:       #16a34a;  --green-bg:  #f0fdf4;  --green-line:  #bbf0cb;
+  --amber:       #d97706;  --amber-bg:  #fffaeb;  --amber-line:  #fbe2a4;
+  --purple:      #7c3aed;  --purple-bg: #f6f3ff;  --purple-line: #ddd3fb;
+
+  /* Party */
+  --dem:         #2f6fd0;
+  --rep:         #d33f3f;
+  --ind:         #8b5cf6;
+
+  /* Radii */
+  --r-xl: 18px;
+  --r-lg: 14px;
+  --r-md: 10px;
+  --r-sm: 7px;
+
+  /* Elevation — deliberately shallow; this system reads as printed, not glassy */
+  --shadow-card: 0 1px 2px rgba(16, 26, 44, .04);
+  --shadow-pop:  0 18px 50px rgba(16, 26, 44, .16);
+
+  /* Type */
+  --display: "Playfair Display", Georgia, "Times New Roman", serif;
+  --sans: "Figtree", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+
+  /* Layout */
+  --shell: 1120px;
+  --menu:  880px;
+}
