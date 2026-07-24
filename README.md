@@ -25,9 +25,19 @@ consequences across every corner of American politics:
   three-round presidential debate** against an AI challenger from the opposing
   party. Win the room to build momentum — your debate performance swings the
   final vote.
+- **Problems that don't go away.** Unfinished business becomes an **ongoing
+  situation** that sits on your desk month after month. Ignore one and its
+  severity climbs; at the top it **detonates**, seizing next month's briefing as
+  a full-blown crisis and leaving a **permanent scar** on the stakeholders and
+  states it touches. Every month you get a fresh crisis *and* the list of what's
+  still festering — urgent versus important, and you only get one policy.
 - **Congress** (House & Senate) with a midterm shake-up at month 24
 - **Three-slant press** — left, center and right outlets spin the same policy
-- **Focus-group voices** — invented voters from across the country react in their own words
+- **A 30-voter focus group** — a recurring panel of Americans, from a Texas
+  rancher to a Boston grad student, each with their own state, politics and
+  issues. Every one of them reacts every month; a rotating handful speak in
+  their own words. Partisanship is sticky: a committed opponent softens on a
+  good month but doesn't switch sides.
 - An **election result and legacy screen** at the end of the 48-month term
 
 There are no multiple-choice options. Type any policy you want; vague gestures
@@ -59,45 +69,82 @@ Open the URL, set up your president, and take the oath.
 The app auto-detects which mode it's in and shows a badge on the title screen.
 Get a key at [console.anthropic.com](https://console.anthropic.com/).
 
-### Keeping the cost down (how a free tier is even possible)
+### Keeping the cost down
 
-Depth doesn't have to mean a huge AI bill. This build uses the same levers a
-real free-to-play version would:
+Depth doesn't have to mean a huge AI bill, but the levers that actually matter
+are not the obvious ones. These numbers are **measured**, not estimated — every
+model call logs its real token usage (`[usage] turn (claude-sonnet-5): in 736,
+cached 4378, out 1063`), so a regression shows up in the log rather than on the
+bill.
 
+A steady-state monthly turn, measured:
+
+| | tokens | cost |
+|---|---|---|
+| Judge — fresh input | 736 | $0.0015 |
+| Judge — cached prefix | 4,378 | $0.0009 |
+| Judge — output | 1,063 | $0.0106 |
+| Focus group (Haiku, in + out) | 1,700 | $0.0036 |
+| | **per turn** | **~1.7¢** |
+
+**Output tokens dominate.** They bill at 5× input, so everything below is really
+about producing less of them:
+
+- **Thinking is disabled on the turn.** Reasoning tokens bill at output rates
+  and nothing here reads them. Turning it off cut output from 2,843 to 1,063 —
+  a 63% drop with no measurable quality loss, because the worked examples in the
+  system prompt already do the calibration that reasoning would.
+- **Two models, split by job.** The *judgement* (consequences, checks &
+  balances, arc verdicts) runs on Sonnet (`FP_MODEL`); the *flavor* (voter
+  quotes, advisor chat, debate rounds, opening crises) runs on Haiku
+  (`FP_CHAT_MODEL`) at a fifth the price.
+- **A bigger prompt is a cheaper prompt.** Caching has a **4,096-token
+  minimum** — below it, `cache_control` is silently inert and you pay full
+  price. The rules prompt is deliberately over that line, so the 4,378-token
+  prefix bills at ~10% on repeat turns. The room it buys is spent on worked
+  examples, which is also what protects quality on the cheaper model. It uses a
+  1-hour TTL because players spend minutes writing a policy and a 5-minute
+  cache would expire mid-think.
 - **Most systems are code, not AI.** Congress vote math, whether the Court
-  strikes a policy down, the economy, the electoral map and stakeholder
-  bookkeeping are deterministic game logic in `gameEngine.js`. The expensive
-  model is used once per month to judge your policy and narrate the fallout.
-- **A cheap-model tier.** Advisor chat and opening crises run on **Haiku**
-  (`FP_CHAT_MODEL`) — 5–25× cheaper than the main model — so the many small
-  calls barely register.
-- **Prompt caching.** The large rules prompt is identical every turn, so it's
-  marked `cache_control: ephemeral` and billed at ~10% on repeat turns.
-- **Short, structured output.** Turns return compact JSON, keeping the
-  expensive output tokens small.
+  strikes a policy down, the economy, the electoral map, stakeholder
+  bookkeeping, arc escalation and all thirty voter *moods* are deterministic
+  logic. The model is only asked for what genuinely needs judgement or prose.
+- **The focus group buys words, not people.** All 30 voters react every month
+  for free; only a rotating cast of 8 is sent to a model for a written quote.
 
-Net effect: a full monthly turn is a fraction of a cent to a few cents, and an
-entire capped free game costs pennies — which is exactly how a site like the
-original can offer a (rate-limited) free mode and let subscriptions cover it.
+Net effect: a full 48-month career costs roughly **80 cents** of API usage, and
+the local-simulation mode costs nothing at all.
 
 ## How a turn works
 
 1. You're shown the month's **situation** (a crisis, an opportunity, a quiet month).
 2. You write a **policy** — and optionally a **public message / spin**.
-3. The server sends your current dashboard state + the situation + your policy to
-   the simulation engine, which returns structured consequences: an approval
-   swing, economic movement, stakeholder shifts, three newspaper front pages, a
-   focus group, state-level effects, and **next month's situation**.
+3. The server sends your current dashboard state + the situation + **every
+   ongoing situation** + your policy to the simulation engine, which returns
+   structured consequences: an approval swing, economic movement, stakeholder
+   shifts, three newspaper front pages, a focus group, state-level effects, a
+   verdict on each ongoing situation, and **next month's situation**.
 4. The dashboard updates and the ripple carries forward — decisions compound.
+
+The engine judges arcs cheaply on purpose: the model returns only `addressed:
+0–3` per arc plus at most one new arc, and every mechanic downstream —
+escalation, detonation, scarring, the arc cap — is deterministic code in
+`arcs.js`. The arc list doubles as the presidency's memory, so the simulation
+sees what is still unfixed without replaying 47 turns of history into the prompt.
 
 ## Project structure
 
 ```
 src/
   server.js      Express server + API (/api/meta, /api/start, /api/turn, /api/advisor)
-  claude.js      Anthropic integration: turn simulation (Opus, cached) + advisor chat (Haiku)
+  claude.js      Anthropic integration: the judge (Sonnet, cached) + flavor calls (Haiku)
   gameEngine.js  Game state, checks & balances, cabinet, elections, local-sim fallback
+  arcs.js        Ongoing situations: severity, escalation, detonation, scars
+  personas.js    The 30-voter focus group: roster, mood scoring, speaker rotation
   states.js      50 states + DC: electoral votes, tile-map layout, partisan lean
+tests/
+  arcs.test.js       Arc lifecycle (`npm test`)
+  personas.test.js   Focus-group scoring, rotation and quote merging
 public/
   index.html     Setup, dashboard, situation room, consequences, chat modal, legacy screen
   styles.css     Presidential dark theme
@@ -128,8 +175,13 @@ with each turn, so you can extend it toward multiple saved careers easily.
 | Variable | Default | Purpose |
 |----------|---------|---------|
 | `ANTHROPIC_API_KEY` | – | Enables live AI turns. |
-| `FP_MODEL` | `claude-opus-4-8` | Override the model. |
+| `FP_MODEL` | `claude-sonnet-5` | The judge: consequences, checks & balances, arc verdicts. Set to `claude-opus-4-8` for maximum depth at roughly 2.5× the cost. |
+| `FP_CHAT_MODEL` | `claude-haiku-4-5` | Flavor and chat: voter quotes, advisor conversations, debate rounds, opening crises. |
 | `PORT` | `3000` | Server port. |
+
+> Set the key in a `.env` file in the project root — but note that on Node an
+> **exported shell variable wins over `.env`**, so unset a stale
+> `ANTHROPIC_API_KEY` in your shell first or the file is ignored.
 
 ## License
 

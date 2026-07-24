@@ -1,4 +1,8 @@
 import { STATES, STATE_CODES, TOTAL_EV } from "./states.js";
+import {
+  advanceArcs, detonationEvent, mockJudgeArcs, activeArcs, inferDomain, MAX_ACTIVE_ARCS,
+} from "./arcs.js";
+import { scoreAll, selectSpeakers } from "./personas.js";
 
 export const TERM_LENGTH = 48; // months
 export const MIDTERM_MONTH = 24;
@@ -62,6 +66,8 @@ export function createGame(scenario) {
     // The Supreme Court is inherited, not chosen — a standing constraint.
     court: { conservative: 6, liberal: 3 },
     cabinet: buildCabinet(scenario),
+    // Ongoing situations that carry across months. See arcs.js.
+    arcs: [],
     history: [],
     over: false,
     ending: null,
@@ -295,6 +301,29 @@ export function applyResult(state, policy, result) {
     };
   }
 
+  // Story arcs advance before approval is banked, so their drag, detonations
+  // and payoffs are part of the same month's swing rather than a separate one.
+  const arcOutcome = advanceArcs({
+    arcs: next.arcs || [],
+    verdicts: result.arcs,
+    proposal: result.newArc,
+    checks: result.checks,
+    policy,
+    month: state.month,
+  });
+  next.arcs = arcOutcome.arcs;
+  result.arcEvents = arcOutcome.events;
+  result.approvalChange = round1((result.approvalChange || 0) + arcOutcome.approvalChange);
+  // A detonated arc seizes next month's briefing from whatever was lined up.
+  if (arcOutcome.detonation) {
+    result.nextEvent = detonationEvent(arcOutcome.detonation);
+    result.detonation = {
+      id: arcOutcome.detonation.arc.id,
+      title: arcOutcome.detonation.arc.title,
+      monthsActive: arcOutcome.detonation.monthsActive,
+    };
+  }
+
   next.approval = clamp(round1(next.approval + (result.approvalChange || 0)));
 
   const eco = result.economy || {};
@@ -303,19 +332,52 @@ export function applyResult(state, policy, result) {
   next.economy.inflation = clamp(round1(next.economy.inflation + (eco.inflation || 0)), -3, 40);
   next.economy.debt = round1(next.economy.debt + (eco.debt || 0));
 
+  // Track every delta by id as it is applied — the focus group reads these to
+  // work out how thirty individual voters feel about the month.
+  const stakeDeltas = {};
+  const stateDeltas = {};
+
   for (const s of result.stakeholders || []) {
     const id = resolveStakeholder(s.name);
     if (id && next.stakeholders[id] != null) {
+      stakeDeltas[id] = (stakeDeltas[id] || 0) + (s.change || 0);
       next.stakeholders[id] = clamp(Math.round(next.stakeholders[id] + (s.change || 0)));
+    }
+  }
+
+  // Arc damage lands on the stakeholders and states its domain actually touches.
+  for (const [id, delta] of Object.entries(arcOutcome.stakeholders)) {
+    if (next.stakeholders[id] != null) {
+      stakeDeltas[id] = (stakeDeltas[id] || 0) + delta;
+      next.stakeholders[id] = clamp(Math.round(next.stakeholders[id] + delta));
     }
   }
 
   for (const se of result.stateEffects || []) {
     const code = (se.code || "").toUpperCase();
     if (next.stateApproval[code] != null) {
+      stateDeltas[code] = (stateDeltas[code] || 0) + (se.change || 0);
       next.stateApproval[code] = clamp(Math.round(next.stateApproval[code] + (se.change || 0)));
     }
   }
+  for (const [code, delta] of Object.entries(arcOutcome.states)) {
+    if (next.stateApproval[code] != null) {
+      stateDeltas[code] = (stateDeltas[code] || 0) + delta;
+      next.stateApproval[code] = clamp(Math.round(next.stateApproval[code] + delta));
+    }
+  }
+
+  // The focus group. Every one of the thirty reacts, deterministically, from
+  // what actually happened to them — no model call is involved in a mood.
+  // Only the rotating cast in `speakers` will be given words.
+  const scored = scoreAll({
+    approvalChange: result.approvalChange || 0,
+    stakeholders: stakeDeltas,
+    states: stateDeltas,
+    presidentSign: partySign(state.scenario.party),
+  });
+  result.personas = scored;
+  result.speakers = selectSpeakers(scored, state.month);
   // General drift of every state toward the new national number (small).
   const drift = (next.approval - state.approval) * 0.35;
   for (const code of STATE_CODES) {
@@ -325,7 +387,9 @@ export function applyResult(state, policy, result) {
   // Stability reflects approval, stakeholder average and economic pain.
   const stakeAvg = Object.values(next.stakeholders).reduce((a, b) => a + b, 0) / STAKEHOLDERS.length;
   const miseryIndex = next.economy.unemployment + next.economy.inflation;
-  next.stability = clamp(Math.round(0.5 * next.approval + 0.35 * stakeAvg + 0.15 * (100 - miseryIndex * 2)));
+  next.stability = clamp(Math.round(
+    0.5 * next.approval + 0.35 * stakeAvg + 0.15 * (100 - miseryIndex * 2) + arcOutcome.stabilityChange
+  ));
 
   next.history.push({
     month: state.month,
@@ -569,15 +633,6 @@ const OUTLETS = [
   { outlet: "The Standard Bearer", lean: "right" },
 ];
 
-const PERSONA_POOL = [
-  { name: "Dolores M.", group: "Retired teacher, Ohio" },
-  { name: "Marcus T.", group: "Rideshare driver, Georgia" },
-  { name: "Priya K.", group: "Software engineer, Washington" },
-  { name: "Wade H.", group: "Cattle rancher, Texas" },
-  { name: "Angela R.", group: "ER nurse, Pennsylvania" },
-  { name: "Diego S.", group: "Small-business owner, Arizona" },
-];
-
 const EVENTS = [
   { title: "Refinery Explosion Spikes Gas Prices", brief: "A fire at a major Gulf Coast refinery has knocked out 8% of national fuel capacity. Prices at the pump are climbing by the hour and truckers are threatening a slowdown." },
   { title: "Supreme Court Vacancy", brief: "A sitting justice has announced sudden retirement, handing you a generational chance to reshape the Court — and a confirmation fight that will consume the capital." },
@@ -593,7 +648,7 @@ function hashString(s) {
   return Math.abs(h);
 }
 
-export function mockTurn(state, policy, publicMessage) {
+export function mockTurn(state, policy, publicMessage, event) {
   const text = `${policy} ${publicMessage || ""}`;
   const seed = hashString(text + state.month);
   const rng = mulberry32(seed);
@@ -645,18 +700,6 @@ export function mockTurn(state, policy, publicMessage) {
     headline: spinHeadline(o.lean, approvalChange, matched, state),
   }));
 
-  const personaCount = 4;
-  const shuffled = [...PERSONA_POOL].sort(() => rng() - 0.5).slice(0, personaCount);
-  const personas = shuffled.map((p) => {
-    const mood = approvalChange + (rng() - 0.5) * 8;
-    return {
-      name: p.name,
-      group: p.group,
-      mood: mood > 2 ? "approve" : mood < -2 ? "disapprove" : "mixed",
-      quote: personaQuote(mood, rng()),
-    };
-  });
-
   // State effects: nudge a handful of swing-relevant states.
   const swingStates = ["PA", "MI", "WI", "GA", "AZ", "NV", "NC", "OH", "FL", "TX"];
   const stateEffects = swingStates
@@ -680,11 +723,24 @@ export function mockTurn(state, policy, publicMessage) {
     economy,
     stakeholders,
     press,
-    personas,
     stateEffects,
     checks: { congress: checks.congress, court: checks.court },
+    arcs: mockJudgeArcs(state.arcs || [], text),
+    newArc: mockProposeArc(state, event, approvalChange),
     nextEvent: { title: ev.title, brief: ev.brief },
     flags,
+  };
+}
+
+// In local-sim mode, the crisis you fumbled is the one that lingers.
+function mockProposeArc(state, event, approvalChange) {
+  if (!event?.title || approvalChange > -1) return null;
+  if (activeArcs(state).length >= MAX_ACTIVE_ARCS) return null;
+  return {
+    title: event.title,
+    brief: `${event.brief || "The situation was left unresolved."} Your response landed badly and it is still sitting there.`,
+    domain: inferDomain(`${event.title} ${event.brief || ""}`),
+    severity: 2,
   };
 }
 
@@ -783,10 +839,14 @@ const QUOTES = {
     "It's complicated. Part of me likes it, part of me is nervous.",
   ],
 };
-function personaQuote(mood, r) {
-  const bucket = mood > 2 ? "approve" : mood < -2 ? "disapprove" : "mixed";
-  const list = QUOTES[bucket];
-  return list[Math.floor(r * list.length) % list.length];
+// Local-sim voices. The engine has already decided each speaker's mood, so the
+// offline fallback only has to supply words that fit it.
+export function mockVoices(speakers, policy) {
+  return (speakers || []).map((s, i) => {
+    const rng = mulberry32(hashString(s.id + policy + i));
+    const list = QUOTES[s.mood] || QUOTES.mixed;
+    return { id: s.id, quote: list[Math.floor(rng() * list.length) % list.length] };
+  });
 }
 
 function buildMockAnalysis(policy, matched, approvalChange, economy) {

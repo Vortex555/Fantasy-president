@@ -134,7 +134,55 @@ function renderDashboard(state, delta) {
 
   renderStakeholders(state);
   renderCourt(state);
+  renderArcs(state);
   renderMap(state);
+}
+
+// ---------------- ongoing situations (arcs) ----------------
+const ARC_DOMAIN_LABELS = {
+  economy: "Economy", security: "National Security", justice: "Law & Justice",
+  social: "Society", foreign: "Foreign Affairs", health: "Health & Environment",
+};
+
+const liveArcs = (state) =>
+  (state.arcs || []).filter((a) => a.status === "active" || a.status === "detonated")
+    .sort((a, b) => b.severity - a.severity);
+const scarArcs = (state) => (state.arcs || []).filter((a) => a.status === "scarred");
+
+function severityMeter(severity) {
+  return [1, 2, 3, 4, 5].map((i) => `<i class="${i <= severity ? "on" : ""}"></i>`).join("");
+}
+
+function renderArcs(state) {
+  const list = $("arcList");
+  const live = liveArcs(state);
+  const scars = scarArcs(state);
+  $("arcCount").textContent = live.length ? `${live.length} open` : "";
+  list.innerHTML = "";
+
+  if (!live.length && !scars.length) {
+    list.appendChild(el("div", "arc-empty", "Nothing carried over — your desk is clear."));
+    return;
+  }
+
+  for (const a of live) {
+    const detonated = a.status === "detonated";
+    const row = el("div", `arc sev${a.severity}${detonated ? " detonated" : ""}`, `
+      <div class="arc-top">
+        <span class="arc-title">${escapeHtml(a.title)}</span>
+        <span class="arc-sev">${detonated ? "⚠" : a.severity + "/5"}</span>
+      </div>
+      <div class="arc-meter">${severityMeter(a.severity)}</div>
+      <div class="arc-meta">${ARC_DOMAIN_LABELS[a.domain] || "—"}${a.monthsActive ? ` · ${a.monthsActive} mo.` : ""}</div>`);
+    row.title = a.brief || "";
+    list.appendChild(row);
+  }
+
+  for (const a of scars) {
+    list.appendChild(el("div", "arc scarred", `
+      <div class="arc-top"><span class="arc-title">${escapeHtml(a.title)}</span><span class="arc-sev">scar</span></div>
+      <div class="arc-meta">Permanent damage · ${ARC_DOMAIN_LABELS[a.domain] || "—"}</div>`));
+  }
 }
 
 function renderCourt(state) {
@@ -349,6 +397,8 @@ function renderBriefing(event, state) {
   $("monthChip").textContent = "Month " + state.month + " of 48";
   $("eventTitle").textContent = event.title;
   $("eventBrief").textContent = event.brief;
+  $("eventCard").classList.toggle("detonated", Boolean(event.detonated));
+  renderArcStrip(state, event);
   renderAdvisorChips();
   const input = $("policyInput");
   input.value = "";
@@ -358,6 +408,31 @@ function renderBriefing(event, state) {
   $("enactBtn").onclick = submitPolicy;
   input.focus();
 }
+// The urgent-vs-important choice, made visible: the fresh crisis is above, and
+// everything still festering is right here next to it.
+function renderArcStrip(state, event) {
+  const strip = $("arcStrip");
+  const live = liveArcs(state).filter((a) => a.id !== event?.fromArc);
+  if (!live.length) {
+    strip.classList.add("hidden");
+    strip.innerHTML = "";
+    return;
+  }
+  strip.classList.remove("hidden");
+  strip.innerHTML = "";
+  strip.appendChild(el("div", "strip-head",
+    "Still on your desk — you can spend this month on one of these instead"));
+  const row = el("div", "strip-row");
+  for (const a of live) {
+    const chip = el("div", `strip-chip sev${a.severity}`, `
+      <b>${escapeHtml(a.title)}</b>
+      <span>${a.severity >= 5 ? "at breaking point" : ARC_DOMAIN_LABELS[a.domain] || "—"} · ${a.monthsActive || 1} mo.</span>`);
+    chip.title = a.brief || "";
+    row.appendChild(chip);
+  }
+  strip.appendChild(row);
+}
+
 function updateCharCount() {
   const n = $("policyInput").value.length;
   $("charCount").textContent = n + " / 1600";
@@ -427,6 +502,23 @@ function renderConsequences(result, policy) {
       `<span class="rk">Rollout</span><span>${escapeHtml(result.rollout.name)}, your ${escapeHtml(result.rollout.role)}, ${escapeHtml(result.rollout.note)}.</span>`));
   }
 
+  // Ongoing situations — what moved, what grew, what went off.
+  if (result.arcEvents?.length) {
+    block.appendChild(el("div", "section-title", "Ongoing Situations"));
+    const wrap = el("div", "arc-events");
+    for (const e of result.arcEvents) {
+      const label = ARC_EVENT_LABELS[e.kind] || e.kind;
+      wrap.appendChild(el("div", "arc-event " + e.kind, `
+        <div class="ae-top">
+          <span class="ae-badge ${e.kind}">${label}</span>
+          <span class="ae-title">${escapeHtml(e.title || "")}</span>
+          <span class="ae-meter">${severityMeter(e.severity || 0)}</span>
+        </div>
+        <div class="ae-detail">${escapeHtml(e.detail || "")}${e.note ? ` <span class="ae-note">${escapeHtml(e.note)}</span>` : ""}</div>`));
+    }
+    block.appendChild(wrap);
+  }
+
   // Press
   if (result.press?.length) {
     block.appendChild(el("div", "section-title", "The Morning Front Pages"));
@@ -439,11 +531,29 @@ function renderConsequences(result, policy) {
     block.appendChild(grid);
   }
 
-  // Personas
+  // Focus group — the whole panel reacts; a rotating cast actually speaks.
   if (result.personas?.length) {
-    block.appendChild(el("div", "section-title", "Focus Group — Voices from the Country"));
+    const all = result.personas;
+    const speaking = all.filter((p) => p.quote);
+    const silent = all.filter((p) => !p.quote);
+    const counts = { approve: 0, mixed: 0, disapprove: 0 };
+    for (const p of all) counts[p.mood] = (counts[p.mood] || 0) + 1;
+
+    block.appendChild(el("div", "section-title", `Focus Group — ${all.length} Voters`));
+    block.appendChild(el("div", "fg-summary", `
+      <span class="fg-bar">
+        <i class="approve" style="flex:${counts.approve || 0.0001}"></i>
+        <i class="mixed" style="flex:${counts.mixed || 0.0001}"></i>
+        <i class="disapprove" style="flex:${counts.disapprove || 0.0001}"></i>
+      </span>
+      <span class="fg-legend">
+        <b class="approve">${counts.approve}</b> approve ·
+        <b class="mixed">${counts.mixed}</b> mixed ·
+        <b class="disapprove">${counts.disapprove}</b> disapprove
+      </span>`));
+
     const grid = el("div", "persona-grid");
-    for (const p of result.personas) {
+    for (const p of speaking) {
       const mood = ["approve", "disapprove", "mixed"].includes(p.mood) ? p.mood : "mixed";
       grid.appendChild(el("div", "persona", `
         <div class="ptop">
@@ -453,6 +563,17 @@ function renderConsequences(result, policy) {
         <div class="quote">“${escapeHtml(p.quote || "")}”</div>`));
     }
     block.appendChild(grid);
+
+    if (silent.length) {
+      block.appendChild(el("div", "fg-rest-label", `The rest of the panel — ${silent.length} more reacting quietly`));
+      const rest = el("div", "fg-rest");
+      for (const p of silent) {
+        const chip = el("span", "fg-chip " + p.mood, escapeHtml(p.name || ""));
+        chip.title = `${p.group || ""} — ${p.mood}`;
+        rest.appendChild(chip);
+      }
+      block.appendChild(rest);
+    }
   }
 
   // Stakeholder shifts
@@ -492,6 +613,11 @@ function renderConsequences(result, policy) {
   view.appendChild(block);
   $("mainScroll").scrollTop = 0;
 }
+
+const ARC_EVENT_LABELS = {
+  opened: "New", escalated: "Escalating", holding: "Unchanged", eased: "Eased",
+  resolved: "Resolved", detonated: "Blew Up", scarred: "Permanent Scar",
+};
 
 const CHECK_STATUS = {
   passed:      { cls: "good", txt: "Passed Congress" },
@@ -656,6 +782,9 @@ function renderGameOver(state) {
   }[end.type] || "Your Presidency Ends";
 
   const peak = Math.max(state.approval, ...state.history.map((h) => h.approval));
+  const unfinished = liveArcs(state);
+  const scars = scarArcs(state);
+  const resolved = (state.arcs || []).filter((a) => a.status === "resolved").length;
   const rows = [
     ["President", state.scenario.presidentName],
     ["Months served", (state.month - 1) + " of 48"],
@@ -663,7 +792,18 @@ function renderGameOver(state) {
     ["Peak approval", Math.round(peak) + "%"],
     ["Final economy", `${state.economy.gdpGrowth.toFixed(1)}% GDP · ${state.economy.unemployment.toFixed(1)}% unemp.`],
     ["Electoral votes (favorable)", electoralFavorable(state)],
+    ["Situations resolved", resolved],
+    ["Left unresolved", unfinished.length + scars.length],
   ];
+
+  const legacyArcs = [
+    ...scars.map((a) => ({ a, cls: "scarred", tag: "permanent scar" })),
+    ...unfinished.map((a) => ({ a, cls: "unfinished", tag: `still open · severity ${a.severity}/5` })),
+  ];
+  const arcBlock = legacyArcs.length
+    ? `<div class="timeline"><h3 style="margin-top:18px">Unfinished Business</h3>${legacyArcs.map(({ a, cls, tag }) =>
+        `<div class="tl-item ${cls}"><span class="tlm">${ARC_DOMAIN_LABELS[a.domain] || "—"}</span><span>${escapeHtml(a.title)} <b>(${tag})</b></span></div>`).join("")}</div>`
+    : "";
 
   const timeline = state.history.slice(-8).map((h) =>
     `<div class="tl-item"><span class="tlm">Month ${h.month}</span><span>${escapeHtml(h.headline || "—")} <b style="color:${h.approvalChange >= 0 ? "var(--good)" : "var(--bad)"}">(${h.approvalChange >= 0 ? "+" : ""}${h.approvalChange})</b></span></div>`
@@ -677,6 +817,7 @@ function renderGameOver(state) {
       <h3>The Historical Record</h3>
       ${rows.map((r) => `<div class="legacy-row"><span class="lk">${r[0]}</span><span>${r[1]}</span></div>`).join("")}
       <div class="timeline"><h3 style="margin-top:18px">Final Chapters</h3>${timeline || "<div class='tl-item'>—</div>"}</div>
+      ${arcBlock}
     </div>
     <button class="btn primary big" id="againBtn" style="max-width:320px">Begin a New Career</button>`;
   $("againBtn").onclick = () => location.reload();

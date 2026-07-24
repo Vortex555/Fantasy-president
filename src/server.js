@@ -5,6 +5,7 @@ import {
   createGame,
   applyResult,
   mockTurn,
+  mockVoices,
   mockAdvisor,
   mockDebate,
   fireAdvisor,
@@ -13,7 +14,8 @@ import {
   STAKEHOLDERS,
 } from "./gameEngine.js";
 import { STATES } from "./states.js";
-import { claudeAvailable, claudeTurn, claudeOpening, claudeAdvisor, claudeDebate } from "./claude.js";
+import { attachQuotes } from "./personas.js";
+import { claudeAvailable, claudeTurn, claudeVoices, claudeOpening, claudeAdvisor, claudeDebate } from "./claude.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -74,13 +76,30 @@ app.post("/api/turn", async (req, res) => {
         result = await claudeTurn(state, policy, publicMessage, event || openingEvent());
       } catch (err) {
         console.error("Claude turn failed, using fallback:", err.message);
-        result = mockTurn(state, policy, publicMessage);
+        result = mockTurn(state, policy, publicMessage, event || openingEvent());
       }
     } else {
-      result = mockTurn(state, policy, publicMessage);
+      result = mockTurn(state, policy, publicMessage, event || openingEvent());
     }
 
+    // applyResult scores all thirty voters from the deltas it just applied and
+    // picks the rotating cast that speaks this month.
     const nextState = applyResult(state, policy, result);
+
+    // Only the speakers cost anything, and only on the cheap model.
+    let quotes = [];
+    if (USING_AI) {
+      try {
+        quotes = await claudeVoices(state, event || openingEvent(), policy, result.speakers);
+      } catch (err) {
+        console.error("Focus group failed, using fallback:", err.message);
+        quotes = mockVoices(result.speakers, policy);
+      }
+    } else {
+      quotes = mockVoices(result.speakers, policy);
+    }
+    result.personas = attachQuotes(result.personas, quotes);
+
     res.json({ result, state: nextState });
   } catch (err) {
     console.error(err);
