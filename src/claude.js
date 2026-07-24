@@ -1,8 +1,13 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { STATES } from "./states.js";
-import { STAKEHOLDERS, partyControl, electoralCount } from "./gameEngine.js";
+import { STAKEHOLDERS, partyControl, electoralCount, pacing } from "./gameEngine.js";
 import { describeArcs, ARC_DOMAIN_IDS } from "./arcs.js";
 import { rosterPrompt } from "./personas.js";
+import { institutionsSummary } from "./institutions.js";
+import { foreignSummary } from "./foreign.js";
+import { societySummary } from "./society.js";
+import { deploymentsSummary } from "./deployments.js";
+import { covertSummary } from "./covert.js";
 
 // The judge: consequences, checks & balances, arc verdicts. Quality-critical,
 // but not Opus-critical — the worked examples in SYSTEM carry most of the load.
@@ -135,8 +140,9 @@ function stateSummary(state) {
     .filter((_, i, arr) => i < 3 || i >= arr.length - 3)
     .map(([code, v]) => `${code} ${v}%`)
     .join(", ");
+  const clock = pacing(state);
   return `President: ${state.scenario.presidentName} (${presidentProfile(state.scenario)}), ${state.scenario.era}.
-Month ${state.month} of 48.
+${state.scenario.profile ? `Who they are: ${state.scenario.profile}.\n` : ""}${bioBlock(state.scenario)}${clock.unit === "week" ? "Week" : "Month"} ${state.month} of ${clock.termLength}.
 National approval: ${state.approval}%   Government stability: ${state.stability}%
 Economy: GDP growth ${state.economy.gdpGrowth}%, unemployment ${state.economy.unemployment}%, inflation ${state.economy.inflation}%, national debt $${state.economy.debt}T.
 Congress: House ${state.congress.houseD}D-${state.congress.houseR}R (${control.house}), Senate ${state.congress.senateD}D-${state.congress.senateR}R (${control.senate}).
@@ -145,8 +151,43 @@ Electoral map: ~${ev.win} EV favorable, ~${ev.lose} unfavorable, ~${ev.tossup} t
 Stakeholder support (0-100): ${stakes}.
 Notable states (approval): ${notableStates}.
 Official stakeholder names you must use: ${STAKEHOLDERS.map((s) => s.name).join(", ")}.
-
+${subsystemBlock(state)}
 ${describeArcs(state.arcs)}`;
+}
+
+/** The optional subsystems, listed only when they are actually running. */
+function subsystemBlock(state) {
+  const lines = [];
+  const institutions = institutionsSummary(state);
+  if (institutions) lines.push(`Institutional positions:\n${institutions}`);
+  if (state.firstLady) {
+    lines.push(`${state.firstLady.title}: ${state.firstLady.name}, public standing ${state.firstLady.standing}, signature cause ${state.firstLady.cause}.`);
+  }
+  const foreign = foreignSummary(state);
+  if (foreign) lines.push(`Foreign standing (0-100): ${foreign}.`);
+  const society = societySummary(state);
+  if (society) lines.push(`National statistics: ${society}.`);
+  const wars = deploymentsSummary(state);
+  if (wars) lines.push(`Deployments: ${wars}`);
+  const covert = covertSummary(state);
+  if (covert) lines.push(covert);
+
+  const ledger = state.specialActions;
+  if (ledger?.pending) {
+    lines.push(`Amendment out with the states: ${ledger.pending.title} — ${ledger.pending.ratified}/${ledger.pending.needed} ratified.`);
+  }
+  if (ledger?.filibusterGone) lines.push("The Senate filibuster has been abolished.");
+  if (ledger?.passed?.length) lines.push(`Structural changes already made: ${ledger.passed.join(", ")}.`);
+
+  return lines.length ? `\n${lines.join("\n")}\n` : "";
+}
+
+/** The president's own account of themselves, if they wrote one. */
+function bioBlock(scenario) {
+  const answers = scenario.bioAnswers;
+  if (!answers || !Object.keys(answers).length) return "";
+  const lines = Object.entries(answers).map(([k, v]) => `  ${k}: ${v}`).join("\n");
+  return `Their own account of themselves — use this material, call these promises in, and let these people resurface:\n${lines}\n`;
 }
 
 // Cost visibility. Every model call reports what it actually consumed, so a
@@ -232,6 +273,20 @@ Rules:
 
 Respond with ONLY JSON: {"quotes": [{"id": "p01", "quote": "..."}]}. No markdown, no prose outside the JSON.`;
 
+/**
+ * Persona mode. The roster and the moods never change — only the register the
+ * panel speaks in, which is the whole joke.
+ */
+const PERSONA_OVERRIDES = {
+  whacko: `
+OVERRIDE — WHACKO MODE: this panel has lost its grip. Every voter has a confidently held theory that is not quite connected to observable reality, and they relate the President's decision to it. They are sincere, not stupid, and never violent or bigoted. Keep the assigned mood, keep it funny, keep it to two sentences.`,
+  tweeter: `
+OVERRIDE — TWEETER MODE: everyone on this panel is extremely online and has mistaken the timeline for the country. They talk in posts: subtweets, ratios, quote-tweet energy, main-character syndrome, "this you?", touching no grass whatsoever. Keep the assigned mood. Still no hashtags and no emoji — the affliction is in the syntax, not the punctuation.`,
+};
+
+const voicesSystem = (state) =>
+  VOICES_SYSTEM + (PERSONA_OVERRIDES[state?.scenario?.persona] || "");
+
 export async function claudeVoices(state, event, policy, speakers) {
   if (!speakers?.length) return [];
   const list = speakers.map((s) => `${s.id} — ${s.name}, ${s.group} — mood: ${s.mood}`).join("\n");
@@ -248,7 +303,7 @@ ${list}`;
   const resp = await getClient().messages.create({
     model: CHAT_MODEL,
     max_tokens: 900,
-    system: VOICES_SYSTEM,
+    system: voicesSystem(state),
     messages: [{ role: "user", content: user }],
   });
   logUsage("voices", CHAT_MODEL, resp.usage);

@@ -70,7 +70,22 @@
 .setting { padding: 18px 20px; }
 .setting + .setting { margin-top: 12px; }
 .setting__body { margin-top: 14px; }
-.setting__foot { margin-top: 10px; }
+.setting__foot { margin: 10px 0 0; }
+.setting__sub {
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px dashed rgba(16, 26, 44, .12);
+}
+.setting__tag {
+  font-size: 11px; font-weight: 600; color: var(--faint);
+  letter-spacing: .03em; text-transform: none;
+}
+.setting--stark { border: 1px dashed var(--red-line); background: var(--red-bg); }
+.setting.is-disabled { opacity: .55; }
+.setting.is-disabled .toggle,
+.setting.is-disabled .seg__btn { pointer-events: none; }
+
+.profile__extra { margin-top: 10px; }
 
 /* --- Running mate -------------------------------------------------------- */
 
@@ -154,8 +169,10 @@
 .verdict__delta.delta--down { color: var(--red); }
 .analysis { font-size: 16px; color: var(--body); margin: 0; }
 
-.grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
-.grid-3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+/* Paired cards align to the top so a short card doesn't stretch to match a
+   tall neighbour and leave a block of dead white space. */
+.grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; align-items: start; }
+.grid-3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; align-items: start; }
 
 .check { padding: 16px 18px; border-radius: var(--r-md); border: 1px solid var(--line); background: var(--surface-2); }
 .check--good { background: var(--green-bg); border-color: var(--green-line); }

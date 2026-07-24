@@ -212,12 +212,6 @@ export const COMPOSITIONS = [
   { value: "strong_minority", label: "🔴 Strong Minority", sub: "Opposition supermajority, ~75-seat deficit, 42–58 Senate", house: 180, senate: 42 },
 ];
 
-export const DIFFICULTIES = [
-  { value: "easy", label: "Easy" },
-  { value: "medium", label: "Medium" },
-  { value: "hard", label: "Hard", tag: "Recommended" },
-];
-
 /** Running-mate generation pools. */
 export const VP_POOL = {
   first: {

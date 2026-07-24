@@ -136,12 +136,21 @@ sees what is still unfixed without replaying 47 turns of history into the prompt
 
 ```
 src/
-  server.js      Express server + API (/api/meta, /api/start, /api/turn, /api/advisor)
-  claude.js      Anthropic integration: the judge (Sonnet, cached) + flavor calls (Haiku)
-  gameEngine.js  Game state, checks & balances, cabinet, elections, local-sim fallback
-  arcs.js        Ongoing situations: severity, escalation, detonation, scars
-  personas.js    The 30-voter focus group: roster, mood scoring, speaker rotation
-  states.js      50 states + DC: electoral votes, tile-map layout, partisan lean
+  server.js         Express server + the whole HTTP API
+  claude.js         Anthropic integration: the judge (Sonnet) + flavor calls (Haiku)
+  gameEngine.js     Game state, checks & balances, cabinet, elections, local-sim fallback
+  rng.js            Seeded randomness + numeric helpers shared by every subsystem
+  arcs.js           Ongoing situations: severity, escalation, detonation, scars
+  personas.js       The 30-voter focus group: roster, mood scoring, speaker rotation
+  eventPool.js      Hand-written situations for Classic and Hybrid event generation
+  firstLady.js      The East Wing: standing, signature cause, deployments
+  institutions.js   Fed, FBI, DNI, Joint Chiefs, Surgeon General — terms and vacancies
+  specialActions.js Constitutional amendments and structural reform
+  foreign.js        Standing with each region of the world
+  society.js        Social Engineering mode: the country behind the polling
+  deployments.js    Wars, troop levels, casualties and war-weariness
+  covert.js         The intelligence war: penetration, pressure, homeland, exposure
+  states.js         50 states + DC: electoral votes, tile-map layout, partisan lean
 tests/
   arcs.test.js       Arc lifecycle (`npm test`)
   personas.test.js   Focus-group scoring, rotation and quote merging
@@ -157,16 +166,28 @@ public/
     main.js          Screen router and the setup → game handoff
     api.js           Every server call in one place
     store.js         In-memory state + saved careers and presidents (localStorage)
-    data.js          Scenario, era, ideology, mandate and composition catalogs
-    util.js          DOM, escaping, meters and month formatting helpers
+    util.js          DOM, escaping, meters, pickers and month formatting
+    data/
+      catalog.js     Scenarios, eras, parties, ideologies, mandates, compositions
+      profile.js     The demographic catalogs and their bloc effects
+      settings.js    The rules-of-play rack and the guided-bio questions
     careers.js       "Your Careers" — resume, delete, start new
     scenario.js      Scenario and era pickers
     character.js     Character setup
+    profile.js       The character-profile section of setup
+    settings.js      The rules-of-play section of setup
+    bio.js           The guided bio, when Custom Bio is on
     runningmate.js   Vice-presidential picker
-    dashboard.js     Dashboard: timeline, tiles, Congress, court, cabinet, map
+    dashboard.js     Dashboard shell: timeline, tiles, Congress, court, cabinet, map
+    cards/
+      institutions.js  Institutional positions, with appoint and dismiss
+      firstLady.js     The East Wing card
+      specialActions.js The amendments and structural-reform docket
+      chart.js         The approval line
+      world.js         Foreign relations, society, war and covert cards
     turn.js          Briefing, policy composer, consequences
     drawer.js        Advisor conversations
-    campaign.js      Debate stage
+    campaign.js      Debate stage and the podium clock
     legacy.js        The historical record
 ```
 

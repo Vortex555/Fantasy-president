@@ -6,8 +6,9 @@ import { getMeta, startGame } from "./api.js";
 import { renderCareers, renderModeBadge } from "./careers.js";
 import { renderScenarios, renderEras } from "./scenario.js";
 import { renderCharacter } from "./character.js";
+import { renderBio } from "./bio.js";
 import { renderRunningMate } from "./runningmate.js";
-import { renderDashboard } from "./dashboard.js";
+import { renderDashboardAsync } from "./dashboard.js";
 import { renderBriefing } from "./turn.js";
 import { renderCampaign } from "./campaign.js";
 import { renderLegacy } from "./legacy.js";
@@ -24,7 +25,7 @@ let pending = { scenario: null, era: null, draft: null };
 
 const goCareers = () => renderCareers(goDashboard, goScenarios);
 const goScenarios = () => renderScenarios(onEraChosen);
-const goDashboard = (delta = null) => renderDashboard(dashHandlers, delta);
+const goDashboard = (delta = null) => renderDashboardAsync(dashHandlers, delta);
 const goLegacy = () => renderLegacy(goCareers);
 const goCampaign = () => renderCampaign({ onLegacy: goLegacy });
 
@@ -60,6 +61,13 @@ function onEraChosen(scenario, era) {
 
 function onCharacterReady(draft) {
   pending.draft = draft;
+  // The guided bio only appears when the player asked for it.
+  if (draft.bio) {
+    return renderBio(draft, (bioAnswers) => {
+      pending.draft = { ...draft, bioAnswers };
+      renderRunningMate(pending.draft, onRunningMateReady);
+    }, () => onEraChosen(pending.scenario, pending.era));
+  }
   renderRunningMate(draft, onRunningMateReady);
 }
 

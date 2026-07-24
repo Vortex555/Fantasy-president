@@ -1,7 +1,7 @@
 "use strict";
 
 import { $, el, show, escapeHtml } from "./util.js";
-import { VP_POOL, PORTFOLIOS, IDEOLOGIES } from "./data.js";
+import { VP_POOL, PORTFOLIOS, IDEOLOGIES } from "./data/catalog.js";
 
 let candidates = [];
 let selected = null;

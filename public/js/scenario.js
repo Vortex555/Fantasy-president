@@ -1,7 +1,7 @@
 "use strict";
 
 import { $, el, show, escapeHtml } from "./util.js";
-import { SCENARIOS } from "./data.js";
+import { SCENARIOS } from "./data/catalog.js";
 
 let chosenScenario = null;
 

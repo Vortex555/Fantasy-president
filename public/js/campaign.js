@@ -16,6 +16,9 @@ export function renderCampaign(hooks) {
   // With debates switched off in setup, the record alone decides it.
   if (state.scenario.debates === false) return resolve(0);
 
+  const podium = state.scenario.podium === true;
+  const noHints = state.scenario.noHints === true;
+
   $("campaignBody").innerHTML = `
     <div class="dash-head">
       <div>
@@ -54,12 +57,15 @@ export function renderCampaign(hooks) {
     <div id="debateLog"></div>
 
     <div class="card" id="debateComposer">
-      <span class="eyebrow" id="debateRoundLabel">Round 1 of 3</span>
+      <div class="card__head" style="margin-bottom:0">
+        <span class="eyebrow" id="debateRoundLabel">Round 1 of 3</span>
+        ${podium ? `<span class="podium-clock" id="podiumClock">1:30</span>` : ""}
+      </div>
       <p class="moderator" id="moderatorQ">—</p>
-      <textarea id="debateInput" rows="4" maxlength="700"
-        placeholder="Deliver your answer to the nation. Be specific, stay on message, and don't be afraid to go on offense."></textarea>
+      <textarea id="debateInput" rows="4"${podium ? "" : ' maxlength="700"'}
+        placeholder="${noHints ? "" : "Deliver your answer to the nation. Be specific, stay on message, and don't be afraid to go on offense."}"></textarea>
       <div class="composer__actions">
-        <span class="composer__count" id="debateCount">0 / 700</span>
+        <span class="composer__count" id="debateCount">${podium ? "The moderator will cut you off." : "0 / 700"}</span>
         <button class="btn btn--primary" id="debateSend">Respond →</button>
       </div>
     </div>
@@ -72,11 +78,54 @@ export function renderCampaign(hooks) {
 
   paintRound();
   const input = $("debateInput");
-  input.oninput = () => { $("debateCount").textContent = `${input.value.length} / 700`; };
+  if (!podium) {
+    input.oninput = () => { $("debateCount").textContent = `${input.value.length} / 700`; };
+  }
   $("debateSend").onclick = submitRound;
   $("finishBtn").onclick = () => resolve(G.debate.scores.reduce((a, b) => a + b, 0));
   show("campaign");
   input.focus();
+  if (podium) startClock();
+}
+
+// --- The podium clock ------------------------------------------------------
+
+const ANSWER_SECONDS = 90;
+let timer = null;
+
+function stopClock() {
+  if (timer) clearInterval(timer);
+  timer = null;
+}
+
+/**
+ * Ninety seconds. When it runs out the answer is submitted exactly as it
+ * stands — that is the whole point of the rule, so it must not be dodgeable.
+ */
+function startClock() {
+  stopClock();
+  let left = ANSWER_SECONDS;
+  const label = $("podiumClock");
+  const paint = () => {
+    if (!label) return;
+    const m = Math.floor(left / 60);
+    const s = String(left % 60).padStart(2, "0");
+    label.textContent = `${m}:${s}`;
+    label.classList.toggle("is-urgent", left <= 15);
+  };
+  paint();
+
+  timer = setInterval(() => {
+    left -= 1;
+    paint();
+    if (left <= 0) {
+      stopClock();
+      const input = $("debateInput");
+      // Whatever is in the box is what the country hears.
+      if (!input.value.trim()) input.value = "(The President hesitated, and the moment passed.)";
+      submitRound();
+    }
+  }, 1000);
 }
 
 function paintRound() {
@@ -102,6 +151,7 @@ async function submitRound() {
   const line = input.value.trim();
   if (line.length < 3) { input.focus(); return; }
 
+  stopClock();
   const topic = G.state.campaign.topics[G.debate.round - 1].topic;
   $("debateSend").disabled = true;
   loader(true, G.meta.ai ? "The challenger is firing back…" : "The room reacts…");
@@ -116,13 +166,15 @@ async function submitRound() {
 
     G.debate.round++;
     input.value = "";
-    $("debateCount").textContent = "0 / 700";
+    const onClock = G.state.scenario.podium === true;
+    if (!onClock) $("debateCount").textContent = "0 / 700";
     if (G.debate.round > 3) {
       $("debateComposer").classList.add("hidden");
       $("debateFinish").classList.remove("hidden");
       $("debateFinish").scrollIntoView({ behavior: "smooth", block: "center" });
     } else {
       paintRound();
+      if (onClock) startClock();
     }
   } catch (err) {
     alert("The debate round failed: " + err.message);

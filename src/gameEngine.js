@@ -1,12 +1,34 @@
 import { STATES, STATE_CODES, TOTAL_EV } from "./states.js";
+import { hashString, mulberry32, clamp, round1 } from "./rng.js";
 import {
   advanceArcs, detonationEvent, mockJudgeArcs, activeArcs, inferDomain, MAX_ACTIVE_ARCS,
 } from "./arcs.js";
 import { scoreAll, selectSpeakers } from "./personas.js";
+import { buildFirstLady, tickFirstLady } from "./firstLady.js";
+import { buildInstitutions, tickInstitutions } from "./institutions.js";
+import { emptyLedger, tickSpecialActions } from "./specialActions.js";
+import { buildForeign, applyForeign } from "./foreign.js";
+import { buildSociety, applySociety } from "./society.js";
+import { buildDeployments, tickDeployments } from "./deployments.js";
+import { buildCovert, tickCovert } from "./covert.js";
+import { rememberEvent } from "./eventPool.js";
 
 export const TERM_LENGTH = 48; // months
 export const MIDTERM_MONTH = 24;
 export const CAMPAIGN_MONTH = 46; // general-election campaign season begins
+
+/** Weekly pacing keeps the same four-year term at a finer grain. */
+export const pacing = (state) => {
+  const weekly = state.scenario?.weekly === true;
+  const scale = weekly ? 52 / 12 : 1;
+  return {
+    weekly,
+    unit: weekly ? "week" : "month",
+    termLength: Math.round(TERM_LENGTH * scale),
+    midterm: Math.round(MIDTERM_MONTH * scale),
+    campaignStart: Math.round(CAMPAIGN_MONTH * scale),
+  };
+};
 
 export const STAKEHOLDERS = [
   { id: "wall_street", name: "Wall Street",       lean:  1 },
@@ -19,8 +41,6 @@ export const STAKEHOLDERS = [
   { id: "faith",        name: "Faith Communities", lean:  0.7 },
 ];
 
-const clamp = (v, lo = 0, hi = 100) => Math.max(lo, Math.min(hi, v));
-const round1 = (v) => Math.round(v * 10) / 10;
 
 // party sign: Democrat = -1, Republican = +1. Used to align leans.
 function partySign(party) {
@@ -39,11 +59,19 @@ export function createGame(scenario) {
     stateApproval[code] = clamp(Math.round(scenario.startApproval + alignment * 0.55));
   }
 
-  // Seed stakeholder support from ideological alignment with the president.
+  // Seed stakeholder support from ideological alignment with the president,
+  // then apply who the president actually is — background, wealth, faith and
+  // the rest all decide which blocs start warm.
+  const fx = scenario.profileEffects || {};
   const stakeholders = {};
   for (const s of STAKEHOLDERS) {
     const alignment = sign * s.lean; // positive when stakeholder agrees with president
-    stakeholders[s.id] = clamp(Math.round(50 + alignment * 18));
+    stakeholders[s.id] = clamp(Math.round(50 + alignment * 18 + (fx[s.id] || 0)));
+  }
+
+  // A president's home region starts friendlier than the partisan maths says.
+  for (const code of scenario.homeStates || []) {
+    if (stateApproval[code] != null) stateApproval[code] = clamp(stateApproval[code] + 7);
   }
 
   // Congress: either the composition the player picked, or the party default.
@@ -51,11 +79,11 @@ export function createGame(scenario) {
     ? seatsFromComposition(scenario.congress, sign)
     : seedCongress(sign);
 
-  return {
+  const state = {
     scenario,
     month: 1,
-    approval: scenario.startApproval,
-    stability: clamp(scenario.stability ?? 72),
+    approval: clamp(round1(scenario.startApproval + (fx.approval || 0))),
+    stability: clamp(Math.round((scenario.stability ?? 72) + (fx.stability || 0))),
     economy: {
       gdpGrowth: 2.4,
       unemployment: 4.1,
@@ -68,12 +96,32 @@ export function createGame(scenario) {
     // The Supreme Court is inherited, not chosen — a standing constraint.
     court: scenario.court ?? { conservative: 6, liberal: 3 },
     cabinet: buildCabinet(scenario),
+    firstLady: buildFirstLady(scenario),
+    institutions: buildInstitutions(scenario),
+    specialActions: emptyLedger(),
+    foreign: buildForeign(scenario),
     // Ongoing situations that carry across months. See arcs.js.
     arcs: [],
     history: [],
+    seenEvents: [],
     over: false,
     ending: null,
   };
+
+  // Optional subsystems, only present when their rule is switched on.
+  if (scenario.society) state.society = buildSociety(scenario);
+  if (scenario.war && scenario.war !== "off") state.deployments = buildDeployments(scenario);
+  if (scenario.covert) state.covert = buildCovert(scenario);
+
+  // The spouse in the cabinet and the spouse in the East Wing are one person.
+  const spouse = state.cabinet.find((c) => c.id === "spouse");
+  if (spouse && state.firstLady) {
+    spouse.name = state.firstLady.name;
+    spouse.role = state.firstLady.title;
+    spouse.persona = `${spouse.persona}. ${state.firstLady.bio} Their signature cause is ${state.firstLady.cause}.`;
+  }
+
+  return state;
 }
 
 // ---------------------------------------------------------------------------
@@ -95,6 +143,14 @@ export const CABINET_ROLES = [
     persona: "a markets-and-numbers economist focused on cost, the deficit, inflation and how Wall Street will react" },
   { id: "ag",       role: "Attorney General",         emoji: "⚖️", focus: "the law & the courts",
     persona: "the nation's top lawyer, focused on what is legal and what will survive a challenge at the Supreme Court" },
+  { id: "dhs",      role: "Homeland Security",        emoji: "🛂", focus: "the border, disasters & domestic threats",
+    persona: "a career security administrator focused on the border, disaster response and threats inside the country" },
+  { id: "hhs",      role: "Health & Human Services",  emoji: "🏥", focus: "public health & the safety net",
+    persona: "a public-health administrator focused on coverage, outbreaks, drug pricing and the safety net" },
+  { id: "hud",      role: "Housing & Urban Development", emoji: "🏘️", focus: "housing costs & cities",
+    persona: "an urban-policy specialist focused on housing supply, rents, homelessness and the health of cities" },
+  { id: "energy",   role: "Energy",                   emoji: "⚡", focus: "power, fuel prices & the grid",
+    persona: "an energy technocrat focused on the grid, fuel prices, permitting and the transition to cleaner power" },
   { id: "press",    role: "Press Secretary",          emoji: "🎤", focus: "optics & messaging",
     persona: "a sharp communications strategist focused entirely on optics, messaging and how a decision will play on the news" },
 ];
@@ -240,6 +296,10 @@ export function computeRollCall(state, bipartisan) {
 // Which cabinet secretary owns the implementation of this policy?
 export function leadDepartment(policyText) {
   const t = policyText.toLowerCase();
+  if (/\b(health|hospital|medicare|medicaid|vaccine|outbreak|pandemic|drug pric|insurance|opioid)\b/.test(t)) return "hhs";
+  if (/\b(housing|rent|mortgage|homeless|zoning|tenant|landlord|urban)\b/.test(t)) return "hud";
+  if (/\b(energy|oil|gas|grid|pipeline|solar|wind|nuclear power|emissions|drilling|blackout)\b/.test(t)) return "energy";
+  if (/\b(border|immigrat|deport|asylum|customs|fema|hurricane|wildfire|disaster|homeland)\b/.test(t)) return "dhs";
   if (/\b(tax|budget|deficit|spend|stimulus|econom|jobs|wage|trade|market|inflation|bank|debt)\b/.test(t)) return "treasury";
   if (/\b(war|troops|military|defense|deploy|strike|security|nuclear|invade|weapons)\b/.test(t)) return "defense";
   if (/\b(ally|allies|foreign|diplomat|treaty|nato|sanction|embassy|summit|negotiat)\b/.test(t)) return "state";
@@ -389,11 +449,14 @@ export function applyResult(state, policy, result) {
   result.approvalChange = softenByDifficulty(result.approvalChange || 0, state.scenario.difficulty);
   next.approval = clamp(round1(next.approval + result.approvalChange));
 
-  const eco = result.economy || {};
-  next.economy.gdpGrowth = clamp(round1(next.economy.gdpGrowth + (eco.gdpGrowth || 0)), -7, 7);
-  next.economy.unemployment = clamp(round1(next.economy.unemployment + (eco.unemployment || 0)), 1.5, 25);
-  next.economy.inflation = clamp(round1(next.economy.inflation + (eco.inflation || 0)), -3, 40);
-  next.economy.debt = round1(next.economy.debt + (eco.debt || 0));
+  // With the economic simulation switched off the numbers simply hold still.
+  if (state.scenario.economy !== false) {
+    const eco = result.economy || {};
+    next.economy.gdpGrowth = clamp(round1(next.economy.gdpGrowth + (eco.gdpGrowth || 0)), -7, 7);
+    next.economy.unemployment = clamp(round1(next.economy.unemployment + (eco.unemployment || 0)), 1.5, 25);
+    next.economy.inflation = clamp(round1(next.economy.inflation + (eco.inflation || 0)), -3, 40);
+    next.economy.debt = round1(next.economy.debt + (eco.debt || 0));
+  }
 
   // Track every delta by id as it is applied — the focus group reads these to
   // work out how thirty individual voters feel about the month.
@@ -454,16 +517,34 @@ export function applyResult(state, policy, result) {
     0.5 * next.approval + 0.35 * stakeAvg + 0.15 * (100 - miseryIndex * 2) + arcOutcome.stabilityChange
   ));
 
+  // --- The subsystems that run whether or not the president looked at them ---
+  // Each is optional; each mutates `next` and reports what the player should
+  // be told, which the client renders alongside the month's consequences.
+  tickFirstLady(next);
+  tickInstitutions(next);
+  result.amendment = tickSpecialActions(next);
+  result.foreignMoves = applyForeign(next, policy, result);
+  if (next.society) result.societyMoves = applySociety(next, policy, result);
+  if (next.deployments) result.warEvents = tickDeployments(next, policy);
+  if (next.covert) result.covertOutcome = tickCovert(next, policy, result.covertAction);
+
+  // Approval may have moved again since it was banked; keep the reported
+  // number honest rather than letting the subsystems change it silently.
+  result.approvalChange = round1(next.approval - state.approval);
+
   next.history.push({
     month: state.month,
     policy,
     headline: result.press?.[0]?.headline || result.analysis?.slice(0, 90),
     approval: next.approval,
-    approvalChange: round1(next.approval - state.approval),
+    approvalChange: result.approvalChange,
   });
+  rememberEvent(next, result.usedEvent);
+
+  const clock = pacing(state);
 
   // Midterm elections reshuffle Congress.
-  if (state.month === MIDTERM_MONTH) {
+  if (state.month === clock.midterm) {
     applyMidterms(next);
   }
 
@@ -476,11 +557,11 @@ export function applyResult(state, policy, result) {
   } else if (next.stability <= 8) {
     next.over = true;
     next.ending = { type: "collapse", reason: "Government stability collapsed. You were removed from power." };
-  } else if (next.month >= CAMPAIGN_MONTH && next.phase !== "campaign") {
+  } else if (next.month >= clock.campaignStart && next.phase !== "campaign") {
     // The re-election campaign begins — the debate decides the term.
     next.phase = "campaign";
     next.campaign = createCampaign(next);
-  } else if (next.month > TERM_LENGTH) {
+  } else if (next.month > clock.termLength) {
     next.over = true;
     next.ending = evaluateReelection(next);
   }
@@ -653,7 +734,7 @@ export function finishCampaign(state, debateScore) {
     next.stateApproval[code] = clamp(Math.round(next.stateApproval[code] + adj * 0.5));
   }
   const ec = electoralCount(next);
-  next.month = TERM_LENGTH + 1;
+  next.month = pacing(next).termLength + 1;
   next.phase = "concluded";
   next.over = true;
 
@@ -662,6 +743,20 @@ export function finishCampaign(state, debateScore) {
     debateScore < -8 ? "A disastrous debate" : "An uneven debate";
 
   const { winApproval } = difficultyOf(next.scenario.difficulty);
+
+  // The alternative model skips the map: a national popular verdict, nothing
+  // else. Some players simply want the number they have been watching to be
+  // the number that decides it.
+  if (next.scenario.elections === "alternative") {
+    next.ending = next.approval >= 50
+      ? { type: "reelected", reason: `${debateWord} carried it. You finished on ${Math.round(next.approval)}% and the country returned you for a second term.` }
+      : next.approval >= winApproval
+        ? { type: "narrow", reason: `${debateWord} left it inside the margin. At ${Math.round(next.approval)}% the result is contested and nobody will call it tonight.` }
+        : { type: "defeated", reason: `${debateWord} could not close a ${Math.round(50 - next.approval)}-point gap. ${next.campaign.opponent.name} won, and the country turns the page.` };
+    next.ending.electoral = ec.win;
+    return next;
+  }
+
   if (ec.win >= 270 && next.approval >= winApproval) {
     next.ending = { type: "reelected", reason: `${debateWord} sealed it. You won re-election with roughly ${ec.win} electoral votes — a second term begins.` };
   } else if (next.approval >= winApproval + 1) {
@@ -708,12 +803,6 @@ const EVENTS = [
   { title: "Historic Drought Threatens Harvest", brief: "The worst drought in fifty years is scorching the farm belt. Crop forecasts are collapsing and rural communities are demanding federal relief." },
   { title: "Wave of Factory Closures", brief: "Three major manufacturers announced plant closures this week, citing costs. Twenty thousand jobs are on the line in swing-state towns." },
 ];
-
-function hashString(s) {
-  let h = 0;
-  for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0;
-  return Math.abs(h);
-}
 
 export function mockTurn(state, policy, publicMessage, event) {
   const text = `${policy} ${publicMessage || ""}`;
@@ -922,15 +1011,6 @@ function buildMockAnalysis(policy, matched, approvalChange, economy) {
   const ecoNote = economy.debt > 0.5 ? " The Treasury flags a meaningful hit to the deficit." :
     economy.gdpGrowth > 0.2 ? " Early economic indicators tick upward." : "";
   return `Federal agencies have begun implementing your directive. Initial reaction touched on ${topics} and, on balance, ${dir}.${ecoNote} Field offices report the policy is workable, though full rollout will take months and the courts may yet weigh in.`;
-}
-
-function mulberry32(a) {
-  return function () {
-    a |= 0; a = (a + 0x6D2B79F5) | 0;
-    let t = Math.imul(a ^ (a >>> 15), 1 | a);
-    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  };
 }
 
 // The opening event of a fresh game (mock; Claude generates a richer one live).

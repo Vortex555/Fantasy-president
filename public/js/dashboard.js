@@ -3,6 +3,11 @@
 import { $, show, escapeHtml, monthLabel, shortMonthLabel, track, toneFor } from "./util.js";
 import { G } from "./store.js";
 import { openDrawer } from "./drawer.js";
+import { institutionsCard, wireInstitutions } from "./cards/institutions.js";
+import { firstLadyCard, wireFirstLady } from "./cards/firstLady.js";
+import { specialActionsCard, wireSpecialActions, loadActions } from "./cards/specialActions.js";
+import { approvalChart } from "./cards/chart.js";
+import { foreignCard, societyCard, warCard, covertCard } from "./cards/world.js";
 
 const TERM = 48;
 
@@ -113,18 +118,42 @@ export function renderDashboard(handlers, delta) {
     ${deskCard(state)}
     ${courtCard(state)}
     ${vpCard(state)}
+    ${firstLadyCard(state)}
     ${cabinetCard(state)}
+    ${institutionsCard(state)}
+    ${specialActionsCard(state)}
 
     <div class="grid-2" style="margin-top:14px">
       ${timelineCard(state, startYear)}
       ${stakeholderCard(state)}
     </div>
 
+    ${approvalChart(state)}
     ${economyCard(state)}
-    ${mapCard(state)}`;
+    ${societyCard(state)}
+    ${warCard(state)}
+    ${covertCard(state)}
+
+    <div class="grid-2" style="margin-top:14px">
+      ${foreignCard(state)}
+      ${mapCard(state, { flush: true })}
+    </div>`;
 
   wire(handlers);
   show("dash");
+}
+
+/**
+ * The dashboard is a pure render, so anything that needs a round-trip to the
+ * server (the special-actions docket and its odds) is fetched first and then
+ * the board is repainted.
+ */
+export async function renderDashboardAsync(handlers, delta) {
+  renderDashboard(handlers, delta);
+  if (G.state && !G.state.over) {
+    await loadActions(G.state);
+    renderDashboard(handlers, delta);
+  }
 }
 
 function tile(label, value, deltaHtml, sub, tone) {
@@ -140,8 +169,11 @@ function tile(label, value, deltaHtml, sub, tone) {
 function congressCard(state) {
   const { houseD, houseR, senateD, senateR } = state.congress;
   const chamber = (name, d, r, total) => {
-    const lead = r > d ? "rep" : "dem";
-    const leader = r > d ? "Republican" : "Democrat";
+    // A tied chamber is not a majority for anybody; in the Senate the VP
+    // breaks it, which is the whole reason the running mate mattered.
+    const tied = d === r;
+    const lead = tied ? "tied" : r > d ? "rep" : "dem";
+    const leader = tied ? (name === "Senate" ? "Tied — your VP breaks it" : "Tied") : r > d ? "Republican" : "Democrat";
     const dPct = (d / total) * 100;
     return `<div class="chamber">
       <span class="eyebrow">${name}</span>
@@ -154,6 +186,7 @@ function congressCard(state) {
   };
 
   const control = controlLine(state);
+  const tiedSenate = senateD === senateR;
   return `<div class="card" style="margin-top:14px">
     <div class="card__head">
       <span class="eyebrow">🏛️ Congress</span>
@@ -223,9 +256,10 @@ function controlLine(state) {
   const { houseD, houseR, senateD, senateR } = state.congress;
   const p = state.scenario.party;
   if (p === "Independent") return "You have no bloc — every vote is negotiated";
+  // A tied Senate counts as yours: the Vice President casts the deciding vote.
   const mine = p === "Republican"
-    ? [houseR > houseD, senateR > senateD]
-    : [houseD > houseR, senateD > senateR];
+    ? [houseR > houseD, senateR >= senateD]
+    : [houseD > houseR, senateD >= senateR];
   if (mine[0] && mine[1]) return "Your party controls both chambers";
   if (!mine[0] && !mine[1]) return "The opposition controls both chambers";
   return "Congress is split between the parties";
@@ -258,7 +292,7 @@ function vpCard(state) {
   const vp = (state.cabinet || []).find((c) => c.id === "vp");
   if (!vp) return "";
   const meta = state.scenario.vp;
-  return `<div class="card">
+  return `<div class="card" id="vpCard">
     <span class="eyebrow">🇺🇸 Vice President</span>
     <div class="person__top" style="margin-top:10px">
       <div>
@@ -276,7 +310,8 @@ function vpCard(state) {
 }
 
 function cabinetCard(state) {
-  const others = (state.cabinet || []).filter((c) => c.id !== "vp");
+  // The VP and the spouse each have a card of their own above this one.
+  const others = (state.cabinet || []).filter((c) => c.id !== "vp" && c.id !== "spouse");
   const avg = Math.round(others.reduce((s, c) => s + c.loyalty, 0) / (others.length || 1));
   return `<div class="card">
     <div class="card__head">
@@ -373,13 +408,13 @@ function timelineCard(state, startYear) {
   </div>`;
 }
 
-function mapCard(state) {
+function mapCard(state, { flush = false } = {}) {
   const tiles = Object.entries(G.meta.states).map(([code, info]) => {
     const v = state.stateApproval[code] ?? 50;
     return `<span class="map__tile" style="grid-column:${info.c + 1};grid-row:${info.r + 1};background:${mapTone(v)}"
       title="${escapeHtml(info.name)}: ${v}% · ${info.ev} EV">${code}</span>`;
   }).join("");
-  return `<div class="card" style="margin-top:14px">
+  return `<div class="card" style="margin:${flush ? "0" : "14px 0 0"}">
     <div class="card__head">
       <span class="eyebrow">🗺️ The map</span>
       <span class="map__legend"><i style="background:#b0453f"></i>oppose<i style="background:#8b96a8"></i>even<i style="background:#2f9e6e"></i>support</span>
@@ -396,14 +431,27 @@ function mapTone(v) {
   return "rgb(139,150,168)";
 }
 
+// #dashBody survives every re-render, so its listeners are attached exactly
+// once — binding them per render would stack duplicates and fire each action
+// as many times as the board had been painted.
+let wired = false;
+
 function wire(handlers) {
   const body = $("dashBody");
+  const refresh = () => renderDashboard(handlers, null);
+  if (wired) return;
+  wired = true;
+
   body.addEventListener("click", (e) => {
     const advisor = e.target.closest("[data-advisor]");
-    if (advisor) return openDrawer(advisor.dataset.advisor, () => renderDashboard(handlers, null));
+    if (advisor) return openDrawer(advisor.dataset.advisor, refresh);
     if (e.target.id === "toCareers") return handlers.onCareers();
     if (e.target.id === "playBtn") return handlers.onPlay();
     if (e.target.id === "legacyBtn") return handlers.onLegacy();
     if (e.target.id === "resignBtn") return handlers.onResign();
   });
+
+  wireInstitutions(body, refresh);
+  wireFirstLady(body, refresh);
+  wireSpecialActions(body, refresh);
 }

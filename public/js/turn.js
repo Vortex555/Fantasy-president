@@ -40,12 +40,15 @@ export function renderBriefing(hooks) {
   const event = G.event;
   const startYear = state.scenario.startYear || 2025;
   const open = liveArcs(state).filter((a) => a.id !== event?.fromArc);
+  // No Hints strips every prompt and suggestion — a blank box and nothing else.
+  const noHints = state.scenario.noHints === true;
+  const clock = state.scenario.weekly ? { unit: "Week", total: 208 } : { unit: "Month", total: 48 };
 
   $("turnBody").innerHTML = `
     <div class="dash-head">
       <div>
         <h1 class="display display--lg">${escapeHtml(state.scenario.presidentName)}</h1>
-        <div class="dash-head__sub">Month ${state.month} of 48 · ${Math.round(state.approval)}% approval</div>
+        <div class="dash-head__sub">${clock.unit} ${state.month} of ${clock.total} · ${Math.round(state.approval)}% approval</div>
       </div>
       <div class="dash-head__right">
         <h2 class="display display--md">${monthLabel(state.month, startYear)}</h2>
@@ -66,7 +69,7 @@ export function renderBriefing(hooks) {
     <div class="card">
       <div class="card__head">
         <span class="eyebrow">🗂️ Still on your desk</span>
-        <span class="hint">You can spend this month on one of these instead</span>
+        ${noHints ? "" : `<span class="hint">You can spend this ${clock.unit.toLowerCase()} on one of these instead</span>`}
       </div>
       <div class="desk">
         ${open.map((a) => `
@@ -91,12 +94,12 @@ export function renderBriefing(hooks) {
 
     <div class="card composer">
       <span class="eyebrow">Your policy response</span>
-      <p class="hint" style="margin:6px 0 12px">Write it in your own words. Name the agency, the money and the
-        message — vague gestures play badly.</p>
+      ${noHints ? "" : `<p class="hint" style="margin:6px 0 12px">Write it in your own words. Name the agency, the money
+        and the message — vague gestures play badly.</p>`}
       <textarea id="policyInput" rows="7" maxlength="1600"
-        placeholder="Exactly how will you respond?"></textarea>
+        placeholder="${noHints ? "" : "Exactly how will you respond?"}"></textarea>
       <input id="publicMessage" type="text" maxlength="240"
-        placeholder="Optional: the line you give the cameras…" />
+        placeholder="${noHints ? "" : "Optional: the line you give the cameras…"}" />
       <div class="composer__actions">
         <span class="composer__count" id="charCount">0 / 1600</span>
         <div class="btn-row">
@@ -228,6 +231,8 @@ function renderConsequences(result, delta) {
     </div>`);
   }
 
+  sections.push(...subsystemSections(result));
+
   if (result.personas?.length) sections.push(focusGroup(result.personas));
 
   const shifts = (result.stakeholders || []).filter((s) => Math.abs(s.change || 0) >= 1)
@@ -262,6 +267,87 @@ function renderConsequences(result, delta) {
     handlers.onDashboard();
   };
   show("turn");
+}
+
+/**
+ * What the optional subsystems did this month. Each block only appears when
+ * its rule is on and something actually moved — a card that says "no change"
+ * every month teaches the player to stop reading.
+ */
+function subsystemSections(result) {
+  const out = [];
+
+  if (result.warEvents?.length) {
+    out.push(`<div class="card">
+      <span class="eyebrow">⚔️ The deployments</span>
+      <div style="margin-top:12px">
+        ${result.warEvents.map((e) => `
+          <div class="arc-event">
+            <div class="arc-event__top">
+              <span class="badge ${e.kind === "withdrawn" || e.kind === "settled" ? "badge--blue"
+                : e.kind === "objective_met" ? "badge--live" : "badge--red"}">${escapeHtml(e.war)}</span>
+            </div>
+            <div class="arc-event__detail">${escapeHtml(e.detail)}</div>
+          </div>`).join("")}
+      </div>
+    </div>`);
+  }
+
+  const covert = result.covertOutcome;
+  if (covert?.events?.length) {
+    out.push(`<div class="card">
+      <span class="eyebrow">🎯 The shadow war</span>
+      <div style="margin-top:12px">
+        ${covert.events.map((e) => `
+          <div class="arc-event">
+            <div class="arc-event__top">
+              <span class="badge ${e.kind === "disrupted" ? "badge--live" : "badge--red"}">${
+                escapeHtml(e.kind.replace("_", " "))}</span>
+            </div>
+            <div class="arc-event__detail">${escapeHtml(e.detail)}</div>
+          </div>`).join("")}
+      </div>
+    </div>`);
+  }
+
+  const amendment = result.amendment;
+  if (amendment && amendment.kind !== "pending") {
+    out.push(`<div class="card ${amendment.kind === "ratified" ? "card--blue" : "card--amber"}">
+      <span class="eyebrow">📜 ${amendment.kind === "ratified" ? "Ratified" : "Died in the states"}</span>
+      <p class="analysis" style="margin-top:8px">${escapeHtml(amendment.title)}${
+        amendment.kind === "expired" ? ` fell short at ${amendment.ratified} states.` : " is now part of the Constitution."}</p>
+    </div>`);
+  } else if (amendment?.kind === "pending") {
+    out.push(`<div class="card card--amber">
+      <span class="eyebrow">📜 Out with the states</span>
+      <p class="analysis" style="margin-top:8px">${escapeHtml(amendment.title)} —
+        ${amendment.ratified} of ${amendment.needed} states have ratified.</p>
+    </div>`);
+  }
+
+  const society = (result.societyMoves || []).filter((m) => Math.abs(m.change) > 0);
+  if (society.length) {
+    out.push(`<div class="card">
+      <span class="eyebrow">📊 The country itself</span>
+      <div class="grid-3" style="margin-top:12px">
+        ${society.map((m) => `<div class="shift"><span>${escapeHtml(m.name)}</span>
+          <b class="${m.change > 0 ? "up" : "down"}">${m.change > 0 ? "+" : ""}${m.change}</b></div>`).join("")}
+      </div>
+    </div>`);
+  }
+
+  const foreign = (result.foreignMoves || []).filter((m) => Math.abs(m.change) >= 2);
+  if (foreign.length) {
+    out.push(`<div class="card">
+      <span class="eyebrow">🌐 Standing in the world</span>
+      <div class="grid-3" style="margin-top:12px">
+        ${foreign.map((m) => `<div class="shift"><span>${escapeHtml(m.name)}</span>
+          <b class="${m.change > 0 ? "up" : "down"}">${m.change > 0 ? "+" : ""}${m.change}</b></div>`).join("")}
+      </div>
+    </div>`);
+  }
+
+  return out;
 }
 
 function checkCard(label, c) {

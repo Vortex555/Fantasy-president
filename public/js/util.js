@@ -58,6 +58,36 @@ export function shortMonthLabel(month, startYear) {
   return label.slice(0, 3) + " " + label.split(" ")[1];
 }
 
+/**
+ * Markup for a single-choice picker. Items are `{ value, label?, sub? }`;
+ * the label falls back to the value so short catalogs stay terse.
+ */
+export function optionsHtml(items, selected, extraCls = "") {
+  return items.map((it) => {
+    const on = it.value === selected ? " is-selected" : "";
+    const sub = it.sub ? `<span class="opt__sub">${escapeHtml(it.sub)}</span>` : "";
+    return `<button type="button" class="opt${extraCls}${on}" data-value="${escapeHtml(it.value)}">
+      <span class="opt__label">${escapeHtml(it.label || it.value)}</span>${sub}</button>`;
+  }).join("");
+}
+
+/** An iOS-style switch with its title and description. */
+export function toggleHtml(id, title, desc, on) {
+  return `<button type="button" class="toggle${on ? " is-on" : ""}" data-toggle="${id}" aria-pressed="${on}">
+    <span><span class="toggle__title">${title}</span><span class="toggle__desc">${desc}</span></span>
+    <span class="switch"></span>
+  </button>`;
+}
+
+/** A segmented control. Items are `{ value, label, tag? }`. */
+export function segmentHtml(group, items, selected) {
+  return `<div class="seg" data-seg="${group}">
+    ${items.map((it) => `<button type="button" class="seg__btn${it.value === selected ? " is-on" : ""}"
+      data-value="${escapeHtml(it.value)}">${escapeHtml(it.label)}${
+        it.tag ? `<span class="seg__tag">${escapeHtml(it.tag)}</span>` : ""}</button>`).join("")}
+  </div>`;
+}
+
 /** Wire a group of `.opt` buttons as a single-choice picker. */
 export function pickerGroup(root, selector, onPick) {
   root.addEventListener("click", (e) => {

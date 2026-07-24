@@ -1,10 +1,14 @@
 "use strict";
 
-import { $, el, show, escapeHtml } from "./util.js";
+import { $, show, escapeHtml, optionsHtml } from "./util.js";
 import { listPresidents, savePresident, deletePresident } from "./store.js";
 import {
-  GENDERS, PARTIES, IDEOLOGIES, STYLES, MANDATES, COMPOSITIONS, DIFFICULTIES, VP_POOL,
-} from "./data.js";
+  GENDERS, PARTIES, IDEOLOGIES, STYLES, MANDATES, COMPOSITIONS, VP_POOL,
+} from "./data/catalog.js";
+import { PROFILE_DEFAULTS, PROFILE_FIELDS, profileEffects, homeStates } from "./data/profile.js";
+import { settingDefaults, SETTINGS, NO_HINTS } from "./data/settings.js";
+import { profileHtml, applyProfileClick, opensExtra, profileSummary } from "./profile.js";
+import { settingsHtml, refreshNote, unavailable } from "./settings.js";
 
 const DEFAULT_DRAFT = {
   presidentName: "",
@@ -14,27 +18,17 @@ const DEFAULT_DRAFT = {
   style: "Polished / Presidential",
   mandate: "comfortable",
   composition: "balanced",
-  checks: true,
-  debates: true,
-  difficulty: "hard",
+  ...PROFILE_DEFAULTS,
+  ...settingDefaults(),
 };
 
 let draft = { ...DEFAULT_DRAFT };
 let handlers = {};
+let context = { scenario: null, era: null };
 
 export const currentDraft = () => ({ ...draft });
 
-/** Options markup shared by every picker on this screen. */
-function optsHtml(items, selected, extraCls = "") {
-  return items.map((it) => {
-    const value = it.value;
-    const label = it.label || value;
-    const on = value === selected ? " is-selected" : "";
-    const sub = it.sub ? `<span class="opt__sub">${escapeHtml(it.sub)}</span>` : "";
-    return `<button type="button" class="opt${extraCls}${on}" data-value="${escapeHtml(value)}">
-      <span class="opt__label">${escapeHtml(label)}</span>${sub}</button>`;
-  }).join("");
-}
+const ideologiesFor = (party) => IDEOLOGIES[party] || IDEOLOGIES.Independent;
 
 function partyHtml(selected) {
   return PARTIES.map((p) => `
@@ -45,33 +39,23 @@ function partyHtml(selected) {
     </button>`).join("");
 }
 
-function toggleHtml(id, title, desc, on) {
-  return `<button type="button" class="toggle${on ? " is-on" : ""}" id="${id}" aria-pressed="${on}">
-    <span><span class="toggle__title">${title}</span><span class="toggle__desc">${desc}</span></span>
-    <span class="switch"></span>
-  </button>`;
-}
-
-function ideologiesFor(party) {
-  return IDEOLOGIES[party] || IDEOLOGIES.Independent;
-}
-
 /** Congress composition is a party-strength control, so it needs a party. */
 function compositionSection() {
   if (draft.party === "Independent") {
     return `<p class="hint">You have no bloc in Congress as an independent — both chambers start
       evenly divided and every vote has to be won on its own terms.</p>`;
   }
-  return `<div class="opts opts--wide" id="compositionOpts">${optsHtml(COMPOSITIONS, draft.composition)}</div>`;
+  return `<div class="opts opts--wide" data-pick="composition">${optionsHtml(COMPOSITIONS, draft.composition)}</div>`;
 }
 
 export function renderCharacter(scenario, era, onConfirm, onBack) {
   handlers = { onConfirm, onBack };
+  context = { scenario, era };
   if (!draft.ideology) draft.ideology = ideologiesFor(draft.party)[0].value;
 
-  const saved = listPresidents();
   const savedOptions = ['<option value="">— Saved presidents —</option>']
-    .concat(saved.map((p) => `<option value="${escapeHtml(p.presidentName)}">${escapeHtml(p.presidentName)} · ${escapeHtml(p.party)}</option>`))
+    .concat(listPresidents().map((p) =>
+      `<option value="${escapeHtml(p.presidentName)}">${escapeHtml(p.presidentName)} · ${escapeHtml(p.party)}</option>`))
     .join("");
 
   $("characterForm").innerHTML = `
@@ -89,32 +73,33 @@ export function renderCharacter(scenario, era, onConfirm, onBack) {
       </div>
       <div class="field">
         <span class="field__label">Gender</span>
-        <div class="opts" id="genderOpts">${optsHtml(GENDERS, draft.gender)}</div>
+        <div class="opts" data-pick="gender">${optionsHtml(GENDERS, draft.gender)}</div>
       </div>
     </div>
 
     <div class="field">
       <span class="field__label">Your Party</span>
-      <div class="opts--party" id="partyOpts">${partyHtml(draft.party)}</div>
+      <div class="opts--party" data-pick="party">${partyHtml(draft.party)}</div>
     </div>
 
     <div class="divider"><span class="eyebrow">Character profile</span></div>
-
-    <div class="field">
-      <span class="field__label">Ideology <span class="field__note">(updates when you pick a party)</span></span>
-      <div class="opts opts--grid" id="ideologyOpts">${optsHtml(ideologiesFor(draft.party), draft.ideology)}</div>
-    </div>
-
-    <div class="field">
-      <span class="field__label">Communication Style</span>
-      <div class="opts opts--grid" id="styleOpts">${optsHtml(STYLES, draft.style)}</div>
-    </div>
+    ${profileHtml(draft)}
 
     <div class="divider"><span class="eyebrow">Political position</span></div>
 
     <div class="field">
+      <span class="field__label">Communication Style</span>
+      <div class="opts opts--grid" data-pick="style">${optionsHtml(STYLES, draft.style)}</div>
+    </div>
+
+    <div class="field">
+      <span class="field__label">Ideology <span class="field__note">(updates when you pick a party)</span></span>
+      <div class="opts opts--grid" data-pick="ideology">${optionsHtml(ideologiesFor(draft.party), draft.ideology)}</div>
+    </div>
+
+    <div class="field">
       <span class="field__label">Mandate Strength</span>
-      <div class="opts opts--grid" id="mandateOpts">${optsHtml(MANDATES, draft.mandate)}</div>
+      <div class="opts opts--grid" data-pick="mandate">${optionsHtml(MANDATES, draft.mandate)}</div>
     </div>
 
     <div class="field">
@@ -124,128 +109,146 @@ export function renderCharacter(scenario, era, onConfirm, onBack) {
     </div>
 
     <div class="divider"><span class="eyebrow">Rules of play</span></div>
-
-    <div class="card card--blue setting">
-      ${toggleHtml("checksToggle", "⚖️ Checks &amp; Balances",
-        "Congress, the courts and federal agencies can block or water down what you sign. Forces realism.", draft.checks)}
-    </div>
-
-    <div class="card card--purple setting">
-      ${toggleHtml("debatesToggle", "🎤 Presidential Debates",
-        "Run the debate rounds when election season arrives. Switch off and the campaign is decided on your record alone.", draft.debates)}
-    </div>
-
-    <div class="card setting">
-      <span class="field__label">⚔️ Difficulty</span>
-      <p class="hint">Affects how far approval swings each month and how much the country forgives at the ballot box.</p>
-      <div class="setting__body">
-        <div class="seg" id="difficultySeg">
-          ${DIFFICULTIES.map((d) => `<button type="button" class="seg__btn${d.value === draft.difficulty ? " is-on" : ""}"
-            data-value="${d.value}">${d.label}${d.tag ? `<span class="seg__tag">${d.tag}</span>` : ""}</button>`).join("")}
-        </div>
-      </div>
-      <p class="hint setting__foot"><em>The game is built for Hard. Easy and Medium soften the consequences.</em></p>
-    </div>
+    ${settingsHtml(draft)}
 
     <button type="button" class="btn btn--primary btn--block" id="beginBtn" style="margin-top:26px">
-      Begin Your Presidency →
+      ${draft.bio ? "Next: Your Bio →" : "Begin Your Presidency →"}
     </button>`;
 
-  wire(scenario, era);
+  flagUnavailableSettings();
+  wire();
   show("character");
 }
 
-function wire(scenario, era) {
+/** Grey out rules that this era cannot support, and say why. */
+function flagUnavailableSettings() {
+  const year = context.era?.startYear || 2025;
+  for (const s of SETTINGS) {
+    const reason = unavailable(s.key, year);
+    if (!reason) continue;
+    draft[s.key] = s.kind === "toggle" ? false : s.options[0].value;
+    const control = $("characterForm").querySelector(`[data-toggle="${s.key}"], [data-seg="${s.key}"]`);
+    const card = control?.closest(".setting");
+    if (!card) continue;
+    card.classList.add("is-disabled");
+    card.insertAdjacentHTML("beforeend", `<p class="hint setting__foot">${escapeHtml(reason)}</p>`);
+  }
+}
+
+const repaint = () => renderCharacter(context.scenario, context.era, handlers.onConfirm, handlers.onBack);
+
+// #characterForm outlives every repaint, so its delegated listeners are bound
+// exactly once. Binding per render stacks duplicates, and a toggle handled an
+// even number of times flips back to where it started.
+let wired = false;
+
+function wire() {
   const form = $("characterForm");
+
+  // Header buttons are plain assignments, so they are safe to rebind.
+  $("charBack").onclick = handlers.onBack;
+  $("charRandom").onclick = () => { draft = { ...draft, ...randomDraft() }; repaint(); };
+  $("charSave").onclick = () => {
+    if (!draft.presidentName.trim()) return $("nameInput").focus();
+    if (savePresident(draft)) repaint();
+  };
+
+  if (wired) return;
+  wired = true;
 
   form.addEventListener("input", (e) => {
     if (e.target.id === "nameInput") draft.presidentName = e.target.value;
-  });
-
-  form.addEventListener("click", (e) => {
-    const opt = e.target.closest(".opt");
-    const seg = e.target.closest(".seg__btn");
-    const toggle = e.target.closest(".toggle");
-
-    if (opt) return handleOption(opt);
-    if (seg) {
-      $("difficultySeg").querySelectorAll(".seg__btn").forEach((b) => b.classList.remove("is-on"));
-      seg.classList.add("is-on");
-      draft.difficulty = seg.dataset.value;
-      return;
-    }
-    if (toggle) {
-      const on = !toggle.classList.contains("is-on");
-      toggle.classList.toggle("is-on", on);
-      toggle.setAttribute("aria-pressed", String(on));
-      if (toggle.id === "checksToggle") draft.checks = on;
-      if (toggle.id === "debatesToggle") draft.debates = on;
-      return;
-    }
-    if (e.target.id === "deletePresident") {
-      const name = $("savedSelect").value;
-      if (!name) return;
-      if (!confirm(`Delete the saved president "${name}"?`)) return;
-      deletePresident(name);
-      renderCharacter(scenario, era, handlers.onConfirm, handlers.onBack);
-      return;
-    }
-    if (e.target.id === "beginBtn") return submit(scenario, era);
+    if (e.target.id === "customAge") draft.customAge = e.target.value.replace(/\D/g, "");
   });
 
   form.addEventListener("change", (e) => {
-    if (e.target.id !== "savedSelect" || !e.target.value) return;
-    const found = listPresidents().find((p) => p.presidentName === e.target.value);
-    if (found) {
-      draft = { ...DEFAULT_DRAFT, ...found };
-      renderCharacter(scenario, era, handlers.onConfirm, handlers.onBack);
+    if (e.target.id === "customState") draft.customState = e.target.value;
+    if (e.target.id === "savedSelect" && e.target.value) {
+      const found = listPresidents().find((p) => p.presidentName === e.target.value);
+      if (found) {
+        draft = { ...DEFAULT_DRAFT, ...found };
+        repaint();
+      }
     }
   });
 
-  $("charBack").onclick = handlers.onBack;
-  $("charRandom").onclick = () => {
-    draft = { ...draft, ...randomDraft() };
-    renderCharacter(scenario, era, handlers.onConfirm, handlers.onBack);
-  };
-  $("charSave").onclick = () => {
-    if (!draft.presidentName.trim()) {
-      $("nameInput").focus();
+  form.addEventListener("click", (e) => {
+    if (e.target.closest(".is-disabled")) return;
+
+    const opt = e.target.closest(".opt");
+    if (opt) return handleOption(opt);
+
+    const seg = e.target.closest(".seg__btn");
+    if (seg) return handleSegment(seg, form);
+
+    const toggle = e.target.closest(".toggle");
+    if (toggle) return handleToggle(toggle);
+
+    if (e.target.id === "deletePresident") {
+      const name = $("savedSelect").value;
+      if (name && confirm(`Delete the saved president "${name}"?`)) {
+        deletePresident(name);
+        repaint();
+      }
       return;
     }
-    if (savePresident(draft)) renderCharacter(scenario, era, handlers.onConfirm, handlers.onBack);
-  };
+    if (e.target.id === "beginBtn") return submit();
+  });
 }
 
-/** Every option group is a single-choice picker over the same markup. */
 function handleOption(btn) {
   const group = btn.parentElement;
   group.querySelectorAll(".opt").forEach((b) => b.classList.remove("is-selected"));
   btn.classList.add("is-selected");
   const value = btn.dataset.value;
 
-  switch (group.id) {
-    case "genderOpts": draft.gender = value; break;
-    case "styleOpts": draft.style = value; break;
-    case "mandateOpts": draft.mandate = value; break;
-    case "compositionOpts": draft.composition = value; break;
-    case "ideologyOpts": draft.ideology = value; break;
-    case "partyOpts": {
-      draft.party = value;
-      // Ideology is party-specific, and Independents have no congressional bloc.
-      draft.ideology = ideologiesFor(value)[0].value;
-      $("ideologyOpts").innerHTML = optsHtml(ideologiesFor(value), draft.ideology);
-      $("compositionWrap").innerHTML = compositionSection();
-      break;
-    }
+  // Demographic fields live behind data-profile and may reveal a follow-up.
+  if (group.dataset.profile) {
+    const key = applyProfileClick(group, value, draft);
+    if (opensExtra(key, draft) || key === "age" || key === "region") repaint();
+    return;
+  }
+
+  const key = group.dataset.pick;
+  if (!key) return;
+  draft[key] = value;
+
+  if (key === "party") {
+    // Ideology is party-specific, and independents have no congressional bloc.
+    draft.ideology = ideologiesFor(value)[0].value;
+    $("characterForm").querySelector('[data-pick="ideology"]').innerHTML =
+      optionsHtml(ideologiesFor(value), draft.ideology);
+    $("compositionWrap").innerHTML = compositionSection();
   }
 }
 
-function pick(list) { return list[Math.floor(Math.random() * list.length)]; }
+function handleSegment(btn, form) {
+  const group = btn.closest(".seg");
+  const key = group.dataset.seg;
+  group.querySelectorAll(".seg__btn").forEach((b) => b.classList.remove("is-on"));
+  btn.classList.add("is-on");
+  draft[key] = btn.dataset.value;
+  refreshNote(key, draft[key], form);
+}
+
+function handleToggle(btn) {
+  const key = btn.dataset.toggle;
+  const on = !btn.classList.contains("is-on");
+  btn.classList.toggle("is-on", on);
+  btn.setAttribute("aria-pressed", String(on));
+  draft[key] = on;
+  // Switching the bio on changes what the primary button promises.
+  if (key === "bio") {
+    $("beginBtn").textContent = on ? "Next: Your Bio →" : "Begin Your Presidency →";
+  }
+}
+
+const pick = (list) => list[Math.floor(Math.random() * list.length)];
 
 function randomDraft() {
   const gender = pick(["male", "female"]);
   const party = pick(PARTIES).value;
-  return {
+  const out = {
     presidentName: `${pick(VP_POOL.first[gender])} ${pick(VP_POOL.last)}`,
     gender,
     party,
@@ -254,9 +257,15 @@ function randomDraft() {
     mandate: pick(MANDATES).value,
     composition: pick(COMPOSITIONS).value,
   };
+  // Randomise the whole profile too, skipping the options that need typing.
+  for (const field of PROFILE_FIELDS) {
+    const choices = field.options.filter((o) => !o.custom);
+    out[field.key] = pick(choices).value;
+  }
+  return out;
 }
 
-function submit(scenario, era) {
+function submit() {
   const name = draft.presidentName.trim();
   if (!name) {
     const input = $("nameInput");
@@ -265,12 +274,24 @@ function submit(scenario, era) {
     setTimeout(() => (input.style.borderColor = ""), 900);
     return;
   }
+
+  const { scenario, era } = context;
   const mandate = MANDATES.find((m) => m.value === draft.mandate);
   const composition = COMPOSITIONS.find((c) => c.value === draft.composition);
+  const settings = {};
+  for (const s of SETTINGS) {
+    settings[s.key] = draft[s.key];
+    if (s.sub) settings[s.sub.key] = draft[s.sub.key];
+  }
 
   handlers.onConfirm({
     ...draft,
+    ...settings,
+    [NO_HINTS.key]: draft[NO_HINTS.key],
     presidentName: name,
+    profile: profileSummary(draft),
+    profileEffects: profileEffects(draft),
+    homeStates: homeStates(draft),
     scenarioKey: scenario.key,
     scenarioName: scenario.name,
     eraKey: era.key,
