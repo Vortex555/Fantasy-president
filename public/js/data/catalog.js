@@ -162,31 +162,6 @@ export const PARTIES = [
   { value: "Independent", label: "Independent", cls: "ind" },
 ];
 
-export const IDEOLOGIES = {
-  Democrat: [
-    { value: "Progressive Firebrand", sub: "+Base energy, −Moderates" },
-    { value: "Liberal Mainstream", sub: "Balanced" },
-    { value: "Blue Dog Moderate", sub: "+Swing voters, −Base" },
-    { value: "Democratic Socialist", sub: "+Labor, −Wall St" },
-    { value: "New Left", sub: "+Civil rights coalition, −Right media" },
-  ],
-  Republican: [
-    { value: "Populist Right", sub: "+Base energy, −Moderates" },
-    { value: "Traditional Conservative", sub: "Balanced" },
-    { value: "Moderate Republican", sub: "+Swing voters, −Base" },
-    { value: "Libertarian Conservative", sub: "+Libertarian wing, −Religious right" },
-    { value: "Religious Right", sub: "+Faith communities, −Big tech" },
-    { value: "Neoconservative", sub: "+Pentagon & Wall St, −Populists" },
-  ],
-  Independent: [
-    { value: "Reform Populist", sub: "+Reform base, −Wall St & establishment" },
-    { value: "Democratic Socialist", sub: "+Labor & the left, −Big business" },
-    { value: "Christian Nationalist", sub: "+Religious right, −Secularists" },
-    { value: "Libertarian", sub: "+Free-market & gun-rights voters, −Regulators" },
-    { value: "Green", sub: "+Environmentalists, −Fossil fuels" },
-  ],
-};
-
 export const STYLES = [
   { value: "Polished / Presidential", sub: "+Media, +Institutions" },
   { value: "Populist / Direct", sub: "+Base, −Establishment" },

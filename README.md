@@ -152,8 +152,9 @@ src/
   covert.js         The intelligence war: penetration, pressure, homeland, exposure
   states.js         50 states + DC: electoral votes, tile-map layout, partisan lean
 tests/
-  arcs.test.js       Arc lifecycle (`npm test`)
-  personas.test.js   Focus-group scoring, rotation and quote merging
+  arcs.test.js            Arc lifecycle (`npm test`)
+  personas.test.js        Focus-group scoring, rotation and quote merging
+  specialActions.test.js  Amendment gating, the franchise, and rule by decree
 public/
   index.html         Screen shells; every screen body is rendered by its module
   css/
@@ -168,9 +169,12 @@ public/
     store.js         In-memory state + saved careers and presidents (localStorage)
     util.js          DOM, escaping, meters, pickers and month formatting
     data/
-      catalog.js     Scenarios, eras, parties, ideologies, mandates, compositions
+      catalog.js     Scenarios, eras, parties, mandates, compositions
+      ideologies.js  58 ideologies with spectrum positions and bloc effects
       profile.js     The demographic catalogs and their bloc effects
       settings.js    The rules-of-play rack and the guided-bio questions
+      government.js  Congress, the bench and cabinet politics, derived from a seed
+      rng.js         Seeded randomness, shared with the server
     careers.js       "Your Careers" — resume, delete, start new
     scenario.js      Scenario and era pickers
     character.js     Character setup
@@ -184,6 +188,7 @@ public/
       firstLady.js     The East Wing card
       specialActions.js The amendments and structural-reform docket
       chart.js         The approval line
+      legislature.js   Chamber rosters, caucuses and the Supreme Court bench
       world.js         Foreign relations, society, war and covert cards
     turn.js          Briefing, policy composer, consequences
     drawer.js        Advisor conversations

@@ -140,6 +140,25 @@
 .opt--party.rep { --c: var(--rep); }
 .opt--party.ind { --c: var(--ind); }
 
+/* Splits a long picker into a mainstream half and a fringe one. */
+.opts-divider {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 16px 0 12px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: .085em;
+  text-transform: uppercase;
+  color: var(--faint);
+}
+.opts-divider::before, .opts-divider::after {
+  content: "";
+  flex: 1 1 auto;
+  height: 1px;
+  background: var(--line-2);
+}
+
 /* --- Field scaffolding --------------------------------------------------- */
 
 .field { margin-bottom: 24px; }
@@ -230,7 +249,16 @@
   height: 100%;
   border-radius: 999px;
   background: var(--ink);
-  transition: width .4s cubic-bezier(.4, 0, .2, 1);
+  transition: width .4s cubic-bezier(.4, 0, .2, 1), margin-left .4s cubic-bezier(.4, 0, .2, 1);
+}
+
+/* A net meter fills out from the centre, with a hairline marking zero. */
+.track--net { position: relative; }
+.track--net::before {
+  content: "";
+  position: absolute; left: 50%; top: -2px;
+  width: 1px; height: calc(100% + 4px);
+  background: #c3cbd7;
 }
 
 /* --- Badges -------------------------------------------------------------- */

@@ -5,6 +5,7 @@ import {
   PERSONAS,
   SPEAKERS_PER_TURN,
   attachQuotes,
+  coalitionRanks,
   moodFromScore,
   rosterPrompt,
   scoreAll,
@@ -48,15 +49,75 @@ test("the roster prompt carries every voter", () => {
 // Scoring
 // ---------------------------------------------------------------------------
 
+const scoreFor = (id, scored) => scored.find((s) => s.id === id).score;
+
 test("a voter aligned with the president reads the same month more warmly", () => {
-  const ctx = { approvalChange: 0, presidentSign: 1 }; // Republican president
-  assert.ok(scorePersona(rancher, ctx) > scorePersona(student, ctx));
+  const scored = scoreAll({ approvalChange: 0, approval: 50, presidentAxis: 0.6 });
+  assert.ok(scoreFor(rancher.id, scored) > scoreFor(student.id, scored));
 });
 
-test("the same voter flips when the president's party flips", () => {
-  const underR = scorePersona(rancher, { approvalChange: 0, presidentSign: 1 });
-  const underD = scorePersona(rancher, { approvalChange: 0, presidentSign: -1 });
-  assert.ok(underR > underD);
+test("the same voter flips when the president's politics flip", () => {
+  const underRight = scoreAll({ approvalChange: 0, approval: 50, presidentAxis: 0.6 });
+  const underLeft = scoreAll({ approvalChange: 0, approval: 50, presidentAxis: -0.6 });
+  assert.ok(scoreFor(rancher.id, underRight) > scoreFor(rancher.id, underLeft));
+  assert.ok(scoreFor(student.id, underLeft) > scoreFor(student.id, underRight));
+});
+
+// ---------------------------------------------------------------------------
+// The coalition that elected you
+// ---------------------------------------------------------------------------
+
+const share = (scored, mood) => scored.filter((s) => s.mood === mood).length / scored.length;
+
+test("about half the panel starts supportive, wherever the president stands", () => {
+  // A president who just won: 55% approval, a fresh term, a quiet first month.
+  for (const axis of [-0.95, -0.6, -0.35, 0, 0.18, 0.45, 0.9]) {
+    const scored = scoreAll({ approvalChange: 0, approval: 55, presidentAxis: axis });
+    const approve = share(scored, "approve");
+    assert.ok(approve >= 0.35 && approve <= 0.65,
+      `axis ${axis}: ${Math.round(approve * 100)}% approve, expected roughly half`);
+  }
+});
+
+test("a president with no bloc still has a coalition", () => {
+  // The old model gave an independent presidentSign 0, so nobody aligned and
+  // the whole panel shrugged. An independent won an election too.
+  const scored = scoreAll({ approvalChange: 0, approval: 55, presidentAxis: -0.95 });
+  assert.ok(share(scored, "approve") > 0.3, "a radical independent must still have a base");
+  assert.ok(share(scored, "mixed") < 0.6, "the panel must not be all shrugs");
+});
+
+test("the coalition is ordered by agreement, not by party", () => {
+  const ranks = coalitionRanks(0.8, PERSONAS); // a hard-right president
+  const mostAligned = [...PERSONAS].sort((a, b) => ranks.get(b.id) - ranks.get(a.id))[0];
+  const leastAligned = [...PERSONAS].sort((a, b) => ranks.get(a.id) - ranks.get(b.id))[0];
+  assert.ok(mostAligned.lean > 0.5, `${mostAligned.name} should not top a right-wing coalition`);
+  assert.ok(leastAligned.lean < -0.5, `${leastAligned.name} should not be the last holdout`);
+});
+
+test("a radical splits the room harder than a moderate", () => {
+  const moderate = scoreAll({ approvalChange: 0, approval: 50, presidentAxis: 0.18, intensity: 1 });
+  const radical = scoreAll({ approvalChange: 0, approval: 50, presidentAxis: 0.9, intensity: 1.7 });
+  assert.ok(share(radical, "mixed") < share(moderate, "mixed"),
+    "a radical should leave fewer people undecided");
+});
+
+test("a collapsing presidency loses even its own coalition", () => {
+  const winning = scoreAll({ approvalChange: 0, approval: 60, presidentAxis: 0.5 });
+  const collapsing = scoreAll({ approvalChange: 0, approval: 22, presidentAxis: 0.5 });
+  assert.ok(share(collapsing, "approve") < share(winning, "approve"));
+  assert.ok(share(collapsing, "disapprove") > share(winning, "disapprove"));
+});
+
+test("disenfranchising a bloc re-forms the coalition around who is left", () => {
+  const full = scoreAll({ approvalChange: 0, approval: 55, presidentAxis: 0.5 });
+  const narrowed = scoreAll({
+    approvalChange: 0, approval: 55, presidentAxis: 0.5, electorate: { excluded: "f" },
+  });
+  assert.ok(narrowed.length < full.length);
+  // Still roughly half supportive — the coalition re-ranks within the survivors.
+  const approve = share(narrowed, "approve");
+  assert.ok(approve >= 0.3 && approve <= 0.7, `${Math.round(approve * 100)}% approve`);
 });
 
 test("a voter reacts to the blocs they personally care about", () => {

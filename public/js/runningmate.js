@@ -1,7 +1,8 @@
 "use strict";
 
 import { $, el, show, escapeHtml } from "./util.js";
-import { VP_POOL, PORTFOLIOS, IDEOLOGIES } from "./data/catalog.js";
+import { VP_POOL, PORTFOLIOS } from "./data/catalog.js";
+import { mainstreamIdeologies, ideologiesFor } from "./data/ideologies.js";
 
 let candidates = [];
 let selected = null;
@@ -29,7 +30,10 @@ const AGES = ["40s", "50s", "60s"];
 
 /** Five plausible running mates, drawn to complement the ticket. */
 function generateCandidates(draft) {
-  const ideologies = (IDEOLOGIES[draft.party] || IDEOLOGIES.Independent).map((i) => i.value);
+  // A ticket is usually balanced with a mainstream running mate — but a
+  // president's own ideology is always on the table, however fringe it is.
+  const bench = mainstreamIdeologies(draft.party).map((i) => i.value);
+  const ideologies = [...new Set([...bench, draft.ideology].filter(Boolean))];
   const usedNames = new Set();
 
   return Array.from({ length: 5 }, () => {

@@ -1,4 +1,6 @@
 import { seeded, clamp, round1 } from "./rng.js";
+import { PERSONAS } from "./personas.js";
+import { buildCourt } from "../public/js/data/government.js";
 
 /**
  * Special actions — the things a president can attempt that change the rules
@@ -33,6 +35,29 @@ export const SPECIAL_ACTIONS = [
     kind: "amendment",
     difficulty: 0.45,
     approvalFloor: 42,
+  },
+  {
+    id: "repeal_19",
+    group: "Constitutional amendments",
+    title: "Repeal the 19th Amendment",
+    desc: "Strip women of the federal vote. Female voters stop being polled, stop counting at the ballot box, and vanish from the focus group.",
+    requirement: "Two-thirds of both chambers, then 38 states within 9 months",
+    kind: "amendment",
+    // Effectively impossible, and ruinous to attempt. That is the design.
+    difficulty: 0.98,
+    approvalFloor: 72,
+    franchise: "f",
+  },
+  {
+    id: "strengthen_19",
+    group: "Constitutional amendments",
+    title: "Strengthen the 19th Amendment",
+    desc: "Restrict the federal vote to women only. Male voters stop being polled, stop counting at the ballot box, and vanish from the focus group.",
+    requirement: "Two-thirds of both chambers, then 38 states within 9 months",
+    kind: "amendment",
+    difficulty: 0.98,
+    approvalFloor: 72,
+    franchise: "m",
   },
   {
     id: "term_limits_congress",
@@ -95,6 +120,16 @@ export const SPECIAL_ACTIONS = [
     difficulty: 0.62,
     approvalFloor: 45,
   },
+  {
+    id: "dissolve_congress",
+    group: "Structural reform",
+    title: "Dissolve Congress",
+    desc: "Padlock the Capitol and rule by decree. Congress gets no vote on its own abolition — this stands only if the military is firmly behind you, and the republic never forgives it.",
+    requirement: "The Pentagon and the veterans must be solidly yours, and the government steady enough to execute. One attempt per term.",
+    kind: "coup",
+    difficulty: 0.9,
+    approvalFloor: 0,
+  },
 ];
 
 export const actionById = (id) => SPECIAL_ACTIONS.find((a) => a.id === id);
@@ -124,6 +159,28 @@ export function availability(state, action) {
   if (action.id === "abolish_filibuster" && state.specialActions?.filibusterGone) {
     return { available: false, reason: "The filibuster is already gone." };
   }
+  if (state.congressDissolved && action.kind !== "coup") {
+    return { available: false, reason: "There is no Congress left to pass it." };
+  }
+
+  // The franchise can only be taken from one side, and only once.
+  if (action.franchise) {
+    if (state.electorate?.excluded) return { available: false, reason: "The franchise has already been rewritten." };
+  }
+
+  // A coup is gated on the men with the guns, not on the polls.
+  if (action.kind === "coup") {
+    if (state.congressDissolved) return { available: false, reason: "Congress is already dissolved." };
+    if (attempts >= 1) return { available: false, reason: "One attempt per term, and you have used it." };
+    if (state.stakeholders.pentagon < 75) {
+      return { available: false, reason: `The Pentagon is at ${state.stakeholders.pentagon}. It would have to be 75 or better.` };
+    }
+    if (state.stability < 55) {
+      return { available: false, reason: `Government stability is ${state.stability}. Below 55 the order would not be carried out.` };
+    }
+    return { available: true };
+  }
+
   if (state.approval < action.approvalFloor) {
     return { available: false, reason: `Needs about ${action.approvalFloor}% approval to be worth the floor time.` };
   }
@@ -137,6 +194,16 @@ export function odds(state, action) {
   const senateShare = seats.senate / 100;
 
   let score = 0;
+  if (action.kind === "coup") {
+    // Only the loyalty of the armed forces and the machinery of state matter.
+    const pentagon = state.stakeholders.pentagon;
+    const jointChiefs = state.institutions?.joint_chiefs;
+    const chiefsLoyalty = jointChiefs && !jointChiefs.vacant ? jointChiefs.holder.loyalty : 30;
+    return clamp(Math.round(
+      (pentagon - 75) * 2.2 + (state.stability - 55) * 1.1 + (chiefsLoyalty - 50) * 0.8 + 10
+    ), 3, 92);
+  }
+
   if (action.kind === "amendment") {
     // Two-thirds of both chambers is the real wall here.
     score = (houseShare - 0.667) * 130 + (senateShare - 0.667) * 130;
@@ -171,16 +238,29 @@ export function propose(state, actionId) {
   next.specialActions = next.specialActions || emptyLedger();
   next.specialActions.attempts[actionId] = (next.specialActions.attempts[actionId] || 0) + 1;
 
+  // A coup is not a vote. It either happens or it ends your presidency.
+  if (action.kind === "coup") return attemptCoup(next, action, passed, chance);
+
   if (!passed) {
     // A failed floor vote burns capital and emboldens the opposition.
     next.approval = clamp(round1(next.approval - 2.2));
     next.stability = clamp(next.stability - 3);
+    // Trying to take the vote from half the country and failing is not a
+    // normal legislative defeat.
+    if (action.franchise) {
+      next.approval = clamp(round1(next.approval - 12));
+      next.stability = clamp(next.stability - 18);
+      next.stakeholders.civil_rights = clamp(next.stakeholders.civil_rights - 30);
+      if (next.society) next.society.unrest = clamp(next.society.unrest + 25);
+    }
     next.specialActions.log.unshift({
       month: state.month, id: actionId, title: action.title, outcome: "failed",
       note: `Failed on the floor. ${chance}% was the read going in.`,
     });
     return { state: next, passed: false, chance,
-      note: `${action.title} failed in Congress. You spent capital and got nothing for it.` };
+      note: action.franchise
+        ? `${action.title} failed, and the attempt itself is now the only thing anyone will remember about your presidency.`
+        : `${action.title} failed in Congress. You spent capital and got nothing for it.` };
   }
 
   if (action.kind === "amendment") {
@@ -205,6 +285,44 @@ export function propose(state, actionId) {
   return { state: next, passed: true, chance, note: `${action.title} — done.` };
 }
 
+/**
+ * Dissolving Congress. There is no floor vote — the order is either carried
+ * out or it is refused, and a refused order is the end of the presidency.
+ */
+function attemptCoup(next, action, succeeded, chance) {
+  next.specialActions.log.unshift({
+    month: next.month, id: action.id, title: action.title,
+    outcome: succeeded ? "enacted" : "failed",
+    note: succeeded ? "The Capitol was padlocked." : "The order was refused.",
+  });
+
+  if (!succeeded) {
+    next.over = true;
+    next.ending = {
+      type: "removed",
+      reason: "You ordered the Capitol closed and the Joint Chiefs refused. " +
+        "Within six hours you were in custody, and the republic held — barely.",
+    };
+    return { state: next, passed: false, chance, note: "The order was refused. Your presidency is over." };
+  }
+
+  next.congressDissolved = true;
+  next.specialActions.passed.push(action.id);
+  next.congress = { houseD: 0, houseR: 0, senateD: 0, senateR: 0 };
+  next.approval = clamp(round1(next.approval - 18));
+  next.stability = clamp(next.stability - 25);
+  next.stakeholders.civil_rights = clamp(next.stakeholders.civil_rights - 40);
+  next.stakeholders.wall_street = clamp(next.stakeholders.wall_street - 20);
+  next.stakeholders.big_business = clamp(next.stakeholders.big_business - 15);
+  if (next.society) next.society.unrest = clamp(next.society.unrest + 40);
+
+  return {
+    state: next, passed: true, chance,
+    note: "The Capitol is padlocked and you rule by decree. Nothing stops you now, " +
+      "and nothing protects you either — the only thing holding your government up is the army.",
+  };
+}
+
 /** The mechanical consequence of each structural reform. */
 function applyEnacted(next, action) {
   switch (action.id) {
@@ -222,6 +340,12 @@ function applyEnacted(next, action) {
     case "expand_court": {
       const sign = next.scenario.party === "Republican" ? 1 : -1;
       if (sign > 0) next.court.conservative += 2; else next.court.liberal += 2;
+      // Two new justices means two new names on the bench.
+      next.justices = buildCourt({
+        seed: next.rosterSeed || next.scenario.presidentName,
+        court: next.court,
+        radical: next.scenario.radicals === true,
+      });
       next.stability = clamp(next.stability - 8);
       next.approval = clamp(round1(next.approval - 1.5));
       break;
@@ -249,6 +373,7 @@ export function tickSpecialActions(next) {
     ledger.passed.push(pending.id);
     if (pending.id === "repeal_22") ledger.termLimitGone = true;
     next.approval = clamp(round1(next.approval + 2.5));
+    if (action?.franchise) applyFranchise(next, action);
     ledger.log.unshift({
       month: next.month, id: pending.id, title: pending.title, outcome: "ratified",
       note: `Ratified by ${pending.needed} states.`,
@@ -266,6 +391,41 @@ export function tickSpecialActions(next) {
     return { kind: "expired", title: pending.title, ratified: pending.ratified };
   }
   return { kind: "pending", title: pending.title, ratified: pending.ratified, needed: pending.needed };
+}
+
+/**
+ * Remove a bloc from the electorate.
+ *
+ * Approval is a number about *the people who count*, so cutting half of them
+ * out re-bases it: the president's standing shifts toward the average lean of
+ * whoever is left. Everything else here is the cost of having done it.
+ */
+function applyFranchise(next, action) {
+  const excluded = action.franchise;
+  next.electorate = { excluded, since: next.month };
+
+  const remaining = PERSONAS.filter((p) => p.sex !== excluded);
+  const removed = PERSONAS.filter((p) => p.sex === excluded);
+  if (remaining.length && removed.length) {
+    const mean = (list) => list.reduce((sum, p) => sum + p.lean, 0) / list.length;
+    const sign = next.scenario.party === "Republican" ? 1 : next.scenario.party === "Democrat" ? -1 : 0;
+    // A president gains where the surviving electorate agrees with them.
+    const shift = (mean(remaining) - mean(PERSONAS)) * sign * 22;
+    next.approval = clamp(round1(next.approval + shift));
+    for (const code of Object.keys(next.stateApproval)) {
+      next.stateApproval[code] = clamp(Math.round(next.stateApproval[code] + shift));
+    }
+  }
+
+  // And the bill for it.
+  next.stability = clamp(next.stability - 30);
+  next.stakeholders.civil_rights = clamp(next.stakeholders.civil_rights - 45);
+  next.stakeholders.labor = clamp(next.stakeholders.labor - 20);
+  next.stakeholders.big_business = clamp(next.stakeholders.big_business - 15);
+  if (next.society) {
+    next.society.unrest = clamp(next.society.unrest + 45);
+    next.society.literacy = clamp(next.society.literacy - 2, 40, 100);
+  }
 }
 
 export function emptyLedger() {

@@ -36,6 +36,12 @@ export function track(pct, tone) {
   return `<div class="track"><i style="width:${w}%;background:${tone || "var(--ink)"}"></i></div>`;
 }
 
+/**
+ * Approval is stored 0–100, but the country talks in net: approve minus
+ * disapprove. 50% raw is a net of zero, which is where a presidency starts.
+ */
+export const netApproval = (raw) => Math.round(raw * 2 - 100);
+
 /** Traffic-light colour for a 0–100 support score. */
 export function toneFor(v) {
   if (v >= 60) return "var(--green)";

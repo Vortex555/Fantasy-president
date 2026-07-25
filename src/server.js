@@ -326,7 +326,7 @@ const MODES = {
   war: ["off", "classic", "strategic"],
 };
 
-const BOOLEAN_SETTINGS = ["economy", "checks", "bio", "society", "covert", "weekly", "debates", "podium", "noHints"];
+const BOOLEAN_SETTINGS = ["economy", "checks", "bio", "society", "covert", "weekly", "debates", "podium", "noHints", "radicals"];
 
 const oneOf = (v, allowed, fallback) => (allowed.includes(v) ? v : fallback);
 
@@ -344,6 +344,9 @@ function sanitizeScenario(s) {
     party: PARTIES.includes(s?.party) ? s.party : "Independent",
     gender: ["male", "female"].includes(s?.gender) ? s.gender : "unspecified",
     ideology: str(s?.ideology, "", 60),
+    // Where that ideology sits on the spectrum, and how hard it splits a room.
+    ideologyAxis: Math.max(-1, Math.min(1, Number(s?.ideologyAxis) || 0)),
+    ideologyIntensity: Math.max(0.5, Math.min(2.5, Number(s?.ideologyIntensity) || 1)),
     style: str(s?.style, "", 60),
     era: str(s?.era, "The present day, 2025.", 400),
     startApproval: num(s?.startApproval, 52, 20, 70),

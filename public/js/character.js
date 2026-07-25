@@ -2,9 +2,10 @@
 
 import { $, show, escapeHtml, optionsHtml } from "./util.js";
 import { listPresidents, savePresident, deletePresident } from "./store.js";
+import { GENDERS, PARTIES, STYLES, MANDATES, COMPOSITIONS, VP_POOL } from "./data/catalog.js";
 import {
-  GENDERS, PARTIES, IDEOLOGIES, STYLES, MANDATES, COMPOSITIONS, VP_POOL,
-} from "./data/catalog.js";
+  ideologiesFor, mainstreamIdeologies, fringeIdeologies, ideologyEffects, ideologyPosition,
+} from "./data/ideologies.js";
 import { PROFILE_DEFAULTS, PROFILE_FIELDS, profileEffects, homeStates } from "./data/profile.js";
 import { settingDefaults, SETTINGS, NO_HINTS } from "./data/settings.js";
 import { profileHtml, applyProfileClick, opensExtra, profileSummary } from "./profile.js";
@@ -28,7 +29,20 @@ let context = { scenario: null, era: null };
 
 export const currentDraft = () => ({ ...draft });
 
-const ideologiesFor = (party) => IDEOLOGIES[party] || IDEOLOGIES.Independent;
+/**
+ * The ideology picker, split so the fringe is clearly the fringe. With fifty
+ * positions on the bench a flat grid is unreadable, and the divider is honest
+ * about which half of it will cost you the room.
+ */
+function ideologySection(party, selected) {
+  const fringe = fringeIdeologies(party);
+  return `<div class="opts opts--grid" data-pick="ideology">
+      ${optionsHtml(mainstreamIdeologies(party), selected)}
+    </div>
+    ${fringe.length ? `
+      <div class="opts-divider"><span>Fringe &amp; radical</span></div>
+      <div class="opts opts--grid" data-pick="ideology">${optionsHtml(fringe, selected)}</div>` : ""}`;
+}
 
 function partyHtml(selected) {
   return PARTIES.map((p) => `
@@ -94,7 +108,7 @@ export function renderCharacter(scenario, era, onConfirm, onBack) {
 
     <div class="field">
       <span class="field__label">Ideology <span class="field__note">(updates when you pick a party)</span></span>
-      <div class="opts opts--grid" data-pick="ideology">${optionsHtml(ideologiesFor(draft.party), draft.ideology)}</div>
+      <div id="ideologyWrap">${ideologySection(draft.party, draft.ideology)}</div>
     </div>
 
     <div class="field">
@@ -213,11 +227,17 @@ function handleOption(btn) {
   if (!key) return;
   draft[key] = value;
 
+  if (key === "ideology") {
+    // The picker is two groups, so clear the selection in the other one.
+    $("ideologyWrap").querySelectorAll(".opt").forEach((b) => {
+      b.classList.toggle("is-selected", b.dataset.value === value);
+    });
+  }
+
   if (key === "party") {
     // Ideology is party-specific, and independents have no congressional bloc.
     draft.ideology = ideologiesFor(value)[0].value;
-    $("characterForm").querySelector('[data-pick="ideology"]').innerHTML =
-      optionsHtml(ideologiesFor(value), draft.ideology);
+    $("ideologyWrap").innerHTML = ideologySection(value, draft.ideology);
     $("compositionWrap").innerHTML = compositionSection();
   }
 }
@@ -241,6 +261,15 @@ function handleToggle(btn) {
   if (key === "bio") {
     $("beginBtn").textContent = on ? "Next: Your Bio →" : "Begin Your Presidency →";
   }
+}
+
+/** Add two effect blocks together, key by key. */
+function mergeEffects(...blocks) {
+  const out = {};
+  for (const block of blocks) {
+    for (const [k, v] of Object.entries(block || {})) out[k] = (out[k] || 0) + v;
+  }
+  return out;
 }
 
 const pick = (list) => list[Math.floor(Math.random() * list.length)];
@@ -290,7 +319,9 @@ function submit() {
     [NO_HINTS.key]: draft[NO_HINTS.key],
     presidentName: name,
     profile: profileSummary(draft),
-    profileEffects: profileEffects(draft),
+    // Who you are and what you believe both seed the board.
+    profileEffects: mergeEffects(profileEffects(draft), ideologyEffects(draft.party, draft.ideology)),
+    ...ideologyPosition(draft.party, draft.ideology),
     homeStates: homeStates(draft),
     scenarioKey: scenario.key,
     scenarioName: scenario.name,

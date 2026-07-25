@@ -1,13 +1,15 @@
 "use strict";
 
-import { $, show, escapeHtml, monthLabel, shortMonthLabel, track, toneFor } from "./util.js";
-import { G } from "./store.js";
+import { $, el, show, escapeHtml, monthLabel, shortMonthLabel, track, toneFor, netApproval } from "./util.js";
+import { G, saveCareer } from "./store.js";
+import { PORTFOLIOS } from "./data/catalog.js";
 import { openDrawer } from "./drawer.js";
 import { institutionsCard, wireInstitutions } from "./cards/institutions.js";
 import { firstLadyCard, wireFirstLady } from "./cards/firstLady.js";
 import { specialActionsCard, wireSpecialActions, loadActions } from "./cards/specialActions.js";
 import { approvalChart } from "./cards/chart.js";
 import { foreignCard, societyCard, warCard, covertCard } from "./cards/world.js";
+import { chamberRow, courtCard } from "./cards/legislature.js";
 
 const TERM = 48;
 
@@ -109,7 +111,8 @@ export function renderDashboard(handlers, delta) {
     </div>
 
     <div class="tiles">
-      ${tile("Net approval", approval, deltaHtml(delta), "Voter mood", toneFor(approval))}
+      ${tile("Net approval", netApproval(state.approval), deltaHtml(delta),
+        `${approval}% approve · voter mood`, toneFor(approval), { signed: true })}
       ${tile("Government stability", stability, "Net — 0", "Cabinet & agency support", toneFor(stability))}
       ${tile(`${partyLabel} stability`, party, "Net — 0", "Internal party support", toneFor(party))}
     </div>
@@ -156,18 +159,44 @@ export async function renderDashboardAsync(handlers, delta) {
   }
 }
 
-function tile(label, value, deltaHtml, sub, tone) {
+/**
+ * A stat tile. `signed` renders a net figure (which can be negative) and fills
+ * the bar from the midpoint, so the meter reads the same way the number does.
+ */
+function tile(label, value, deltaHtml, sub, tone, { signed = false } = {}) {
+  const shown = signed ? `${value > 0 ? "+" : ""}${value}%` : `${value}%`;
   return `<div class="tile">
     <span class="eyebrow">${escapeHtml(label)}</span>
-    <div class="tile__value">${value}%</div>
+    <div class="tile__value">${shown}</div>
     <div class="tile__delta">${deltaHtml}</div>
     <div class="tile__sub">${escapeHtml(sub)}</div>
-    ${track(value, tone)}
+    ${signed ? netTrack(value, tone) : track(value, tone)}
+  </div>`;
+}
+
+/** A meter that grows left or right of centre for a net figure. */
+function netTrack(net, tone) {
+  const half = Math.min(50, Math.abs(net)) / 2; // percent of the full width
+  const left = net >= 0 ? 50 : 50 - half;
+  return `<div class="track track--net">
+    <i style="margin-left:${left}%;width:${half}%;background:${tone}"></i>
   </div>`;
 }
 
 function congressCard(state) {
   const { houseD, houseR, senateD, senateR } = state.congress;
+
+  // There is nothing to draw when the Capitol is padlocked.
+  if (state.congressDissolved) {
+    return `<div class="card card--accent" style="margin-top:14px;border-left-color:var(--red)">
+      <div class="card__head">
+        <span class="eyebrow">🏛️ Congress</span>
+        <span class="badge badge--red">Dissolved</span>
+      </div>
+      <p class="analysis" style="margin:0">There is no Congress. Your decrees take effect the moment you sign
+        them, and the only thing holding this government up is the army.</p>
+    </div>`;
+  }
   const chamber = (name, d, r, total) => {
     // A tied chamber is not a majority for anybody; in the Senate the VP
     // breaks it, which is the whole reason the running mate mattered.
@@ -197,21 +226,8 @@ function congressCard(state) {
       ${chamber("Senate", senateD, senateR, 100)}
     </div>
   </div>
-  ${rosterRow("House of Representatives", `${houseD}D – ${houseR}R`, houseMath(state))}
-  ${rosterRow("United States Senate", `${senateD}D – ${senateR}R`, senateMath(state))}`;
-}
-
-/** The seat maths that actually decides what a president can pass. */
-function rosterRow(title, split, lines) {
-  return `<details class="roster">
-    <summary>
-      <span class="eyebrow">🏛️ ${escapeHtml(title)} <b style="color:var(--ink)">${split}</b></span>
-      <span class="row__chevron">▾</span>
-    </summary>
-    <div class="roster__body">
-      ${lines.map(([k, v]) => `<div class="record__row"><span>${k}</span><b>${v}</b></div>`).join("")}
-    </div>
-  </details>`;
+  ${chamberRow(state, "house", "House of Representatives", `${houseD}D – ${houseR}R`, houseMath(state))}
+  ${chamberRow(state, "senate", "United States Senate", `${senateD}D – ${senateR}R`, senateMath(state))}`;
 }
 
 const mySeats = (state, chamber) => {
@@ -265,29 +281,6 @@ function controlLine(state) {
   return "Congress is split between the parties";
 }
 
-function courtCard(state) {
-  const { conservative, liberal } = state.court;
-  const seats = [];
-  // The badge is the justice's age; the crown marks the Chief Justice, who is
-  // seated with whichever wing holds the majority.
-  const chiefWing = conservative >= liberal ? "con" : "lib";
-  const seat = (wing, age, chief) =>
-    `<span class="justice justice--${wing}" title="${chief ? "Chief Justice, " : ""}age ${age}">
-      ${chief ? `<span class="justice__crown">👑</span>` : ""}${age}</span>`;
-  for (let i = 0; i < conservative; i++) seats.push(seat("con", 68 + i * 3, chiefWing === "con" && i === 1));
-  for (let i = 0; i < liberal; i++) seats.push(seat("lib", 71 + i * 4, chiefWing === "lib" && i === 1));
-  const label = conservative >= liberal
-    ? `Conservative ${conservative}–${liberal} majority`
-    : `Liberal ${liberal}–${conservative} majority`;
-  return `<div class="card">
-    <div class="card__head">
-      <span class="eyebrow">⚖️ Supreme Court</span>
-      <span class="hint">${label}</span>
-    </div>
-    <div class="bench">${seats.join("")}</div>
-  </div>`;
-}
-
 function vpCard(state) {
   const vp = (state.cabinet || []).find((c) => c.id === "vp");
   if (!vp) return "";
@@ -299,12 +292,18 @@ function vpCard(state) {
         <div class="person__name">${escapeHtml(vp.name)}</div>
         <div class="person__tags">${escapeHtml([meta?.age, meta?.region, meta?.background, meta?.ideology].filter(Boolean).join(" · ") || vp.focus)}</div>
         ${meta?.bio ? `<p class="person__bio">${escapeHtml(meta.bio)}</p>` : ""}
-        ${meta?.portfolio ? `<p class="hint" style="margin-top:6px">Portfolio: <b>${escapeHtml(meta.portfolio)}</b></p>` : ""}
       </div>
       <div class="person__stats">
         Competence: <b>${vp.competence}</b><br />Loyalty: <b>${vp.loyalty}</b>
         <div style="margin-top:8px"><button class="btn btn--sm" data-advisor="vp">💬 Talk</button></div>
       </div>
+    </div>
+    <div class="field" style="margin:16px 0 0">
+      <span class="eyebrow">Portfolio</span>
+      <select id="vpPortfolio" style="margin-top:8px">
+        ${PORTFOLIOS.map((p) => `<option value="${p.value}"${
+          (meta?.portfolio || "") === p.value ? " selected" : ""}>${escapeHtml(p.label)}</option>`).join("")}
+      </select>
     </div>
   </div>`;
 }
@@ -313,16 +312,20 @@ function cabinetCard(state) {
   // The VP and the spouse each have a card of their own above this one.
   const others = (state.cabinet || []).filter((c) => c.id !== "vp" && c.id !== "spouse");
   const avg = Math.round(others.reduce((s, c) => s + c.loyalty, 0) / (others.length || 1));
+  const weakest = [...others].sort((a, b) => a.loyalty - b.loyalty)[0];
   return `<div class="card">
     <div class="card__head">
       <span class="eyebrow">🏛️ Cabinet & inner circle</span>
-      <span class="hint">Avg loyalty: ${avg}</span>
+      <span class="hint">Avg loyalty: ${avg}${
+        weakest && weakest.loyalty < 45 ? ` · ${escapeHtml(weakest.name.split(" ").at(-1))} is a problem` : ""}
+        <button class="btn btn--sm" id="manageCabinet" style="margin-left:10px">Manage →</button></span>
     </div>
     <div class="cabinet">
       ${others.map((c) => `
         <button class="cab" data-advisor="${c.id}" title="Talk to ${escapeHtml(c.name)}">
           <span class="cab__role">${escapeHtml(c.role)}</span>
           <span class="cab__name">${escapeHtml(c.name.split(" ").slice(-1)[0])}</span>
+          ${c.ideology ? `<span class="cab__ideology${c.fringe ? " is-fringe" : ""}">${escapeHtml(c.ideology)}</span>` : ""}
           ${track(c.loyalty, toneFor(c.loyalty))}
         </button>`).join("")}
     </div>
@@ -449,9 +452,64 @@ function wire(handlers) {
     if (e.target.id === "playBtn") return handlers.onPlay();
     if (e.target.id === "legacyBtn") return handlers.onLegacy();
     if (e.target.id === "resignBtn") return handlers.onResign();
+    if (e.target.id === "manageCabinet") return openCabinetManager(refresh);
+  });
+
+  // A VP's portfolio can be reassigned at any time; it changes what they own
+  // publicly, and therefore what they are blamed for.
+  body.addEventListener("change", (e) => {
+    if (e.target.id !== "vpPortfolio") return;
+    const vp = G.state.cabinet.find((c) => c.id === "vp");
+    G.state = {
+      ...G.state,
+      scenario: { ...G.state.scenario, vp: { ...(G.state.scenario.vp || {}), portfolio: e.target.value } },
+    };
+    if (vp) {
+      vp.focus = e.target.value
+        ? `${e.target.value}, politics & the next election`
+        : "politics & the next election";
+    }
+    saveCareer();
   });
 
   wireInstitutions(body, refresh);
   wireFirstLady(body, refresh);
   wireSpecialActions(body, refresh);
+}
+
+/** The full cabinet, sortable by the number that decides who to worry about. */
+function openCabinetManager(refresh) {
+  const members = [...(G.state.cabinet || [])].sort((a, b) => a.loyalty - b.loyalty);
+  const modal = el("div", "drawer", `
+    <div class="drawer__box">
+      <div class="drawer__head">
+        <div>
+          <div class="drawer__name">Manage the Cabinet</div>
+          <div class="drawer__role">Least loyal first. Talk to anyone, or dismiss them from their card.</div>
+        </div>
+        <button class="close-x" data-close aria-label="Close">✕</button>
+      </div>
+      <div class="drawer__log">
+        ${members.map((m) => `
+          <button class="mate" data-manage="${m.id}">
+            <span class="row__body">
+              <span class="mate__name">${m.emoji} ${escapeHtml(m.name)}</span>
+              <span class="mate__tags">${escapeHtml(m.role)} · ${escapeHtml(m.focus)}</span>
+            </span>
+            <span class="mate__stats">
+              Competence: <b>${m.competence}</b><br />
+              Loyalty: <b style="color:${toneFor(m.loyalty)}">${m.loyalty}</b>
+            </span>
+          </button>`).join("")}
+      </div>
+    </div>`);
+
+  document.body.appendChild(modal);
+  modal.addEventListener("click", (e) => {
+    if (e.target === modal || e.target.closest("[data-close]")) return modal.remove();
+    const row = e.target.closest("[data-manage]");
+    if (!row) return;
+    modal.remove();
+    openDrawer(row.dataset.manage, refresh);
+  });
 }

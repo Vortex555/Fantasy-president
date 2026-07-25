@@ -57,6 +57,67 @@
 .roster[open] .row__chevron { transform: rotate(180deg); display: inline-block; }
 .roster__body { padding: 6px 22px 14px; }
 
+/* --- Caucuses, rosters & the bench --------------------------------------- */
+
+.dot {
+  display: inline-block;
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  margin-right: 8px;
+  flex: none;
+}
+.dot--dem { background: var(--dem); }
+.dot--rep { background: var(--rep); }
+
+.caucus { display: grid; gap: 7px; }
+.caucus__row { display: flex; align-items: center; gap: 12px; font-size: 13.5px; }
+.caucus__name { flex: 0 0 245px; display: flex; align-items: center; color: var(--body); }
+.caucus__flag {
+  margin-left: 7px; font-size: 10px; font-weight: 700;
+  letter-spacing: .05em; text-transform: uppercase; color: var(--red);
+}
+.caucus__bar { flex: 1 1 auto; height: 6px; border-radius: 999px; background: var(--surface-3); overflow: hidden; }
+.caucus__bar i { display: block; height: 100%; border-radius: 999px; }
+.caucus__bar i.dem { background: var(--dem); }
+.caucus__bar i.rep { background: var(--rep); }
+.caucus__count { flex: none; width: 34px; text-align: right; font-weight: 700; color: var(--ink); }
+
+.directory { margin-top: 16px; }
+.directory summary {
+  list-style: none; cursor: pointer;
+  font-size: 13px; font-weight: 700; color: var(--blue);
+  padding: 8px 0;
+}
+.directory summary::-webkit-details-marker { display: none; }
+.directory summary:hover { text-decoration: underline; }
+.directory__list {
+  max-height: 340px;
+  overflow-y: auto;
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  background: var(--surface-2);
+}
+.member {
+  display: flex; align-items: center; justify-content: space-between; gap: 14px;
+  padding: 8px 13px;
+  border-bottom: 1px solid var(--line-2);
+  font-size: 13px;
+}
+.member:last-child { border-bottom: 0; }
+.member__who { display: flex; align-items: center; min-width: 0; color: var(--body); }
+.member__who b { color: var(--ink); font-weight: 600; }
+.member__seat { margin-left: 8px; color: var(--faint); font-size: 12px; }
+.member__ideology { flex: none; color: var(--muted); font-size: 12.5px; }
+.member__ideology.is-fringe { color: var(--red); font-weight: 700; }
+
+.cab__ideology {
+  display: block;
+  margin: -4px 0 8px;
+  font-size: 11px;
+  color: var(--faint);
+}
+.cab__ideology.is-fringe { color: var(--red); font-weight: 700; }
+
 /* --- Supreme Court ------------------------------------------------------- */
 
 .bench { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; }

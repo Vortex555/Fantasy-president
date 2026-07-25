@@ -12,6 +12,7 @@ import { buildSociety, applySociety } from "./society.js";
 import { buildDeployments, tickDeployments } from "./deployments.js";
 import { buildCovert, tickCovert } from "./covert.js";
 import { rememberEvent } from "./eventPool.js";
+import { buildCourt, cabinetIdeology } from "../public/js/data/government.js";
 
 export const TERM_LENGTH = 48; // months
 export const MIDTERM_MONTH = 24;
@@ -47,15 +48,45 @@ function partySign(party) {
   return party === "Republican" ? 1 : party === "Democrat" ? -1 : 0;
 }
 
+/**
+ * Where the president sits on the left–right spectrum, −1…+1.
+ *
+ * Their chosen ideology is the real answer. Careers saved before ideologies
+ * carried a position — and any scenario without one — fall back to a moderate
+ * position on their own party's side.
+ */
+/**
+ * Re-seat the bench after the balance changes. Names are drawn from a stable
+ * pool, so a shift replaces a justice rather than appearing to change one's
+ * mind. Call this anywhere `court` moves.
+ */
+export function refreshCourt(next) {
+  next.justices = buildCourt({
+    seed: next.rosterSeed || next.scenario?.presidentName || "court",
+    court: next.court,
+    radical: next.scenario?.radicals === true,
+  });
+}
+
+export function presidentAxis(scenario) {
+  const axis = Number(scenario?.ideologyAxis);
+  if (Number.isFinite(axis)) return Math.max(-1, Math.min(1, axis));
+  return partySign(scenario?.party) * 0.45;
+}
+
 export function createGame(scenario) {
   const sign = partySign(scenario.party);
 
-  // Seed state-by-state approval from partisan lean relative to the president.
+  // Seed state-by-state approval from where the president actually stands, not
+  // merely which party they ran under. Using the party alone left every
+  // independent with a dead-flat map — Massachusetts and Wyoming identical, and
+  // a Communist indistinguishable from a Theocrat.
+  const axis = presidentAxis(scenario);
   const stateApproval = {};
   for (const code of STATE_CODES) {
     const lean = STATES[code].lean; // + = Republican
     // A president is more popular where the electorate agrees with them.
-    const alignment = sign * lean; // positive when state agrees with president
+    const alignment = axis * lean; // positive when state agrees with president
     stateApproval[code] = clamp(Math.round(scenario.startApproval + alignment * 0.55));
   }
 
@@ -95,6 +126,9 @@ export function createGame(scenario) {
     congress,
     // The Supreme Court is inherited, not chosen — a standing constraint.
     court: scenario.court ?? { conservative: 6, liberal: 3 },
+    // Congress is 535 named members with ideologies of their own, derived from
+    // this seed on demand rather than stored — see data/government.js.
+    rosterSeed: `${scenario.presidentName}|${scenario.startYear}|${scenario.party}`,
     cabinet: buildCabinet(scenario),
     firstLady: buildFirstLady(scenario),
     institutions: buildInstitutions(scenario),
@@ -112,6 +146,23 @@ export function createGame(scenario) {
   if (scenario.society) state.society = buildSociety(scenario);
   if (scenario.war && scenario.war !== "off") state.deployments = buildDeployments(scenario);
   if (scenario.covert) state.covert = buildCovert(scenario);
+
+  // Every appointee has politics of their own — a Secretary of the Treasury is
+  // somebody's kind of Republican, not a neutral instrument.
+  const rosterSeed = state.rosterSeed;
+  for (const member of state.cabinet) {
+    if (member.id === "vp" && scenario.vp?.ideology) {
+      // The running mate's ideology was chosen by the player, not drawn.
+      Object.assign(member, { ideology: scenario.vp.ideology, fringe: false });
+      continue;
+    }
+    Object.assign(member, cabinetIdeology(rosterSeed, member.id, scenario.party, scenario.radicals === true));
+  }
+
+  // The bench, named, so the court is nine people rather than two numbers.
+  state.justices = buildCourt({
+    seed: rosterSeed, court: state.court, radical: scenario.radicals === true,
+  });
 
   // The spouse in the cabinet and the spouse in the East Wing are one person.
   const spouse = state.cabinet.find((c) => c.id === "spouse");
@@ -326,6 +377,15 @@ export function computeChecks(state, policyText) {
     return checks;
   }
 
+  // With Congress dissolved there is no chamber left to pass or block anything.
+  if (state.congressDissolved) {
+    checks.congress = {
+      status: "executive",
+      note: "There is no Congress. The decree took effect the moment you signed it.",
+    };
+    return checks;
+  }
+
   // --- Congress ---
   if (kind.legislation) {
     const roll = computeRollCall(state, kind.bipartisan);
@@ -404,6 +464,7 @@ export function applyResult(state, policy, result) {
     const s = partySign(state.scenario.party);
     if (s > 0 && next.court.liberal > 0) { next.court.conservative++; next.court.liberal--; }
     else if (s < 0 && next.court.conservative > 0) { next.court.liberal++; next.court.conservative--; }
+    refreshCourt(next);
   }
 
   // The competence of the responsible secretary shapes the rollout.
@@ -500,7 +561,12 @@ export function applyResult(state, policy, result) {
     approvalChange: result.approvalChange || 0,
     stakeholders: stakeDeltas,
     states: stateDeltas,
-    presidentSign: partySign(state.scenario.party),
+    approval: next.approval,
+    // Where the president actually stands, and how hard it splits the room.
+    presidentAxis: presidentAxis(state.scenario),
+    intensity: state.scenario.ideologyIntensity ?? 1,
+    // Anyone stripped of the vote is no longer polled.
+    electorate: next.electorate,
   });
   result.personas = scored;
   result.speakers = selectSpeakers(scored, state.month);
@@ -543,8 +609,8 @@ export function applyResult(state, policy, result) {
 
   const clock = pacing(state);
 
-  // Midterm elections reshuffle Congress.
-  if (state.month === clock.midterm) {
+  // Midterm elections reshuffle Congress — unless there is no Congress.
+  if (state.month === clock.midterm && !next.congressDissolved) {
     applyMidterms(next);
   }
 

@@ -83,6 +83,12 @@ export const SETTINGS = [
     warn: "A full term takes far longer to play.",
   },
   {
+    key: "radicals", kind: "toggle", tone: "red", default: false,
+    title: "🗳️ Radicalised Government",
+    desc: "Off, the 535 members of Congress, the nine justices and your own cabinet hold the ordinary politics of their party. On, the fringe takes over — theocrats, syndicalists, monarchists and accelerationists fill the benches, and you have to govern with them.",
+    warn: "This is an alternate history, not a forecast. Everything downstream gets stranger.",
+  },
+  {
     key: "debates", kind: "toggle", tone: "purple", default: true,
     title: "🎤 Presidential Debates",
     desc: "Run the debate rounds when election season arrives. Switch off and the campaign is decided on your record alone.",
