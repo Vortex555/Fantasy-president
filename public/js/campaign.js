@@ -206,6 +206,15 @@ async function resolve(total) {
     const res = await finishCampaign(G.state, total);
     G.state = res.state;
     saveCareer();
+    // Winning re-election does not end the career — it starts the next term.
+    if (!G.state.over) {
+      G.event = null;
+      alert(`You won. A ${G.state.term === 2 ? "second" : "further"} term begins.` +
+        (G.state.cabinetChanges?.length
+          ? ` ${G.state.cabinetChanges.length} of your cabinet went home rather than serve another four years.`
+          : ""));
+      return handlers.onDashboard();
+    }
     handlers.onLegacy();
   } catch (err) {
     alert("The election could not be resolved: " + err.message);

@@ -1,5 +1,5 @@
 import { STATES, STATE_CODES, TOTAL_EV } from "./states.js";
-import { hashString, mulberry32, clamp, round1 } from "./rng.js";
+import { hashString, mulberry32, seeded, clamp, round1 } from "./rng.js";
 import {
   advanceArcs, detonationEvent, mockJudgeArcs, activeArcs, inferDomain, MAX_ACTIVE_ARCS,
 } from "./arcs.js";
@@ -13,10 +13,35 @@ import { buildDeployments, tickDeployments } from "./deployments.js";
 import { buildCovert, tickCovert } from "./covert.js";
 import { rememberEvent } from "./eventPool.js";
 import { buildCourt, cabinetIdeology } from "../public/js/data/government.js";
+import { originateBills, ageBills } from "./bills.js";
+import { tickJeopardy, emptyJeopardy } from "./impeachment.js";
 
 export const TERM_LENGTH = 48; // months
 export const MIDTERM_MONTH = 24;
 export const CAMPAIGN_MONTH = 46; // general-election campaign season begins
+
+/** How many terms a president may serve, unless the 22nd is repealed. */
+export const TERM_LIMIT = 2;
+
+/**
+ * `state.month` is the month *within the current term*, because that is what
+ * every mechanic keys off — midterms at 24, campaign season at 46. The calendar
+ * date needs the whole presidency, so it runs off this instead.
+ */
+export function absoluteMonth(state) {
+  const clock = pacing(state);
+  return ((state.term || 1) - 1) * clock.termLength + state.month;
+}
+
+/**
+ * Whether this president is allowed to seek another term. Two is the limit
+ * until the 22nd Amendment is repealed, at which point it is whatever the
+ * country will tolerate.
+ */
+export function canServeAnotherTerm(state) {
+  if (state.specialActions?.termLimitGone) return true;
+  return (state.term || 1) < TERM_LIMIT;
+}
 
 /** Weekly pacing keeps the same four-year term at a finer grain. */
 export const pacing = (state) => {
@@ -113,6 +138,7 @@ export function createGame(scenario) {
   const state = {
     scenario,
     month: 1,
+    term: 1,
     approval: clamp(round1(scenario.startApproval + (fx.approval || 0))),
     stability: clamp(Math.round((scenario.stability ?? 72) + (fx.stability || 0))),
     economy: {
@@ -138,6 +164,12 @@ export function createGame(scenario) {
     arcs: [],
     history: [],
     seenEvents: [],
+    // Congress starts finding its feet; bills arrive from month two.
+    bills: [],
+    billHistory: [],
+    billLog: [],
+    // Investigation, articles, and the Senate trial. See impeachment.js.
+    jeopardy: emptyJeopardy(),
     over: false,
     ending: null,
   };
@@ -588,11 +620,18 @@ export function applyResult(state, policy, result) {
   // be told, which the client renders alongside the month's consequences.
   tickFirstLady(next);
   tickInstitutions(next);
+  // Congress writes its own legislation. Bills left unsigned expire and make
+  // the President look like a bystander in their own government.
+  result.expiredBills = ageBills(next);
+  next.bills = [...(next.bills || []), ...originateBills(next)];
+  result.newBills = next.bills.filter((b) => b.arrivedMonth === next.month);
   result.amendment = tickSpecialActions(next);
   result.foreignMoves = applyForeign(next, policy, result);
   if (next.society) result.societyMoves = applySociety(next, policy, result);
   if (next.deployments) result.warEvents = tickDeployments(next, policy);
   if (next.covert) result.covertOutcome = tickCovert(next, policy, result.covertAction);
+  // The Bureau, the articles, the House and the Senate.
+  result.jeopardyEvents = tickJeopardy(next, policy);
 
   // Approval may have moved again since it was banked; keep the reported
   // number honest rather than letting the subsystems change it silently.
@@ -600,6 +639,7 @@ export function applyResult(state, policy, result) {
 
   next.history.push({
     month: state.month,
+    term: state.term || 1,
     policy,
     headline: result.press?.[0]?.headline || result.analysis?.slice(0, 90),
     approval: next.approval,
@@ -623,8 +663,29 @@ export function applyResult(state, policy, result) {
   } else if (next.stability <= 8) {
     next.over = true;
     next.ending = { type: "collapse", reason: "Government stability collapsed. You were removed from power." };
-  } else if (next.month >= clock.campaignStart && next.phase !== "campaign") {
-    // The re-election campaign begins — the debate decides the term.
+  } else if (next.congressDissolved) {
+    // There is no election to hold and no legislature to hold it. The only
+    // question left is whether the army is still carrying the government.
+    if (next.stakeholders.pentagon < 55) {
+      next.over = true;
+      next.ending = {
+        type: "removed",
+        reason: `The generals stopped taking your calls. With the Capitol padlocked there was no lawful ` +
+          `way to remove you and no lawful way to protect you either, so they did it themselves.`,
+      };
+    } else if (next.month > clock.termLength) {
+      next.over = true;
+      next.ending = {
+        type: "autocrat",
+        reason: `Four years passed and no election was held, because there was nobody left to call one. ` +
+          `You are still in office, the army is still behind you, and the republic you were handed no ` +
+          `longer exists.`,
+      };
+    }
+  } else if (next.month >= clock.campaignStart && next.phase !== "campaign"
+             && canServeAnotherTerm(next)) {
+    // The re-election campaign begins — the debate decides the term. A
+    // term-limited president is not on the ballot, so there is nothing to run.
     next.phase = "campaign";
     next.campaign = createCampaign(next);
   } else if (next.month > clock.termLength) {
@@ -654,14 +715,107 @@ function applyMidterms(next) {
 const clampSeats = (v, total) => Math.max(0, Math.min(total, v));
 
 function evaluateReelection(next) {
+  // A president who has run out of terms is not on the ballot at all.
+  if (!canServeAnotherTerm(next)) return termLimitedEnding(next);
+
   const ec = electoralCount(next);
   if (ec.win >= 270) {
-    return { type: "reelected", reason: `You won re-election with roughly ${ec.win} electoral votes. A second term begins.` };
+    return { type: "reelected", reason: `You won re-election with roughly ${ec.win} electoral votes.` };
   }
   if (next.approval >= 47) {
     return { type: "narrow", reason: "A brutally close election — the result hangs on a handful of states, and the recounts have only just begun." };
   }
-  return { type: "defeated", reason: `You lost re-election. The nation voted for change after a first term that ended near ${Math.round(next.approval)}% approval.` };
+  return { type: "defeated", reason: `You lost re-election. The nation voted for change after a term that ended near ${Math.round(next.approval)}% approval.` };
+}
+
+const ordinal = (n) => ["", "first", "second", "third", "fourth", "fifth", "sixth"][n] || `${n}th`;
+
+function termLimitedEnding(next) {
+  const terms = next.term || 1;
+  return {
+    type: "term_limited",
+    reason: `You served ${terms === 1 ? "a full term" : `${ordinal(terms)} terms`} and the ` +
+      `Twenty-Second Amendment sent you home. Your name was never on the ballot, and the ` +
+      `country chose a successor with you standing behind them on the platform.`,
+  };
+}
+
+/**
+ * Swear in the next term.
+ *
+ * Almost everything carries: the arcs still festering, the scars, the
+ * stakeholders, the economy, the courts and the institutional clocks that have
+ * been running down since day one. What resets is the calendar and the
+ * legislative slate. What changes is the room — a presidential election drags
+ * Congress with it, and second-term cabinets empty out.
+ */
+export function beginNextTerm(state, ending) {
+  const next = structuredClone(state);
+  const clock = pacing(next);
+  const r = seeded(`${next.scenario.presidentName}|term|${next.term + 1}`);
+
+  next.elections = [...(next.elections || []), {
+    term: next.term,
+    endedMonth: absoluteMonth(next),
+    approval: next.approval,
+    electoral: ending.electoral ?? electoralCount(next).win,
+  }];
+
+  next.term = (next.term || 1) + 1;
+  next.month = 1;
+  next.phase = null;
+  next.campaign = null;
+  next.over = false;
+  next.ending = null;
+  // A new Congress means a clean legislative slate; the old desk expires.
+  next.bills = [];
+
+  // Coattails: a president who wins comfortably drags their party with them.
+  if (!next.congressDissolved) {
+    const sign = partySign(next.scenario.party);
+    const swing = Math.round((next.approval - 50) / 3);
+    if (sign !== 0 && swing !== 0) {
+      const houseKey = sign > 0 ? "houseR" : "houseD";
+      const otherHouse = sign > 0 ? "houseD" : "houseR";
+      const senateKey = sign > 0 ? "senateR" : "senateD";
+      const otherSenate = sign > 0 ? "senateD" : "senateR";
+      next.congress[houseKey] = clampSeats(next.congress[houseKey] + swing, 435);
+      next.congress[otherHouse] = 435 - next.congress[houseKey];
+      next.congress[senateKey] = clampSeats(next.congress[senateKey] + Math.round(swing / 5), 100);
+      next.congress[otherSenate] = 100 - next.congress[senateKey];
+    }
+  }
+
+  // Second terms empty out. A couple of secretaries go home, and their
+  // replacements are loyal but green.
+  const replaceable = next.cabinet.filter((c) => c.id !== "vp" && c.id !== "spouse");
+  const leaving = new Set();
+  const departures = r.between(1, 3);
+  for (let i = 0; i < departures && replaceable.length; i++) {
+    leaving.add(replaceable[Math.floor(r.next() * replaceable.length)].id);
+  }
+  for (const member of next.cabinet) {
+    if (!leaving.has(member.id)) continue;
+    member.name = `${r.pick(FIRST_NAMES)} ${r.pick(LAST_NAMES)}`;
+    member.loyalty = r.between(60, 92);
+    member.competence = r.between(40, 78);
+  }
+  next.cabinetChanges = [...leaving];
+
+  // An inauguration is a fresh start, briefly.
+  next.approval = clamp(round1(next.approval + 2.5));
+  next.stability = clamp(next.stability + 6);
+
+  next.history.push({
+    month: clock.termLength,
+    term: state.term,
+    inauguration: true,
+    headline: `Sworn in for a ${ordinal(next.term)} term`,
+    approval: next.approval,
+    approvalChange: 0,
+  });
+
+  return next;
 }
 
 function resolveStakeholder(name) {
@@ -820,6 +974,7 @@ export function finishCampaign(state, debateScore) {
         ? { type: "narrow", reason: `${debateWord} left it inside the margin. At ${Math.round(next.approval)}% the result is contested and nobody will call it tonight.` }
         : { type: "defeated", reason: `${debateWord} could not close a ${Math.round(50 - next.approval)}-point gap. ${next.campaign.opponent.name} won, and the country turns the page.` };
     next.ending.electoral = ec.win;
+    if (next.ending.type === "reelected") return beginNextTerm(next, next.ending);
     return next;
   }
 
@@ -831,6 +986,8 @@ export function finishCampaign(state, debateScore) {
     next.ending = { type: "defeated", reason: `${debateWord} wasn't enough. ${next.campaign.opponent.name} defeated you, and the country turns the page after a single term.` };
   }
   next.ending.electoral = ec.win;
+  // Winning is not the end of the career — it is the start of the next term.
+  if (next.ending.type === "reelected") return beginNextTerm(next, next.ending);
   return next;
 }
 

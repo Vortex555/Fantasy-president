@@ -6,6 +6,7 @@ import {
 } from "../src/specialActions.js";
 import { createGame, applyResult, computeChecks } from "../src/gameEngine.js";
 import { PERSONAS, scoreAll, eligiblePersonas } from "../src/personas.js";
+import { stateSummary as describeStateForPrompt } from "../src/claude.js";
 
 function newState(over = {}) {
   const state = createGame({
@@ -169,6 +170,32 @@ test("a successful coup dissolves Congress and bypasses roll calls", () => {
   assert.equal(checks.congress.status, "executive");
   assert.match(checks.congress.note, /no Congress/i);
   assert.equal(checks.effectMultiplier, 1, "nothing blunts a decree");
+});
+
+test("a dictator faces no election, only the army", () => {
+  const base = newState({ congressDissolved: true, approval: 45 });
+  base.month = 48; // the last month of the term
+
+  // The army still behind you: no election, and the term simply ends this way.
+  const loyal = applyResult({ ...base, stakeholders: { ...base.stakeholders, pentagon: 80 } },
+    "Routine administration by decree.", { approvalChange: 0, analysis: "" });
+  assert.notEqual(loyal.phase, "campaign", "there is nobody left to call an election");
+  assert.equal(loyal.over, true);
+  assert.equal(loyal.ending.type, "autocrat");
+
+  // The army walking away is the only remaining way out of office.
+  const abandoned = applyResult({ ...base, stakeholders: { ...base.stakeholders, pentagon: 40 } },
+    "Routine administration by decree.", { approvalChange: 0, analysis: "" });
+  assert.equal(abandoned.over, true);
+  assert.equal(abandoned.ending.type, "removed");
+  assert.match(abandoned.ending.reason, /generals/i);
+});
+
+test("a dissolved Congress is described to the model as dissolved", () => {
+  const state = newState({ congressDissolved: true });
+  const summary = describeStateForPrompt(state);
+  assert.match(summary, /Congress: DISSOLVED/);
+  assert.doesNotMatch(summary, /House 0D-0R/, "never report a phantom chamber");
 });
 
 test("with Congress gone, ordinary legislation is off the docket", () => {

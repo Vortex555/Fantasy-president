@@ -1,6 +1,6 @@
 "use strict";
 
-import { $, show, escapeHtml, monthLabel, loader } from "./util.js";
+import { $, show, escapeHtml, monthLabel, loader, absoluteMonth, ordinalTerm } from "./util.js";
 import { G, saveCareer } from "./store.js";
 import { playTurn } from "./api.js";
 import { openDrawer } from "./drawer.js";
@@ -48,10 +48,10 @@ export function renderBriefing(hooks) {
     <div class="dash-head">
       <div>
         <h1 class="display display--lg">${escapeHtml(state.scenario.presidentName)}</h1>
-        <div class="dash-head__sub">${clock.unit} ${state.month} of ${clock.total} · ${Math.round(state.approval)}% approval</div>
+        <div class="dash-head__sub">${ordinalTerm(state.term || 1)} term · ${clock.unit.toLowerCase()} ${state.month} of ${clock.total} · ${Math.round(state.approval)}% approval</div>
       </div>
       <div class="dash-head__right">
-        <h2 class="display display--md">${monthLabel(state.month, startYear)}</h2>
+        <h2 class="display display--md">${monthLabel(absoluteMonth(state), startYear)}</h2>
         <div class="dash-head__sub">The situation room</div>
       </div>
     </div>
@@ -251,7 +251,7 @@ function renderConsequences(result, delta) {
     ? `<button class="btn btn--primary btn--block" id="nextBtn">See Your Legacy →</button>`
     : state.phase === "campaign"
       ? `<button class="btn btn--primary btn--block" id="nextBtn">Enter the Campaign →</button>`
-      : `<button class="btn btn--primary btn--block" id="nextBtn">Continue to ${monthLabel(state.month, startYear)} →</button>`;
+      : `<button class="btn btn--primary btn--block" id="nextBtn">Continue to ${monthLabel(absoluteMonth(state), startYear)} →</button>`;
 
   sections.push(`<div class="next-step"><div style="min-width:300px">${next}</div></div>`);
 
@@ -274,8 +274,29 @@ function renderConsequences(result, delta) {
  * its rule is on and something actually moved — a card that says "no change"
  * every month teaches the player to stop reading.
  */
+const JEOPARDY_TONE = {
+  opened: "badge--amber", article: "badge--amber", referral: "badge--red",
+  house_failed: "badge--blue", impeached: "badge--red",
+  acquitted: "badge--blue", convicted: "badge--red",
+};
+
 function subsystemSections(result) {
   const out = [];
+
+  if (result.jeopardyEvents?.length) {
+    out.push(`<div class="card card--alarm">
+      <span class="eyebrow">\u2696\ufe0f Jeopardy</span>
+      <div style="margin-top:12px">
+        ${result.jeopardyEvents.map((e) => `
+          <div class="arc-event">
+            <div class="arc-event__top">
+              <span class="badge ${JEOPARDY_TONE[e.kind] || ""}">${escapeHtml(e.kind.replace("_", " "))}</span>
+            </div>
+            <div class="arc-event__detail">${escapeHtml(e.detail)}</div>
+          </div>`).join("")}
+      </div>
+    </div>`);
+  }
 
   if (result.warEvents?.length) {
     out.push(`<div class="card">

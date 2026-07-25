@@ -1,6 +1,7 @@
 "use strict";
 
-import { $, el, show, escapeHtml, monthLabel, shortMonthLabel, track, toneFor, netApproval } from "./util.js";
+import { $, el, show, escapeHtml, monthLabel, shortMonthLabel, track, toneFor, netApproval,
+  absoluteMonth, ordinalTerm } from "./util.js";
 import { G, saveCareer } from "./store.js";
 import { PORTFOLIOS } from "./data/catalog.js";
 import { openDrawer } from "./drawer.js";
@@ -10,6 +11,8 @@ import { specialActionsCard, wireSpecialActions, loadActions } from "./cards/spe
 import { approvalChart } from "./cards/chart.js";
 import { foreignCard, societyCard, warCard, covertCard } from "./cards/world.js";
 import { chamberRow, courtCard } from "./cards/legislature.js";
+import { billsCard, wireBills } from "./cards/bills.js";
+import { jeopardyCard } from "./cards/jeopardy.js";
 
 const TERM = 48;
 
@@ -57,11 +60,33 @@ const STAKE_LEAN = {
 
 function timelineCopy(state) {
   const monthsLeft = TERM - state.month + 1;
+  const term = ordinalTerm(state.term || 1);
+  // Two terms is the limit until the 22nd Amendment is repealed.
+  const canRunAgain = state.specialActions?.termLimitGone || (state.term || 1) < 2;
+  // With the Capitol padlocked there are no elections to count down to. The
+  // only clock left is how long the Pentagon keeps carrying the government.
+  if (state.congressDissolved) {
+    const army = state.stakeholders?.pentagon ?? 0;
+    return [
+      `Rule by decree · ${monthsLeft} months of the original term left`,
+      army < 62
+        ? `The Pentagon is at ${army}. Below 55 the generals stop taking your calls, and there is no lawful way left to protect you.`
+        : `No election is scheduled. The army is at ${army}, and it is the only thing holding this government up.`,
+    ];
+  }
   if (state.phase === "campaign") return ["Election season", "The country is deciding whether to keep you."];
-  if (state.month <= 6) return [`1st Term · ${24 - state.month} months until the mid-term election`, "The honeymoon period. Use it wisely."];
-  if (state.month <= 22) return [`1st Term · ${Math.max(0, 24 - state.month)} months until the mid-term election`, "The window for hard votes is closing."];
-  if (state.month <= 44) return [`1st Term · ${monthsLeft} months left in the term`, "Governing season. The record you run on is being written now."];
-  return [`1st Term · ${monthsLeft} months left in the term`, "The campaign is already underway in everything but name."];
+  if (state.month <= 6) {
+    return [`${term} Term · ${24 - state.month} months until the mid-term election`,
+      (state.term || 1) > 1
+        ? "A second honeymoon is shorter than the first. Spend it on the thing you could not get done last time."
+        : "The honeymoon period. Use it wisely."];
+  }
+  if (state.month <= 22) return [`${term} Term · ${Math.max(0, 24 - state.month)} months until the mid-term election`, "The window for hard votes is closing."];
+  if (state.month <= 44) return [`${term} Term · ${monthsLeft} months left in the term`, "Governing season. The record you run on is being written now."];
+  return [`${term} Term · ${monthsLeft} months left`,
+    canRunAgain
+      ? "The campaign is already underway in everything but name."
+      : "You cannot run again. Every ally in this town knows it, and is already looking past you."];
 }
 
 export function renderDashboard(handlers, delta) {
@@ -85,8 +110,9 @@ export function renderDashboard(handlers, delta) {
         <div class="dash-head__sub">President · ${escapeHtml(s.party)}${s.ideology ? ` · ${escapeHtml(s.ideology)}` : ""}${s.style ? ` · ${escapeHtml(s.style)}` : ""}</div>
       </div>
       <div class="dash-head__right">
-        <h2 class="display display--md">${monthLabel(state.month, startYear)}</h2>
-        <div class="dash-head__sub">${escapeHtml(s.scenarioName || "Political Career")}</div>
+        <h2 class="display display--md">${monthLabel(absoluteMonth(state), startYear)}</h2>
+        <div class="dash-head__sub">${escapeHtml(s.scenarioName || "Political Career")}${
+          (state.term || 1) > 1 ? ` · ${ordinalTerm(state.term)} term` : ""}</div>
       </div>
     </div>
 
@@ -106,7 +132,7 @@ export function renderDashboard(handlers, delta) {
         ${state.over ? "" : `<button class="btn btn--danger" id="resignBtn">Resign as President</button>`}
         ${state.over
           ? `<button class="btn btn--primary" id="legacyBtn">See Your Legacy →</button>`
-          : `<button class="btn btn--blue" id="playBtn">Play ${shortMonthLabel(state.month, startYear)} →</button>`}
+          : `<button class="btn btn--blue" id="playBtn">Play ${shortMonthLabel(absoluteMonth(state), startYear)} →</button>`}
       </div>
     </div>
 
@@ -118,6 +144,8 @@ export function renderDashboard(handlers, delta) {
     </div>
 
     ${congressCard(state)}
+    ${billsCard(state)}
+    ${jeopardyCard(state)}
     ${deskCard(state)}
     ${courtCard(state)}
     ${vpCard(state)}
@@ -400,7 +428,8 @@ function timelineCard(state, startYear) {
     <div style="margin-top:12px">
       ${items.length ? items.map((h) => `
         <div class="timeline__item">
-          <span class="timeline__when">${escapeHtml(shortMonthLabel(h.month, startYear))}</span>
+          <span class="timeline__when">${escapeHtml(shortMonthLabel(
+            ((h.term || 1) - 1) * 48 + h.month, startYear))}</span>
           <span class="timeline__what">${escapeHtml(h.headline || "—")}
             <b style="color:${h.approvalChange >= 0 ? "var(--green)" : "var(--red)"}">
               ${h.approvalChange >= 0 ? "+" : ""}${h.approvalChange}</b>
@@ -472,6 +501,7 @@ function wire(handlers) {
     saveCareer();
   });
 
+  wireBills(body, refresh);
   wireInstitutions(body, refresh);
   wireFirstLady(body, refresh);
   wireSpecialActions(body, refresh);

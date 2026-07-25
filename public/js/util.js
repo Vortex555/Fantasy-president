@@ -49,6 +49,17 @@ export function toneFor(v) {
   return "var(--red)";
 }
 
+/**
+ * `state.month` counts within the current term; the calendar needs the whole
+ * presidency. Mirrors absoluteMonth() in the engine.
+ */
+export const TERM_MONTHS = 48;
+export const absoluteMonth = (state) =>
+  ((state.term || 1) - 1) * (state.scenario?.weekly ? 208 : TERM_MONTHS) + state.month;
+
+export const ordinalTerm = (n) =>
+  ["", "1st", "2nd", "3rd", "4th", "5th", "6th"][n] || `${n}th`;
+
 const MONTHS = ["January", "February", "March", "April", "May", "June",
   "July", "August", "September", "October", "November", "December"];
 

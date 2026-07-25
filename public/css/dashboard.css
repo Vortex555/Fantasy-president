@@ -320,3 +320,52 @@
   .map { grid-template-columns: repeat(12, 26px); grid-auto-rows: 26px; gap: 3px; }
   .map__tile { font-size: 7px; }
 }
+
+/* --- Bills on your desk --------------------------------------------------- */
+
+.bills { display: grid; gap: 12px; }
+.bill {
+  padding: 16px 18px;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--blue);
+  border-radius: var(--r-sm);
+}
+.bill--fringe { border-left-color: var(--red); }
+.bill__head { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; }
+.bill__title { font-size: 15.5px; font-weight: 700; color: var(--ink); }
+.bill__sponsor { margin-top: 2px; font-size: 12.5px; color: var(--faint); }
+.bill__brief { margin: 9px 0 12px; font-size: 14px; color: var(--body); }
+.bill__tallies { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 12px; }
+.bill__tally {
+  display: flex; align-items: baseline; gap: 8px;
+  padding: 8px 11px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+}
+.bill__chamber {
+  font-size: 10px; font-weight: 700; letter-spacing: .07em;
+  text-transform: uppercase; color: var(--faint);
+}
+.bill__votes { font-family: var(--display); font-size: 17px; font-weight: 700; color: var(--ink); }
+.bill__margin { font-size: 11.5px; font-weight: 600; margin-left: auto; }
+.bill__actions { align-items: center; }
+
+@media (max-width: 780px) {
+  .bill__tallies { grid-template-columns: 1fr; }
+}
+
+/* --- Jeopardy ------------------------------------------------------------- */
+
+.jeopardy__block + .jeopardy__block {
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid var(--line-2);
+}
+.jeopardy__row {
+  display: flex; align-items: baseline; justify-content: space-between;
+  gap: 12px; margin-bottom: 7px;
+}
+.jeopardy__label { font-size: 14px; font-weight: 600; color: var(--ink); }
+.jeopardy__value { font-family: var(--display); font-size: 18px; font-weight: 700; color: var(--ink); }

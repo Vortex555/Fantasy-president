@@ -56,7 +56,9 @@ export function saveCareer() {
     party: s.scenario.party,
     scenarioName: s.scenario.scenarioName || "Custom",
     startYear: s.scenario.startYear || 2025,
-    month: s.month,
+    // Absolute, so the career list shows the right calendar date in term two.
+    month: ((s.term || 1) - 1) * 48 + s.month,
+    term: s.term || 1,
     over: Boolean(s.over),
     lastPlayed: new Date().toISOString(),
     state: s,

@@ -63,3 +63,8 @@ export const deployEastWing = (state, instruction) =>
 
 export const editFirstLady = (state, name, causeId) =>
   post("/api/firstlady/edit", { state, name, causeId });
+
+// --- Bills on your desk ----------------------------------------------------
+
+export const actOnBill = (state, billId, action) =>
+  post("/api/bills/act", { state, billId, action });

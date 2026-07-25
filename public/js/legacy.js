@@ -1,6 +1,6 @@
 "use strict";
 
-import { $, show, escapeHtml, shortMonthLabel } from "./util.js";
+import { $, show, escapeHtml, shortMonthLabel, ordinalTerm } from "./util.js";
 import { G, saveCareer } from "./store.js";
 import { liveArcs, scarArcs, favorableEV } from "./dashboard.js";
 
@@ -16,6 +16,10 @@ const ENDINGS = {
   removed: { seal: "⛓️", title: "Removed from Office", cls: "lose" },
   collapse: { seal: "💥", title: "The Government Falls", cls: "lose" },
   resigned: { seal: "📜", title: "Resigned", cls: "lose" },
+  // Two full terms, and the Constitution rather than the voters ended it.
+  term_limited: { seal: "🎖️", title: "Term-Limited", cls: "win" },
+  // No election was held, because there was nobody left to call one.
+  autocrat: { seal: "🗝️", title: "Still in Office", cls: "lose" },
 };
 
 /** The historical record — what the country was handed back. */
@@ -33,7 +37,8 @@ export function renderLegacy(onCareers) {
   const rows = [
     ["President", escapeHtml(state.scenario.presidentName)],
     ["Party & ideology", escapeHtml([state.scenario.party, state.scenario.ideology].filter(Boolean).join(" · "))],
-    ["Months served", `${Math.max(0, state.month - 1)} of 48`],
+    ["Terms served", `${state.term || 1}${state.elections?.length ? ` · ${state.elections.length} election${state.elections.length > 1 ? "s" : ""} won` : ""}`],
+    ["Months served", `${((state.term || 1) - 1) * 48 + Math.max(0, state.month - 1)} of ${(state.term || 1) * 48}`],
     ["Final approval", `${Math.round(state.approval)}%`],
     ["Peak approval", `${Math.round(peak)}%`],
     ["Final economy", `${state.economy.gdpGrowth.toFixed(1)}% GDP · ${state.economy.unemployment.toFixed(1)}% unemployment`],
@@ -65,7 +70,7 @@ export function renderLegacy(onCareers) {
         <div style="margin-top:12px">
           ${(state.history || []).slice(-8).reverse().map((h) => `
             <div class="timeline__item">
-              <span class="timeline__when">${escapeHtml(shortMonthLabel(h.month, startYear))}</span>
+              <span class="timeline__when">${escapeHtml(shortMonthLabel(((h.term || 1) - 1) * 48 + h.month, startYear))}</span>
               <span class="timeline__what">${escapeHtml(h.headline || "—")}
                 <b style="color:${h.approvalChange >= 0 ? "var(--green)" : "var(--red)"}">
                   ${h.approvalChange >= 0 ? "+" : ""}${h.approvalChange}</b></span>

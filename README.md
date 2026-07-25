@@ -38,7 +38,19 @@ consequences across every corner of American politics:
   issues. Every one of them reacts every month; a rotating handful speak in
   their own words. Partisanship is sticky: a committed opponent softens on a
   good month but doesn't switch sides.
-- An **election result and legacy screen** at the end of the 48-month term
+- **Impeachment, the way the Constitution actually does it.** An FBI Director
+  with real independence opens an investigation you cannot steer; a completed
+  investigation becomes an article; five points of articles force a House vote;
+  the House impeaches on a simple majority and the Senate convicts on 67 of 100.
+  Firing the Director mid-investigation is obstruction — and obstruction is a
+  heavier article than the thing it covered up. Popularity is armour: at 70%
+  your caucus holds the line, at 22% it starts looking for the exit.
+- **A second term.** Win re-election and the career continues rather than ending:
+  the arcs still festering, the scars, the courts, the institutional clocks and
+  the ledger all carry across. A presidential win drags Congress with it, a
+  second-term cabinet empties out, and the Twenty-Second Amendment sends you
+  home after two — unless you repealed it.
+- An **election result and legacy screen** covering every term you served
 
 There are no multiple-choice options. Type any policy you want; vague gestures
 play poorly, and every choice can create new problems down the road.
@@ -141,6 +153,8 @@ src/
   gameEngine.js     Game state, checks & balances, cabinet, elections, local-sim fallback
   rng.js            Seeded randomness + numeric helpers shared by every subsystem
   arcs.js           Ongoing situations: severity, escalation, detonation, scars
+  bills.js          Legislation Congress writes, roll calls, vetoes and overrides
+  impeachment.js    FBI investigations, articles, the House vote and the Senate trial
   personas.js       The 30-voter focus group: roster, mood scoring, speaker rotation
   eventPool.js      Hand-written situations for Classic and Hybrid event generation
   firstLady.js      The East Wing: standing, signature cause, deployments

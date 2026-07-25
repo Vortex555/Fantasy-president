@@ -193,6 +193,9 @@ export function dismiss(state, institutionId) {
   }
   if (institutionId === "fbi") {
     next.stakeholders.civil_rights = clamp(next.stakeholders.civil_rights - Math.round(4 + outrage * 10));
+    // Removing the investigator while the investigation is open is its own
+    // offence. impeachment.js turns this flag into an article next month.
+    if (next.jeopardy?.investigation) next.jeopardy.obstructed = true;
   }
   if (institutionId === "joint_chiefs") {
     next.stakeholders.pentagon = clamp(next.stakeholders.pentagon - Math.round(5 + outrage * 12));

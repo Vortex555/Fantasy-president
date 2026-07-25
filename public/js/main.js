@@ -27,7 +27,7 @@ const goCareers = () => renderCareers(goDashboard, goScenarios);
 const goScenarios = () => renderScenarios(onEraChosen);
 const goDashboard = (delta = null) => renderDashboardAsync(dashHandlers, delta);
 const goLegacy = () => renderLegacy(goCareers);
-const goCampaign = () => renderCampaign({ onLegacy: goLegacy });
+const goCampaign = () => renderCampaign({ onLegacy: goLegacy, onDashboard: () => goDashboard(null) });
 
 /** Entering the month. A resumed career may belong somewhere else entirely. */
 function goPlay() {

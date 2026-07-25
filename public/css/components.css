@@ -68,6 +68,9 @@
 /* Tinted panel variants — each colour is a category, used consistently. */
 .card--blue   { background: var(--blue-bg);   border-color: var(--blue-line); }
 .card--purple { background: var(--purple-bg); border-color: var(--purple-line); }
+.card--red    { background: var(--red-bg);    border-color: var(--red-line); }
+/* A card that is actively dangerous to the player. */
+.card--alarm { border-left: 3px solid var(--red); border-radius: 4px var(--r-lg) var(--r-lg) 4px; }
 
 /* --- Selectable rows (scenarios, eras, careers) -------------------------- */
 

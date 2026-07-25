@@ -8,6 +8,8 @@ import { foreignSummary } from "./foreign.js";
 import { societySummary } from "./society.js";
 import { deploymentsSummary } from "./deployments.js";
 import { covertSummary } from "./covert.js";
+import { billsSummary } from "./bills.js";
+import { jeopardySummary } from "./impeachment.js";
 
 // The judge: consequences, checks & balances, arc verdicts. Quality-critical,
 // but not Opus-critical — the worked examples in SYSTEM carry most of the load.
@@ -131,7 +133,8 @@ function presidentProfile(scenario) {
     .join(", ");
 }
 
-function stateSummary(state) {
+/** Exported so tests can assert what the model is actually told. */
+export function stateSummary(state) {
   const stakes = STAKEHOLDERS.map((s) => `${s.name} ${state.stakeholders[s.id]}`).join(", ");
   const control = partyControl(state);
   const ev = electoralCount(state);
@@ -142,10 +145,12 @@ function stateSummary(state) {
     .join(", ");
   const clock = pacing(state);
   return `President: ${state.scenario.presidentName} (${presidentProfile(state.scenario)}), ${state.scenario.era}.
-${state.scenario.profile ? `Who they are: ${state.scenario.profile}.\n` : ""}${bioBlock(state.scenario)}${clock.unit === "week" ? "Week" : "Month"} ${state.month} of ${clock.termLength}.
+${state.scenario.profile ? `Who they are: ${state.scenario.profile}.\n` : ""}${bioBlock(state.scenario)}${termLine(state, clock)}
 National approval: ${state.approval}%   Government stability: ${state.stability}%
 Economy: GDP growth ${state.economy.gdpGrowth}%, unemployment ${state.economy.unemployment}%, inflation ${state.economy.inflation}%, national debt $${state.economy.debt}T.
-Congress: House ${state.congress.houseD}D-${state.congress.houseR}R (${control.house}), Senate ${state.congress.senateD}D-${state.congress.senateR}R (${control.senate}).
+${state.congressDissolved
+  ? "Congress: DISSOLVED. The Capitol is padlocked and the President rules by decree. There is no chamber to pass, amend or block anything, no oversight, and no legislative route for anyone to resist through. Write the month accordingly — the resistance is in the streets, the courts, the states and the barracks, not on the floor."
+  : `Congress: House ${state.congress.houseD}D-${state.congress.houseR}R (${control.house}), Senate ${state.congress.senateD}D-${state.congress.senateR}R (${control.senate}).`}
 Supreme Court: ${state.court.conservative}–${state.court.liberal} ${state.court.conservative >= state.court.liberal ? "conservative" : "liberal"} majority.
 Electoral map: ~${ev.win} EV favorable, ~${ev.lose} unfavorable, ~${ev.tossup} tossup.
 Stakeholder support (0-100): ${stakes}.
@@ -171,6 +176,10 @@ function subsystemBlock(state) {
   if (wars) lines.push(`Deployments: ${wars}`);
   const covert = covertSummary(state);
   if (covert) lines.push(covert);
+  const bills = billsSummary(state);
+  if (bills) lines.push(bills);
+  const jeopardy = jeopardySummary(state);
+  if (jeopardy) lines.push(jeopardy);
 
   const ledger = state.specialActions;
   if (ledger?.pending) {
@@ -180,6 +189,24 @@ function subsystemBlock(state) {
   if (ledger?.passed?.length) lines.push(`Structural changes already made: ${ledger.passed.join(", ")}.`);
 
   return lines.length ? `\n${lines.join("\n")}\n` : "";
+}
+
+/**
+ * Where in the presidency this month sits. A second-termer is a different
+ * political animal from a first — no next election to discipline them, allies
+ * already looking past them, and a legacy rather than a mandate to protect.
+ */
+function termLine(state, clock) {
+  const unit = clock.unit === "week" ? "Week" : "Month";
+  const term = state.term || 1;
+  const base = `${unit} ${state.month} of ${clock.termLength}, term ${term}.`;
+  if (term === 1) return base;
+
+  const limited = !state.specialActions?.termLimitGone && term >= 2;
+  return `${base} This is a ${term === 2 ? "second" : `${term}th`} term. ` +
+    (limited
+      ? "The President cannot run again and everyone in Washington knows it: allies are positioning for the succession, the party is less afraid of them, and what is being protected now is a legacy rather than a majority."
+      : "The two-term limit has been repealed, which is itself the defining fact of this presidency and colours how every institution treats them.");
 }
 
 /** The president's own account of themselves, if they wrote one. */

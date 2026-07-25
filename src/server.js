@@ -22,6 +22,7 @@ import { REGIONS as FOREIGN_REGIONS } from "./foreign.js";
 import { SOCIETY_METRICS } from "./society.js";
 import { COVERT_ACTIONS } from "./covert.js";
 import { drawEvent, shouldUsePool } from "./eventPool.js";
+import { actOnBill } from "./bills.js";
 import { claudeAvailable, claudeTurn, claudeVoices, claudeOpening, claudeAdvisor, claudeDebate } from "./claude.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -248,6 +249,21 @@ app.post("/api/actions/propose", (req, res) => {
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "The proposal could not be filed." });
+  }
+});
+
+// --- Bills on your desk ----------------------------------------------------
+
+app.post("/api/bills/act", (req, res) => {
+  try {
+    const { state, billId, action } = req.body || {};
+    if (!state || !billId) return res.status(400).json({ error: "state and billId are required." });
+    const out = actOnBill(state, String(billId), String(action));
+    if (out.rejected) return res.json({ rejected: true, note: out.note });
+    res.json(out);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "The bill could not be acted on." });
   }
 });
 

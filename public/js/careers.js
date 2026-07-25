@@ -23,7 +23,8 @@ export function renderCareers(onResume, onNew) {
       <div class="row__body career">
         <div>
           <div class="career__name">${escapeHtml(c.name)}</div>
-          <div class="career__meta">${escapeHtml(c.scenarioName)} · ${status} · Last played ${relativeDay(c.lastPlayed)}</div>
+          <div class="career__meta">${escapeHtml(c.scenarioName)}${
+            (c.term || 1) > 1 ? ` · ${c.term} terms` : ""} · ${status} · Last played ${relativeDay(c.lastPlayed)}</div>
         </div>
         <div class="career__right">
           <span class="career__date">${monthLabel(c.month, c.startYear)}</span>
