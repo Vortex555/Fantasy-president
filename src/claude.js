@@ -1,30 +1,26 @@
-import Anthropic from "@anthropic-ai/sdk";
 import { STATES } from "./states.js";
+import { complete, aiAvailable } from "./ai/provider.js";
+import { parseModelJson } from "./ai/json.js";
 import { STAKEHOLDERS, partyControl, electoralCount, pacing } from "./gameEngine.js";
 import { describeArcs, ARC_DOMAIN_IDS } from "./arcs.js";
 import { rosterPrompt } from "./personas.js";
 import { institutionsSummary } from "./institutions.js";
 import { foreignSummary } from "./foreign.js";
+import { governorsSummary } from "./governors.js";
 import { societySummary } from "./society.js";
 import { deploymentsSummary } from "./deployments.js";
 import { covertSummary } from "./covert.js";
 import { billsSummary } from "./bills.js";
 import { jeopardySummary } from "./impeachment.js";
 
-// The judge: consequences, checks & balances, arc verdicts. Quality-critical,
-// but not Opus-critical — the worked examples in SYSTEM carry most of the load.
-const MODEL = process.env.FP_MODEL || "claude-sonnet-5";
-// Flavor and chat: voter quotes, advisor chat, opening crises, debate rounds.
-const CHAT_MODEL = process.env.FP_CHAT_MODEL || "claude-haiku-4-5";
-
-let client = null;
-export function claudeAvailable() {
-  return Boolean(process.env.ANTHROPIC_API_KEY);
-}
-function getClient() {
-  if (!client) client = new Anthropic(); // reads ANTHROPIC_API_KEY from env
-  return client;
-}
+/**
+ * Which brain is answering is decided in ai/provider.js — the hosted API, a
+ * model on the player's own machine, or nothing at all. Everything below is
+ * written once and works either way; the only place the difference shows is
+ * that a local model gets asked for JSON explicitly and parsed forgivingly,
+ * because it needs both.
+ */
+export const claudeAvailable = aiAvailable;
 
 const SYSTEM = `You are the simulation engine behind "Fantasy President," a serious, non-partisan political strategy game. The player is the President of the United States. Each month they respond to an unfolding situation by writing a free-form policy in their own words, optionally with a public message that spins it.
 
@@ -168,6 +164,8 @@ function subsystemBlock(state) {
   if (state.firstLady) {
     lines.push(`${state.firstLady.title}: ${state.firstLady.name}, public standing ${state.firstLady.standing}, signature cause ${state.firstLady.cause}.`);
   }
+  const governors = governorsSummary(state);
+  if (governors) lines.push(governors);
   const foreign = foreignSummary(state);
   if (foreign) lines.push(`Foreign standing (0-100): ${foreign}.`);
   const society = societySummary(state);
@@ -181,6 +179,9 @@ function subsystemBlock(state) {
   const jeopardy = jeopardySummary(state);
   if (jeopardy) lines.push(jeopardy);
 
+  const election = electionLine(state);
+  if (election) lines.push(election);
+
   const ledger = state.specialActions;
   if (ledger?.pending) {
     lines.push(`Amendment out with the states: ${ledger.pending.title} — ${ledger.pending.ratified}/${ledger.pending.needed} ratified.`);
@@ -192,6 +193,43 @@ function subsystemBlock(state) {
 }
 
 /**
+ * The next election, when it is close enough to be shaping behaviour.
+ *
+ * Congress does not vote the same way six weeks before a midterm as it does in
+ * the first year, and the model should know that without being told twice. The
+ * verdict of a midterm already held is worth more than the countdown to one.
+ */
+function electionLine(state) {
+  if (state.congressDissolved) return "";
+  const clock = pacing(state);
+  const held = (state.midterms || []).filter((m) => m.term === (state.term || 1)).pop();
+
+  if (held) {
+    const net = held.houseSwing + held.senateSwing;
+    return `The midterms have been held: the President's party ${net >= 0 ? "gained" : "lost"} ` +
+      `${Math.abs(held.houseSwing)} House seats and ${Math.abs(held.senateSwing)} in the Senate. ` +
+      (net <= -25
+        ? "It was read as a repudiation, and members of their own party are now visibly less afraid of them."
+        : net < 0
+          ? "A normal midterm beating. The agenda is harder but the President is not finished."
+          : "They beat the thermostat, which almost never happens, and the caucus knows it.");
+  }
+
+  const toMidterm = clock.midterm - state.month;
+  if (toMidterm > 0 && toMidterm <= 8) {
+    return `The midterm elections are ${toMidterm} ${clock.unit}${toMidterm === 1 ? "" : "s"} away. ` +
+      `Every member of the House and a third of the Senate is on the ballot and the President is not — ` +
+      `so vulnerable members are already running from anything unpopular.`;
+  }
+  const toGeneral = clock.campaignStart - state.month;
+  if (toGeneral > 0 && toGeneral <= 8) {
+    return `Re-election is ${toGeneral} ${clock.unit}${toGeneral === 1 ? "" : "s"} away, and everything ` +
+      `the President does now is read through it.`;
+  }
+  return "";
+}
+
+/**
  * Where in the presidency this month sits. A second-termer is a different
  * political animal from a first — no next election to discipline them, allies
  * already looking past them, and a legacy rather than a mandate to protect.
@@ -200,6 +238,20 @@ function termLine(state, clock) {
   const unit = clock.unit === "week" ? "Week" : "Month";
   const term = state.term || 1;
   const base = `${unit} ${state.month} of ${clock.termLength}, term ${term}.`;
+
+  // A president nobody voted for is a different proposition entirely: they are
+  // finishing somebody else's term, on somebody else's mandate, surrounded by
+  // somebody else's appointees.
+  if (state.succeeded) {
+    const inherited = `${base} This President was not elected to this office — they were ` +
+      `${state.succeeded.from}'s Vice President and took the oath in ${unit.toLowerCase()} ` +
+      `${state.succeeded.month} when ${state.succeeded.from} left. They are serving out a term ` +
+      `they did not campaign for, with a cabinet and a Congress that were assembled for somebody ` +
+      `else, and every faction in Washington is still deciding whether to treat them as the ` +
+      `President or as a caretaker.`;
+    return term === 1 ? inherited : `${inherited} They have since been elected in their own right.`;
+  }
+
   if (term === 1) return base;
 
   const limited = !state.specialActions?.termLimitGone && term >= 2;
@@ -222,21 +274,10 @@ function bioBlock(scenario) {
 // bill. `cached` billing at ~10% is the whole point of the oversized prefix.
 function logUsage(label, model, usage) {
   if (!usage) return;
-  const parts = [`in ${usage.input_tokens}`];
-  if (usage.cache_read_input_tokens) parts.push(`cached ${usage.cache_read_input_tokens}`);
-  if (usage.cache_creation_input_tokens) parts.push(`cache-write ${usage.cache_creation_input_tokens}`);
-  parts.push(`out ${usage.output_tokens}`);
+  const parts = [`in ${usage.in}`];
+  if (usage.cached) parts.push(`cached ${usage.cached}`);
+  parts.push(`out ${usage.out}`);
   console.log(`[usage] ${label} (${model}): ${parts.join(", ")}`);
-}
-
-function extractJson(text) {
-  let t = text.trim();
-  // strip code fences if present
-  t = t.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "");
-  const start = t.indexOf("{");
-  const end = t.lastIndexOf("}");
-  if (start !== -1 && end !== -1) t = t.slice(start, end + 1);
-  return JSON.parse(t);
 }
 
 export async function claudeTurn(state, policy, publicMessage, event) {
@@ -252,25 +293,21 @@ ${publicMessage ? `PUBLIC MESSAGE / SPIN:\n"""${publicMessage}"""` : "The presid
 
 Simulate the consequences and return the JSON object.`;
 
-  const resp = await getClient().messages.create({
-    model: MODEL,
-    max_tokens: 2200,
-    // Thinking is billed at output rates and nothing here reads it. The worked
-    // examples in SYSTEM already do the calibration that reasoning would, so
-    // paying for both is paying twice. This is the single biggest cost lever.
-    thinking: { type: "disabled" },
-    // The rules prompt is identical every turn and now clears the 4096-token
-    // minimum, so repeat turns genuinely bill the prefix at ~10%. The 1-hour
-    // TTL matters more than it looks: players spend minutes writing a policy,
-    // and the default 5-minute cache would expire mid-think and re-bill the
-    // whole prefix as a fresh write on nearly every turn.
-    system: [{ type: "text", text: SYSTEM, cache_control: { type: "ephemeral", ttl: "1h" } }],
+  const resp = await complete({
+    system: SYSTEM,
     messages: [{ role: "user", content: user }],
+    tier: "judge",
+    maxTokens: 2200,
+    json: true,
+    // The rules prompt is identical every turn and clears the 4096-token
+    // minimum, so repeat turns bill the prefix at ~10% on the hosted API. The
+    // 1-hour TTL matters more than it looks: players spend minutes writing a
+    // policy, and a 5-minute cache would expire mid-think and re-bill it.
+    cache: true,
   });
 
-  logUsage("turn", MODEL, resp.usage);
-  const text = resp.content.filter((b) => b.type === "text").map((b) => b.text).join("");
-  return extractJson(text);
+  logUsage("turn", resp.model, resp.usage);
+  return parseModelJson(resp.text);
 }
 
 // ---------------------------------------------------------------------------
@@ -327,15 +364,15 @@ WHAT THE PRESIDENT DID:
 Write a reaction for each of these voters, in their assigned mood:
 ${list}`;
 
-  const resp = await getClient().messages.create({
-    model: CHAT_MODEL,
-    max_tokens: 900,
+  const resp = await complete({
     system: voicesSystem(state),
     messages: [{ role: "user", content: user }],
+    tier: "chat",
+    maxTokens: 900,
+    json: true,
   });
-  logUsage("voices", CHAT_MODEL, resp.usage);
-  const text = resp.content.filter((b) => b.type === "text").map((b) => b.text).join("");
-  const out = extractJson(text);
+  logUsage("voices", resp.model, resp.usage);
+  const out = parseModelJson(resp.text);
   return Array.isArray(out?.quotes) ? out.quotes : [];
 }
 
@@ -354,15 +391,13 @@ DASHBOARD: approval ${state.approval}%, stability ${state.stability}%. Congress:
   }
   messages.push({ role: "user", content: userMessage });
 
-  // No cache_control: an advisor prefix is a few hundred tokens, far below the
+  // Not cached: an advisor prefix is a few hundred tokens, far below the
   // 4096-token minimum, so a breakpoint here would be silently inert.
-  const resp = await getClient().messages.create({
-    model: CHAT_MODEL,
-    max_tokens: 400,
-    system: sys,
-    messages,
+  // Not JSON either — this one just talks.
+  const resp = await complete({
+    system: sys, messages, tier: "chat", maxTokens: 400,
   });
-  return resp.content.filter((b) => b.type === "text").map((b) => b.text).join("").trim();
+  return resp.text.trim();
 }
 
 // One debate round: role-play the challenger's rebuttal and score the President.
@@ -384,14 +419,10 @@ Respond with ONLY JSON: {"opponentLine": "...", "score": number, "pundit": "..."
   }
   messages.push({ role: "user", content: `The President's answer this round:\n"""${playerLine}"""` });
 
-  const resp = await getClient().messages.create({
-    model: CHAT_MODEL,
-    max_tokens: 500,
-    system: sys,
-    messages,
+  const resp = await complete({
+    system: sys, messages, tier: "chat", maxTokens: 500, json: true,
   });
-  const text = resp.content.filter((b) => b.type === "text").map((b) => b.text).join("");
-  const out = extractJson(text);
+  const out = parseModelJson(resp.text);
   out.score = Math.max(-10, Math.min(10, Math.round(Number(out.score) || 0)));
   return out;
 }
@@ -399,17 +430,15 @@ Respond with ONLY JSON: {"opponentLine": "...", "score": number, "pundit": "..."
 const OPENING_SYSTEM = `You are the simulation engine for "Fantasy President." Generate the opening crisis a newly inaugurated president must face in their first weeks. It should be vivid, specific, and appropriate to the given era and president. Respond with ONLY JSON: {"title": "short headline", "brief": "3-5 sentence situation the player must respond to"}. No markdown, no prose outside the JSON.`;
 
 export async function claudeOpening(scenario) {
-  const resp = await getClient().messages.create({
-    model: CHAT_MODEL,
-    max_tokens: 700,
+  const resp = await complete({
     system: OPENING_SYSTEM,
-    messages: [
-      {
-        role: "user",
-        content: `President ${scenario.presidentName}, ${presidentProfile(scenario)}, has just taken office. Era/setting: ${scenario.era}. Starting approval: ${scenario.startApproval}%. Generate their opening crisis.`,
-      },
-    ],
+    messages: [{
+      role: "user",
+      content: `President ${scenario.presidentName}, ${presidentProfile(scenario)}, has just taken office. Era/setting: ${scenario.era}. Starting approval: ${scenario.startApproval}%. Generate their opening crisis.`,
+    }],
+    tier: "chat",
+    maxTokens: 700,
+    json: true,
   });
-  const text = resp.content.filter((b) => b.type === "text").map((b) => b.text).join("");
-  return extractJson(text);
+  return parseModelJson(resp.text);
 }

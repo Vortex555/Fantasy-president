@@ -10,9 +10,33 @@ import {
   mockDebate,
   fireAdvisor,
   finishCampaign,
+  finishMidterms,
+  finishPrimary,
+  maybeSucceed,
   openingEvent,
   STAKEHOLDERS,
 } from "./gameEngine.js";
+import { resolveTwentyFifth, twentyFifthStanding } from "./succession.js";
+import { challengerFor, senateRaces, senateCycle, spendEffect } from "./elections.js";
+import { PRIMARY_STRATEGIES, primaryThreat, primaryChallenger, delegateBoard } from "./primary.js";
+import { governorRoster, courtGovernor, risingStars, COURTING_COST } from "./governors.js";
+import { historicalVerdict } from "./verdict.js";
+import {
+  districtOptions, seatFor, floorBills, partyLine, districtView,
+  castVote, sponsorBill, advanceHouseMonth, runReelection, HOUSE_TERM, SPONSOR_COOLDOWN,
+} from "./house.js";
+import {
+  COMMITTEES, RANKS, committeeById, rankById, inYourDomain,
+  chairAction, whipCount, spendCapital,
+} from "./committees.js";
+import { articlesReady, articlesStance, voteArticles } from "./articles.js";
+import {
+  SENATE_TERM, CLOTURE, stateOptions, floorBills as senateFloor,
+  castVote as senateVote, filibuster, advanceSenateMonth,
+  runReelection as senateReelection, liveGrudges,
+  partyLine as senatePartyLine, districtView as senateStateView,
+} from "./senate.js";
+import { historicalHouseVerdict } from "./houseVerdict.js";
 import { STATES } from "./states.js";
 import { attachQuotes } from "./personas.js";
 import { applyDeployment, editFirstLady, FIRST_LADY_CAUSES } from "./firstLady.js";
@@ -24,6 +48,7 @@ import { COVERT_ACTIONS } from "./covert.js";
 import { drawEvent, shouldUsePool } from "./eventPool.js";
 import { actOnBill } from "./bills.js";
 import { claudeAvailable, claudeTurn, claudeVoices, claudeOpening, claudeAdvisor, claudeDebate } from "./claude.js";
+import { providerInfo, providerId } from "./ai/provider.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -31,16 +56,27 @@ app.use(express.json({ limit: "1mb" }));
 app.use(express.static(path.join(__dirname, "..", "public")));
 
 const USING_AI = claudeAvailable();
-console.log(
-  USING_AI
-    ? "[Fantasy President] ANTHROPIC_API_KEY found — turns will be simulated by Claude."
-    : "[Fantasy President] No ANTHROPIC_API_KEY — running the built-in local simulation. Set the key for full AI turns."
-);
+
+// Say which brain is running the game, and how to change it. A player who
+// cannot tell whether their local model is actually being used will assume it
+// is not, and reach for an API key they did not want to need.
+let AI_INFO = { id: providerId(), label: "…", detail: "", available: USING_AI };
+providerInfo().then((info) => {
+  AI_INFO = info;
+  const line = info.id === "local"
+    ? `[Fantasy President] Local model — ${info.model} at ${info.url}. Nothing is sent anywhere.`
+    : info.id === "anthropic"
+      ? `[Fantasy President] Anthropic API — ${info.model}.`
+      : "[Fantasy President] No model configured — running the built-in offline engine. " +
+        "Set ANTHROPIC_API_KEY, or FP_PROVIDER=local to use a model on this machine.";
+  console.log(line);
+}).catch(() => {});
 
 // Static reference data for the client (states + stakeholders + mode).
 app.get("/api/meta", (_req, res) => {
   res.json({
     ai: USING_AI,
+    provider: AI_INFO,
     states: STATES,
     stakeholders: STAKEHOLDERS.map((s) => ({ id: s.id, name: s.name })),
     institutions: INSTITUTIONS.map(({ id, title, term, remit, vacancyNote }) =>
@@ -245,10 +281,410 @@ app.post("/api/actions/propose", (req, res) => {
   try {
     const { state, actionId } = req.body || {};
     if (!state || !actionId) return res.status(400).json({ error: "state and actionId are required." });
-    res.json(propose(state, String(actionId)));
+    const outcome = propose(state, String(actionId));
+    // A refused order ends the presidency, not necessarily the republic.
+    if (outcome.state) outcome.state = maybeSucceed(outcome.state);
+    res.json(outcome);
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "The proposal could not be filed." });
+  }
+});
+
+// What the histories say about a finished presidency.
+app.post("/api/verdict", (req, res) => {
+  try {
+    const { state } = req.body || {};
+    if (!state) return res.status(400).json({ error: "state is required." });
+    res.json(historicalVerdict(state));
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "The verdict could not be written." });
+  }
+});
+
+// --- The House -------------------------------------------------------------
+
+/** Seats worth choosing between, before a career starts. */
+app.post("/api/house/districts", (req, res) => {
+  try {
+    const { party, presidentName, startYear } = req.body || {};
+    const scenario = {
+      presidentName: str(presidentName, "Alex Rivera", 60),
+      party: PARTIES.includes(party) ? party : "Democrat",
+      startYear: num(startYear, 2025, 1900, 2200),
+    };
+    const seed = { rosterSeed: `${scenario.presidentName}|${scenario.startYear}|${scenario.party}`, scenario };
+    res.json({ districts: districtOptions(seed, scenario.party) });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "The map could not be drawn." });
+  }
+});
+
+/** What leadership has scheduled, and where everyone stands on it. */
+app.post("/api/house/floor", (req, res) => {
+  try {
+    const { state } = req.body || {};
+    if (!state || state.office !== "house") return res.status(400).json({ error: "A House career is required." });
+    const buried = new Set((state.committeeLog || [])
+      .filter((e) => e.action === "buried").map((e) => e.id));
+    const bills = floorBills(state)
+      .filter((bill) => !buried.has(bill.id))
+      .map((bill) => ({
+        ...bill,
+        party: partyLine(state, bill),
+        district: districtView(state, bill),
+        // What this member's rank lets them do to it before anybody votes.
+        yours: inYourDomain(state, bill),
+        whip: whipCount(state, bill),
+      }));
+    const last = (state.sponsored || []).slice(-1)[0];
+    const committee = committeeById(state.committee);
+    res.json({
+      bills,
+      // The one vote that is not a bill.
+      articles: articlesReady(state)
+        ? { ...state.jeopardy, stance: articlesStance(state), president: state.president }
+        : null,
+      committee: committee && { ...committee },
+      rank: rankById(state.rank),
+      capital: state.capital ?? 0,
+      term: state.term || 1,
+      monthsLeft: HOUSE_TERM - state.month + 1,
+      canSponsor: !last || state.month - last.month >= SPONSOR_COOLDOWN || (last.term || 1) !== (state.term || 1),
+      forecast: runReelection(state),
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "The floor schedule could not be read." });
+  }
+});
+
+app.post("/api/house/vote", (req, res) => {
+  try {
+    const { state, bill, vote } = req.body || {};
+    if (!state || !bill) return res.status(400).json({ error: "state and bill are required." });
+    const out = castVote(state, bill, String(vote));
+    if (out.rejected) return res.status(400).json({ error: out.note });
+    res.json(out);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "The vote could not be recorded." });
+  }
+});
+
+app.post("/api/house/sponsor", (req, res) => {
+  try {
+    const { state, title, axis, domain } = req.body || {};
+    if (!state) return res.status(400).json({ error: "state is required." });
+    const out = sponsorBill(state, {
+      title: str(title, "An Act", 90),
+      axis: Math.max(-1, Math.min(1, Number(axis) || 0)),
+      domain: str(domain, "economy", 20),
+    });
+    if (out.rejected) return res.status(400).json({ error: out.note });
+    res.json(out);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "The bill could not be filed." });
+  }
+});
+
+/** End the month. At the end of a term, the district answers. */
+app.post("/api/house/advance", (req, res) => {
+  try {
+    const { state } = req.body || {};
+    if (!state || state.office !== "house") return res.status(400).json({ error: "A House career is required." });
+    res.json(advanceHouseMonth(state));
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "The month could not be closed out." });
+  }
+});
+
+/** Impeachment: the vote only the House gets to cast. */
+app.post("/api/house/articles", (req, res) => {
+  try {
+    const { state, vote } = req.body || {};
+    if (!state) return res.status(400).json({ error: "state is required." });
+    const out = voteArticles(state, String(vote));
+    if (out.rejected) return res.status(400).json({ error: out.note });
+    res.json(out);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "The vote could not be recorded." });
+  }
+});
+
+/** What the House remembers about a member. */
+app.post("/api/house/verdict", (req, res) => {
+  try {
+    const { state } = req.body || {};
+    // Both chambers close on this record; only the nouns differ.
+    if (!state || !["house", "senate"].includes(state.office)) {
+      return res.status(400).json({ error: "A congressional career is required." });
+    }
+    res.json(historicalHouseVerdict(state));
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "The record could not be written." });
+  }
+});
+
+/** Bury a bill in committee, or report it out amended. */
+app.post("/api/house/committee", (req, res) => {
+  try {
+    const { state, bill, action } = req.body || {};
+    if (!state || !bill) return res.status(400).json({ error: "state and bill are required." });
+    if (action !== "bury" && action !== "amend") {
+      return res.status(400).json({ error: "Bury it or amend it." });
+    }
+    const out = chairAction(state, bill, action);
+    if (out.rejected) return res.status(400).json({ error: out.note });
+    res.json(out);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "The committee could not act." });
+  }
+});
+
+/** Call in favours to move a whip count. */
+app.post("/api/house/whip", (req, res) => {
+  try {
+    const { state, bill, amount } = req.body || {};
+    if (!state || !bill) return res.status(400).json({ error: "state and bill are required." });
+    const out = spendCapital(state, bill, Number(amount));
+    if (out.rejected) return res.status(400).json({ error: out.note });
+    res.json({ ...out, whip: whipCount(out.state, bill) });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "The floor could not be worked." });
+  }
+});
+
+// --- The Senate ------------------------------------------------------------
+
+app.post("/api/senate/states", (req, res) => {
+  try {
+    const { party, presidentName, startYear } = req.body || {};
+    const scenario = {
+      presidentName: str(presidentName, "Alex Rivera", 60),
+      party: PARTIES.includes(party) ? party : "Democrat",
+      startYear: num(startYear, 2025, 1900, 2200),
+    };
+    res.json({ states: stateOptions({ scenario }, scenario.party) });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "The map could not be drawn." });
+  }
+});
+
+app.post("/api/senate/floor", (req, res) => {
+  try {
+    const { state } = req.body || {};
+    if (!state || state.office !== "senate") return res.status(400).json({ error: "A Senate career is required." });
+    const buried = new Set((state.committeeLog || [])
+      .filter((e) => e.action === "buried").map((e) => e.id));
+    const held = new Set((state.filibusters || []).map((f) => f.id));
+    const bills = senateFloor(state)
+      .filter((b) => !buried.has(b.id))
+      .map((bill) => ({
+        ...bill,
+        party: senatePartyLine(state, bill),
+        district: senateStateView(state, bill),
+        yours: inYourDomain(state, bill),
+        whip: whipCount(state, bill),
+        filibustered: held.has(bill.id),
+      }));
+    res.json({
+      bills,
+      committee: committeeById(state.committee),
+      rank: rankById(state.rank),
+      capital: state.capital ?? 0,
+      cloture: CLOTURE,
+      grudges: liveGrudges(state).slice(0, 5),
+      term: state.term || 1,
+      monthsLeft: SENATE_TERM - state.month + 1,
+      canSponsor: true,
+      forecast: senateReelection(state),
+      articles: articlesReady(state)
+        ? { ...state.jeopardy, stance: articlesStance(state), president: state.president }
+        : null,
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "The floor schedule could not be read." });
+  }
+});
+
+app.post("/api/senate/vote", (req, res) => {
+  try {
+    const { state, bill, vote } = req.body || {};
+    if (!state || !bill) return res.status(400).json({ error: "state and bill are required." });
+    const out = senateVote(state, bill, String(vote));
+    if (out.rejected) return res.status(400).json({ error: out.note });
+    res.json(out);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "The vote could not be recorded." });
+  }
+});
+
+/** Hold the floor. Any senator may. */
+app.post("/api/senate/filibuster", (req, res) => {
+  try {
+    const { state, bill } = req.body || {};
+    if (!state || !bill) return res.status(400).json({ error: "state and bill are required." });
+    const out = filibuster(state, bill);
+    if (out.rejected) return res.status(400).json({ error: out.note });
+    res.json(out);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "The floor could not be held." });
+  }
+});
+
+app.post("/api/senate/advance", (req, res) => {
+  try {
+    const { state } = req.body || {};
+    if (!state || state.office !== "senate") return res.status(400).json({ error: "A Senate career is required." });
+    res.json(advanceSenateMonth(state));
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "The month could not be closed out." });
+  }
+});
+
+// --- The statehouses -------------------------------------------------------
+
+// The fifty governors, how hard each is resisting, and who is running for your job.
+app.post("/api/governors", (req, res) => {
+  try {
+    const { state } = req.body || {};
+    if (!state) return res.status(400).json({ error: "state is required." });
+    const defiance = state.governors || {};
+    res.json({
+      cost: COURTING_COST,
+      warChest: state.warChest ?? 0,
+      governors: governorRoster(state).map((g) => ({ ...g, defiance: defiance[g.state] ?? 0 })),
+      bench: risingStars(state).slice(0, 5).map(({ name, party, state: code, stateName, ambition, standing, score }) =>
+        ({ name, party, state: code, stateName, ambition, standing, score })),
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "The statehouses could not be read." });
+  }
+});
+
+// Come to an understanding with one of them.
+app.post("/api/governors/court", (req, res) => {
+  try {
+    const { state, code } = req.body || {};
+    if (!state || !code) return res.status(400).json({ error: "state and code are required." });
+    const out = courtGovernor(state, String(code).toUpperCase());
+    if (out.rejected) return res.status(400).json({ error: out.note });
+    res.json(out);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "The deal could not be made." });
+  }
+});
+
+// --- The primary -----------------------------------------------------------
+
+// Who is challenging, why, and what the options cost.
+app.post("/api/primary/board", (req, res) => {
+  try {
+    const { state } = req.body || {};
+    if (!state) return res.status(400).json({ error: "state is required." });
+    const board = delegateBoard(state);
+    res.json({
+      challenger: primaryChallenger(state),
+      threat: primaryThreat(state),
+      strategies: PRIMARY_STRATEGIES,
+      delegates: { total: board.total, majority: board.majority },
+      states: board.states,
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "The primary board could not be built." });
+  }
+});
+
+// Fight it, however you have chosen to.
+app.post("/api/primary/finish", (req, res) => {
+  try {
+    const { state, strategy } = req.body || {};
+    if (!state) return res.status(400).json({ error: "state is required." });
+    if (!PRIMARY_STRATEGIES.some((s) => s.id === strategy)) {
+      return res.status(400).json({ error: "Unknown strategy." });
+    }
+    const { state: next, result } = finishPrimary(state, strategy);
+    res.json({ state: next, result });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "The primary could not be resolved." });
+  }
+});
+
+// --- Leaving office --------------------------------------------------------
+
+// Resignation. The oath passes to the Vice President, so this has to run
+// through the engine rather than being set on the client.
+app.post("/api/resign", (req, res) => {
+  try {
+    const { state } = req.body || {};
+    if (!state) return res.status(400).json({ error: "state is required." });
+    const resigned = {
+      ...state,
+      over: true,
+      phase: "concluded",
+      ending: {
+        type: "resigned",
+        reason: "You resigned the presidency. The country is left to argue about why.",
+      },
+    };
+    const next = maybeSucceed(resigned);
+    res.json({ state: next, succeeded: Boolean(next.succession) });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "The resignation could not be filed." });
+  }
+});
+
+// Where the cabinet stands on a Twenty-Fifth Amendment declaration.
+app.post("/api/twentyfifth/standing", (req, res) => {
+  try {
+    const { state } = req.body || {};
+    if (!state) return res.status(400).json({ error: "state is required." });
+    const standing = twentyFifthStanding(state);
+    res.json({
+      vpName: standing.vp?.name || null,
+      cabinetFor: standing.cabinetFor,
+      cabinetAgainst: standing.cabinetAgainst,
+      declaration: state.twentyFifth || null,
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "The cabinet's position could not be read." });
+  }
+});
+
+// Contest it, or stand down.
+app.post("/api/twentyfifth/resolve", (req, res) => {
+  try {
+    const { state, action } = req.body || {};
+    if (!state) return res.status(400).json({ error: "state is required." });
+    if (action !== "contest" && action !== "step_aside") {
+      return res.status(400).json({ error: "Contest it or stand down." });
+    }
+    const out = resolveTwentyFifth(state, action);
+    if (out.rejected) return res.status(400).json({ error: out.note });
+    res.json({ state: out.state, result: out.result });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "The declaration could not be answered." });
   }
 });
 
@@ -321,15 +757,67 @@ app.post("/api/debate", async (req, res) => {
 // Resolve the campaign into an election result.
 app.post("/api/campaign/finish", (req, res) => {
   try {
-    const { state, debateScore } = req.body || {};
+    const { state, debateScore, spend } = req.body || {};
     if (!state) return res.status(400).json({ error: "state is required." });
-    const finalState = finishCampaign(state, Number(debateScore) || 0);
-    res.json({ state: finalState });
+    const finalState = finishCampaign(state, Number(debateScore) || 0, sanitizeSpend(spend));
+    res.json({ state: finalState, election: finalState.election || null });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "The election could not be resolved." });
   }
 });
+
+// The seats actually on the ballot this cycle, so the midterm map can show the
+// player what they are defending before they decide where the money goes.
+app.post("/api/midterms/board", (req, res) => {
+  try {
+    const { state } = req.body || {};
+    if (!state) return res.status(400).json({ error: "state is required." });
+    const cycle = senateCycle(state);
+    res.json({
+      cycle,
+      challenger: challengerFor(state),
+      warChest: state.warChest ?? 0,
+      senateStates: senateRaces(state, cycle).map((r) => r.state),
+      // What a representative commitment buys, so the UI can be honest.
+      sample: Object.fromEntries(
+        Object.entries(STATES).map(([code, info]) => [code, spendEffect(20, info.ev)])),
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "The midterm board could not be built." });
+  }
+});
+
+// Hold the midterms.
+app.post("/api/midterms/finish", (req, res) => {
+  try {
+    const { state, spend } = req.body || {};
+    if (!state) return res.status(400).json({ error: "state is required." });
+    const { state: next, result } = finishMidterms(state, sanitizeSpend(spend));
+    res.json({ state: next, result });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "The midterms could not be held." });
+  }
+});
+
+/**
+ * A spending plan arrives from the browser, so nothing in it is trusted: only
+ * real state codes, only finite non-negative numbers. The engine trims the
+ * total to the war chest separately.
+ */
+function sanitizeSpend(spend) {
+  if (!spend || typeof spend !== "object") return {};
+  const out = {};
+  for (const [code, value] of Object.entries(spend)) {
+    if (!Object.hasOwn(STATES, code)) continue;
+    const dollars = Number(value);
+    if (!Number.isFinite(dollars) || dollars <= 0) continue;
+    out[code] = Math.min(dollars, 5000);
+  }
+  return out;
+}
 
 const PARTIES = ["Democrat", "Republican", "Independent"];
 const DIFFICULTIES = ["easy", "medium", "hard"];
@@ -373,7 +861,16 @@ function sanitizeScenario(s) {
     eraKey: str(s?.eraKey, "custom", 40),
     eraTitle: str(s?.eraTitle, "Present day", 60),
     startYear: num(s?.startYear, 2025, 1900, 2200),
+    // Which office this career is for. Anything unrecognised is a presidency,
+    // so every save written before this existed still loads as one.
+    office: ["house", "senate"].includes(s?.office) ? s.office : "president",
   };
+  if (scenario.office === "house") {
+    scenario.district = str(s?.district, "OH-6", 8).toUpperCase();
+  }
+  if (scenario.office === "senate") {
+    scenario.seatState = str(s?.seatState, "OH", 4).toUpperCase();
+  }
 
   if (Number.isFinite(Number(s?.stability))) {
     scenario.stability = num(s.stability, 72, 10, 100);

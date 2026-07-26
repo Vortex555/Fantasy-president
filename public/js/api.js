@@ -36,8 +36,74 @@ export const dismissAdvisor = (state, advisorId) =>
 export const debateRound = (state, round, topic, playerLine, history) =>
   post("/api/debate", { state, round, topic, playerLine, history });
 
-export const finishCampaign = (state, debateScore) =>
-  post("/api/campaign/finish", { state, debateScore });
+export const finishCampaign = (state, debateScore, spend) =>
+  post("/api/campaign/finish", { state, debateScore, spend });
+
+// --- Elections -------------------------------------------------------------
+
+export const midtermBoard = (state) => post("/api/midterms/board", { state });
+
+export const finishMidterms = (state, spend) => post("/api/midterms/finish", { state, spend });
+
+export const getVerdict = (state) => post("/api/verdict", { state });
+
+// --- The House -------------------------------------------------------------
+
+export const houseDistricts = (party, presidentName, startYear) =>
+  post("/api/house/districts", { party, presidentName, startYear });
+
+export const houseFloor = (state) => post("/api/house/floor", { state });
+
+export const houseVote = (state, bill, vote) => post("/api/house/vote", { state, bill, vote });
+
+export const houseSponsor = (state, title, axis, domain) =>
+  post("/api/house/sponsor", { state, title, axis, domain });
+
+export const houseAdvance = (state) => post("/api/house/advance", { state });
+
+export const houseCommittee = (state, bill, action) =>
+  post("/api/house/committee", { state, bill, action });
+
+export const houseWhip = (state, bill, amount) =>
+  post("/api/house/whip", { state, bill, amount });
+
+export const houseArticles = (state, vote) => post("/api/house/articles", { state, vote });
+
+// --- The Senate ------------------------------------------------------------
+
+export const senateStates = (party, presidentName, startYear) =>
+  post("/api/senate/states", { party, presidentName, startYear });
+
+export const senateFloor = (state) => post("/api/senate/floor", { state });
+
+export const senateVote = (state, bill, vote) => post("/api/senate/vote", { state, bill, vote });
+
+export const senateFilibuster = (state, bill) => post("/api/senate/filibuster", { state, bill });
+
+export const senateAdvance = (state) => post("/api/senate/advance", { state });
+
+export const houseVerdict = (state) => post("/api/house/verdict", { state });
+
+// --- The statehouses -------------------------------------------------------
+
+export const getGovernors = (state) => post("/api/governors", { state });
+
+export const courtGovernor = (state, code) => post("/api/governors/court", { state, code });
+
+// --- The primary -----------------------------------------------------------
+
+export const primaryBoard = (state) => post("/api/primary/board", { state });
+
+export const finishPrimary = (state, strategy) => post("/api/primary/finish", { state, strategy });
+
+// --- Leaving office --------------------------------------------------------
+
+export const resignOffice = (state) => post("/api/resign", { state });
+
+export const twentyFifthStanding = (state) => post("/api/twentyfifth/standing", { state });
+
+export const answerTwentyFifth = (state, action) =>
+  post("/api/twentyfifth/resolve", { state, action });
 
 // --- Institutional positions ----------------------------------------------
 

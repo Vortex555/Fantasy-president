@@ -1,0 +1,519 @@
+"use strict";
+
+import { $, show, escapeHtml, loader, monthLabel } from "../util.js";
+import { G, saveCareer } from "../store.js";
+import {
+  houseFloor, houseVote, houseSponsor, houseAdvance, houseCommittee, houseWhip, houseArticles,
+  senateFloor, senateVote, senateFilibuster, senateAdvance,
+} from "../api.js";
+
+/**
+ * Both chambers run through this screen.
+ *
+ * The shape is identical — your two standings, what leadership scheduled, and
+ * which way you go on it — so the differences are parameterised rather than
+ * duplicated into a second four-hundred-line file. What actually differs is the
+ * term length, the word for your constituency, and the fact that a senator can
+ * stop the chamber on their own.
+ */
+const CHAMBER = {
+  house: {
+    term: 24, seatWord: "district", chamberName: "House",
+    floor: houseFloor, vote: houseVote, advance: houseAdvance,
+  },
+  senate: {
+    term: 72, seatWord: "state", chamberName: "Senate",
+    floor: senateFloor, vote: senateVote, advance: senateAdvance,
+  },
+};
+
+const chamber = () => CHAMBER[G.state?.office] || CHAMBER.house;
+
+/**
+ * The member's month.
+ *
+ * Leadership schedules; you vote. Each bill is shown with both of the people
+ * you answer to already on the record — your caucus and your district — because
+ * the decision is never "is this a good bill", it is "which of these two am I
+ * disappointing today, and can I afford it".
+ */
+
+let handlers = {};
+let board = null;
+
+export async function renderFloor(hooks) {
+  handlers = hooks;
+  const state = G.state;
+
+  loader(true, "The Rules Committee is reporting…");
+  try {
+    board = await chamber().floor(state);
+  } catch (err) {
+    alert("The floor schedule could not be read: " + err.message);
+    return handlers.onDashboard();
+  } finally {
+    loader(false);
+  }
+  paint();
+}
+
+function paint() {
+  const state = G.state;
+  const seat = state.seat;
+  const voted = new Set((state.voteLog || []).map((v) => v.id));
+  const pending = board.bills.filter((b) => !voted.has(b.id));
+
+  $("floorBody").innerHTML = `
+    <div class="dash-head">
+      <div>
+        <h1 class="display display--lg">${escapeHtml(state.scenario.presidentName)}</h1>
+        <div class="dash-head__sub">${escapeHtml(seat.district)} · ${escapeHtml(seat.stateName)} ·
+          ${escapeHtml(state.scenario.party)} · term ${state.term}, month ${state.month} of ${chamber().term}</div>
+      </div>
+      <div class="dash-head__right">
+        <h2 class="display display--md">${escapeHtml(monthLabel(state.month, state.scenario.startYear))}</h2>
+        <div class="dash-head__sub">${board.monthsLeft} months to the election</div>
+      </div>
+    </div>
+
+    <div class="tiles tiles--four">
+      ${meter(`Your ${chamber().seatWord}`, state.approval,
+        `How ${state.office === "senate" ? seat.stateName : seat.district} rates you`)}
+      ${meter("Your leadership", state.leadership, state.independent
+        ? `How the ${state.caucus} caucus you sit with rates you`
+        : "How the caucus rates you")}
+      ${plain("Seniority", `Term ${seat.seniority}`, "Clout, slowly earned")}
+      ${plain("Re-election", forecastLabel(board.forecast), forecastNote(board.forecast))}
+    </div>
+
+    <div class="card">
+      <div class="card__head">
+        <span class="eyebrow">🏛️ ${escapeHtml(board.rank.title)}</span>
+        ${board.capital > 0 || board.rank.id === "whip" || board.rank.id === "speaker"
+          ? `<span class="hint">Favours owed to you: <b>${Math.round(board.capital)}</b></span>` : ""}
+      </div>
+      <p style="margin:8px 0 0">${escapeHtml(board.rank.power)}</p>
+      ${board.committee ? `<p class="hint" style="margin:10px 0 0">
+        You sit on <b>${escapeHtml(board.committee.name)}</b> — ${escapeHtml(board.committee.remit)}
+      </p>` : ""}
+    </div>
+
+    ${board.grudges?.length ? `<div class="card">
+      <span class="eyebrow">🧠 What ${escapeHtml(seat.stateName)} has not forgotten</span>
+      <p class="hint" style="margin:6px 0 12px">
+        Six years is a long time. These fade every month — a vote taken early is nearly forgiven
+        by the election, and one taken late is not.
+      </p>
+      <div class="flips">
+        ${board.grudges.map((g) => `<span class="flip flip--loss">${escapeHtml(g.title)}<i>${g.weight.toFixed(1)}</i></span>`).join("")}
+      </div>
+    </div>` : ""}
+
+    ${board.articles ? articlesCard(board.articles) : ""}
+
+    ${pending.length ? `
+      <div class="card">
+        <span class="eyebrow">🗳️ On the floor this month</span>
+        <p class="hint" style="margin:6px 0 0">
+          ${pending.length === 1 ? "One bill" : `${pending.length} bills`} up for a vote.
+          Both of the people you answer to are already on the record.
+        </p>
+      </div>
+      ${pending.map(billCard).join("")}
+    ` : `
+      <div class="card">
+        <span class="eyebrow">🕰️ A quiet month on the floor</span>
+        <p style="margin:10px 0 0">Nothing is scheduled. Members use months like this to work the
+          district, raise money, and file the bill nobody asked for.</p>
+      </div>`}
+
+    ${board.canSponsor ? sponsorCard() : `
+      <div class="card">
+        <span class="eyebrow">📋 Your own legislation</span>
+        <p class="hint" style="margin:8px 0 0">You have filed recently. The next one can go in a few months.</p>
+      </div>`}
+
+    <div class="next-step">
+      <button class="btn btn--primary btn--block" id="endMonth" style="max-width:340px">
+        ${state.month >= chamber().term ? "To the Election →" : "End the Month →"}
+      </button>
+    </div>`;
+
+  if (board.articles) wireArticles();
+  for (const b of pending) wireBill(b);
+  if (board.canSponsor) wireSponsor();
+  $("endMonth").onclick = endMonth;
+  show("floor");
+  window.scrollTo(0, 0);
+}
+
+// --- The vote only the House casts ------------------------------------------
+
+/**
+ * Impeachment. Shown ahead of everything else on the floor, because for the
+ * month it is on the calendar there is nothing else on the floor.
+ */
+function articlesCard(a) {
+  const s = a.stance;
+  return `<div class="card card--alarm" id="articlesCard">
+    <div class="card__head">
+      <span class="eyebrow">⚖️ Articles of impeachment</span>
+      <span class="hint">${a.articles.length} articles reported</span>
+    </div>
+    <h3 class="display display--sm" style="margin:4px 0 6px">
+      The impeachment of President ${escapeHtml(a.president.name)}</h3>
+    <p class="brief__body" style="margin:0 0 12px">
+      ${a.articles.map((x) => escapeHtml(x.title)).join(" · ")}
+    </p>
+
+    <div class="stances">
+      <div class="stance ${s.party.position === "yes" ? "stance--yes" : "stance--no"}">
+        <span class="stance__who">${G.state.independent ? escapeHtml(G.state.caucus) + " caucus" : "Your leadership"}</span>
+        <span class="stance__pos">${s.party.position.toUpperCase()}</span>
+        <span class="stance__note">${escapeHtml(s.party.reason)}</span>
+      </div>
+      <div class="stance ${s.district.position === "yes" ? "stance--yes" : "stance--no"}">
+        <span class="stance__who">${escapeHtml(G.state.seat.district)}</span>
+        <span class="stance__pos">${s.district.position.toUpperCase()}</span>
+        <span class="stance__note">${escapeHtml(s.district.reason)}</span>
+      </div>
+    </div>
+    <p class="hint" style="margin:12px 0 0">
+      There is no version of this vote nobody notices. It follows you.
+    </p>
+    <div class="btn-row" style="margin-top:16px;justify-content:flex-end">
+      <button class="btn" data-articles="abstain">Abstain</button>
+      <button class="btn btn--danger" data-articles="no">Vote to Acquit</button>
+      <button class="btn btn--primary" data-articles="yes">Vote to Impeach</button>
+    </div>
+    <div class="vote-result hidden"></div>
+  </div>`;
+}
+
+function wireArticles() {
+  const card = $("articlesCard");
+  if (!card) return;
+  card.onclick = async (e) => {
+    const btn = e.target.closest("[data-articles]");
+    if (!btn) return;
+    for (const b of card.querySelectorAll("[data-articles]")) b.disabled = true;
+    loader(true, "The Clerk is calling the roll…");
+    try {
+      const data = await houseArticles(G.state, btn.dataset.articles);
+      G.state = data.state;
+      saveCareer();
+      const r = data.result;
+      card.querySelector(".btn-row").remove();
+      const box = card.querySelector(".vote-result");
+      box.className = "vote-result";
+      box.innerHTML = `
+        <div class="vote-result__head">
+          <span class="badge ${r.impeached ? "badge--red" : "badge--live"}">
+            ${r.impeached ? "Impeached" : "Acquitted"} ${r.tally.yes}–${r.tally.no}</span>
+          <span class="hint">You voted <b>${r.yourVote.toUpperCase()}</b></span>
+        </div>
+        <p style="margin:10px 0 0">${escapeHtml(r.note)}</p>
+        <div class="vote-result__deltas">
+          <span>District <b class="${r.district.delta >= 0 ? "up" : "down"}">${r.district.delta > 0 ? "+" : ""}${r.district.delta}</b></span>
+          <span>Leadership <b class="${r.party.delta >= 0 ? "up" : "down"}">${r.party.delta > 0 ? "+" : ""}${r.party.delta}</b></span>
+        </div>`;
+      refreshMeters();
+    } catch (err) {
+      alert("The vote could not be recorded: " + err.message);
+      for (const b of card.querySelectorAll("[data-articles]")) b.disabled = false;
+    } finally {
+      loader(false);
+    }
+  };
+}
+
+// --- One bill ---------------------------------------------------------------
+
+/** Ranks that hold a gavel over their own committee's bills. */
+const GAVEL = new Set(["subchair", "chair", "speaker"]);
+
+const stanceClass = (p) => (p === "yes" ? "stance--yes" : "stance--no");
+
+function billCard(bill) {
+  const split = bill.party.position !== bill.district.position;
+  return `<div class="card${split ? " card--alarm" : ""}" data-bill="${escapeHtml(bill.id)}">
+    <div class="card__head">
+      <span class="eyebrow">${split ? "⚔️ They disagree" : "🤝 They agree"}</span>
+      <span class="hint">${escapeHtml(bill.domain)}</span>
+    </div>
+    <h3 class="display display--sm" style="margin:4px 0 6px">${escapeHtml(bill.title)}</h3>
+    <p class="brief__body" style="margin:0 0 14px">${escapeHtml(bill.brief || "")}</p>
+
+    <div class="stances">
+      <div class="stance ${stanceClass(bill.party.position)}">
+        <span class="stance__who">${G.state.independent ? escapeHtml(G.state.caucus) + " caucus" : "Your leadership"}</span>
+        <span class="stance__pos">${bill.party.position.toUpperCase()}</span>
+        <span class="stance__note">${escapeHtml(bill.party.reason)}</span>
+        <span class="stance__heat">Pressure ${bill.party.intensity}</span>
+      </div>
+      <div class="stance ${stanceClass(bill.district.position)}">
+        <span class="stance__who">${escapeHtml(bill.district.district || G.state.seat.district)}</span>
+        <span class="stance__pos">${bill.district.position.toUpperCase()}</span>
+        <span class="stance__note">${escapeHtml(bill.district.reason)}</span>
+        <span class="stance__heat">Pressure ${bill.district.intensity}</span>
+      </div>
+    </div>
+    <p class="hint" style="margin:12px 0 0">${escapeHtml(bill.district.pressureNote || "")}</p>
+
+    ${bill.whip?.visible ? `<div class="whipbox">
+      <div class="whipbox__head">
+        <span class="eyebrow">🔢 The count</span>
+        <b class="${bill.whip.passing ? "up" : "down"}">${bill.whip.yes}–${bill.whip.no}</b>
+      </div>
+      <p class="hint" style="margin:6px 0 0">${escapeHtml(bill.whip.note)}</p>
+      ${!bill.whip.passing ? `<div class="whipbox__act">
+        <input type="range" min="0" max="${Math.round(G.state.capital || 0)}" value="0" data-whip-range />
+        <span class="hint" data-whip-label>Spend 0 favours</span>
+        <button class="btn btn--sm" data-whip-go>Work the floor</button>
+      </div>` : ""}
+    </div>` : ""}
+
+    ${bill.yours && GAVEL.has(G.state.rank) ? `<div class="gavel">
+      <span class="eyebrow">⚖️ Your committee's jurisdiction</span>
+      <p class="hint" style="margin:6px 0 10px">This is yours before it is anybody else's.</p>
+      <div class="btn-row" style="justify-content:flex-start">
+        ${G.state.rank === "chair" || G.state.rank === "speaker"
+          ? `<button class="btn btn--danger btn--sm" data-gavel="bury">Bury it in committee</button>` : ""}
+        <button class="btn btn--sm" data-gavel="amend">Report it out amended</button>
+      </div>
+    </div>` : ""}
+
+    ${G.state.office === "senate" && !bill.filibustered ? `<div class="gavel">
+      <span class="eyebrow">🗣️ Hold the floor</span>
+      <p class="hint" style="margin:6px 0 10px">
+        Any senator can filibuster. It puts the bar at ${board.cloture} votes instead of 51 —
+        and leadership will know exactly who made them find them.
+      </p>
+      <button class="btn btn--sm" data-filibuster="1">Filibuster it</button>
+    </div>` : ""}
+    ${bill.filibustered ? `<p class="hint" style="margin:12px 0 0">
+      <b>You are holding the floor.</b> This needs ${board.cloture} votes to proceed.</p>` : ""}
+
+    <div class="btn-row" style="margin-top:16px;justify-content:flex-end">
+      <button class="btn" data-vote="abstain">Abstain</button>
+      <button class="btn btn--danger" data-vote="no">Vote No</button>
+      <button class="btn btn--primary" data-vote="yes">Vote Aye</button>
+    </div>
+    <div class="vote-result hidden"></div>
+  </div>`;
+}
+
+function wireBill(bill) {
+  const card = document.querySelector(`[data-bill="${bill.id}"]`);
+  if (!card) return;
+  let live = bill;   // the bill as it now stands, if committee amended it
+
+  const range = card.querySelector("[data-whip-range]");
+  if (range) {
+    const label = card.querySelector("[data-whip-label]");
+    range.oninput = () => { label.textContent = `Spend ${range.value} favour${range.value === "1" ? "" : "s"}`; };
+    card.querySelector("[data-whip-go]").onclick = async () => {
+      loader(true, "You are making calls…");
+      try {
+        const data = await houseWhip(G.state, live, Number(range.value));
+        G.state = data.state;
+        saveCareer();
+        renderFloor(handlers);
+      } catch (err) {
+        alert("The floor could not be worked: " + err.message);
+      } finally { loader(false); }
+    };
+  }
+
+  const fil = card.querySelector("[data-filibuster]");
+  if (fil) {
+    fil.onclick = async () => {
+      loader(true, "You have the floor…");
+      try {
+        const data = await senateFilibuster(G.state, live);
+        G.state = data.state;
+        saveCareer();
+        renderFloor(handlers);
+      } catch (err) {
+        alert("The floor could not be held: " + err.message);
+      } finally { loader(false); }
+    };
+  }
+
+  for (const g of card.querySelectorAll("[data-gavel]")) {
+    g.onclick = async () => {
+      loader(true, "The committee is marking it up…");
+      try {
+        const data = await houseCommittee(G.state, live, g.dataset.gavel);
+        G.state = data.state;
+        saveCareer();
+        if (data.result.buried) return renderFloor(handlers);
+        live = data.result.bill;
+        renderFloor(handlers);
+      } catch (err) {
+        alert("The committee could not act: " + err.message);
+      } finally { loader(false); }
+    };
+  }
+
+  card.onclick = async (e) => {
+    const btn = e.target.closest("[data-vote]");
+    if (!btn) return;
+    for (const b of card.querySelectorAll("[data-vote]")) b.disabled = true;
+    loader(true, "The clerk is calling the roll…");
+    try {
+      const data = await chamber().vote(G.state, live, btn.dataset.vote);
+      G.state = data.state;
+      saveCareer();
+      paintVoteResult(card, data.result);
+    } catch (err) {
+      alert("The vote could not be recorded: " + err.message);
+      for (const b of card.querySelectorAll("[data-vote]")) b.disabled = false;
+    } finally {
+      loader(false);
+    }
+  };
+}
+
+function paintVoteResult(card, result) {
+  card.querySelector(".btn-row")?.remove();
+  const box = card.querySelector(".vote-result");
+  const t = result.tally;
+  const delta = (v) => `<b class="${v >= 0 ? "up" : "down"}">${v > 0 ? "+" : ""}${v}</b>`;
+
+  box.className = "vote-result";
+  box.innerHTML = `
+    <div class="vote-result__head">
+      <span class="badge ${result.passed ? "badge--live" : "badge--red"}">
+        ${result.passed ? "Passed" : "Failed"} ${t.yes}–${t.no}</span>
+      <span class="hint">You voted <b>${result.yourVote.toUpperCase()}</b></span>
+    </div>
+    <p style="margin:10px 0 0">${escapeHtml(result.note)}</p>
+    <div class="vote-result__deltas">
+      <span>District ${delta(result.district.delta)}</span>
+      <span>Leadership ${delta(result.party.delta)}</span>
+    </div>`;
+  // The two headline numbers moved; keep the tiles honest.
+  refreshMeters();
+}
+
+function refreshMeters() {
+  const set = (id, v) => {
+    const el = $(id);
+    if (el) el.textContent = `${Math.round(v)}%`;
+  };
+  set("meterYourDistrict", G.state.approval);
+  set("meterYourLeadership", G.state.leadership);
+}
+
+// --- Your own bill ----------------------------------------------------------
+
+const DOMAINS = ["economy", "health", "security", "justice", "social"];
+
+function sponsorCard() {
+  return `<div class="card" id="sponsorCard">
+    <span class="eyebrow">📋 File your own bill</span>
+    <p class="hint" style="margin:8px 0 14px">
+      Most bills die in committee, and a freshman's die faster. Getting one heard is what
+      seniority and leadership goodwill actually buy.
+    </p>
+    <input id="sponsorTitle" type="text" maxlength="80" placeholder="The name it will be known by…" />
+    <div class="sponsor-row">
+      <label class="sponsor-field">
+        <span class="hint">Where it sits</span>
+        <input id="sponsorAxis" type="range" min="-100" max="100" value="${Math.round((Number(G.state.scenario.ideologyAxis) || 0) * 100)}" />
+        <span class="hint" id="sponsorAxisLabel"></span>
+      </label>
+      <label class="sponsor-field">
+        <span class="hint">Domain</span>
+        <select id="sponsorDomain">
+          ${DOMAINS.map((d) => `<option value="${d}">${d}</option>`).join("")}
+        </select>
+      </label>
+      <button class="btn btn--primary" id="sponsorGo">File It</button>
+    </div>
+    <div class="vote-result hidden" id="sponsorResult"></div>
+  </div>`;
+}
+
+function wireSponsor() {
+  const axis = $("sponsorAxis");
+  const label = () => {
+    const v = Number(axis.value) / 100;
+    $("sponsorAxisLabel").textContent = v < -0.55 ? "Hard left"
+      : v < -0.15 ? "Left" : v <= 0.15 ? "Centre" : v <= 0.55 ? "Right" : "Hard right";
+  };
+  axis.oninput = label;
+  label();
+
+  $("sponsorGo").onclick = async () => {
+    const title = $("sponsorTitle").value.trim() || "An Act";
+    loader(true, "It has been referred to committee…");
+    try {
+      const data = await houseSponsor(G.state, title, Number(axis.value) / 100, $("sponsorDomain").value);
+      G.state = data.state;
+      saveCareer();
+      const box = $("sponsorResult");
+      box.className = "vote-result";
+      box.innerHTML = `
+        <div class="vote-result__head">
+          <span class="badge ${data.result.passed ? "badge--live" : data.result.reachedFloor ? "badge--amber" : "badge--red"}">
+            ${data.result.passed ? "Passed the House" : data.result.reachedFloor ? "Got a vote" : "Died in committee"}</span>
+          <span class="hint">${data.result.odds}% chance of a hearing</span>
+        </div>
+        <p style="margin:10px 0 0">${escapeHtml(data.result.note)}</p>`;
+      $("sponsorGo").disabled = true;
+      refreshMeters();
+    } catch (err) {
+      alert("The bill could not be filed: " + err.message);
+    } finally {
+      loader(false);
+    }
+  };
+}
+
+// --- Ending the month -------------------------------------------------------
+
+async function endMonth() {
+  loader(true, G.state.month >= chamber().term
+    ? "The polls are closing…" : `The ${chamber().chamberName} adjourns…`);
+  try {
+    const data = await chamber().advance(G.state);
+    G.state = data.state;
+    saveCareer();
+    if (data.reelection) return handlers.onElection(data.reelection, data.ladder);
+    renderFloor(handlers);
+  } catch (err) {
+    alert("The month could not be closed out: " + err.message);
+  } finally {
+    loader(false);
+  }
+}
+
+// --- Bits -------------------------------------------------------------------
+
+const meterId = (label) => "meter" + label.replace(/[^a-zA-Z]/g, "");
+
+function meter(label, value, sub) {
+  const v = Math.round(value);
+  const tone = v >= 55 ? "var(--green)" : v >= 40 ? "var(--amber)" : "var(--red)";
+  return `<div class="tile">
+    <span class="eyebrow">${escapeHtml(label)}</span>
+    <div class="tile__value" id="${meterId(label)}">${v}%</div>
+    <div class="tile__delta">&nbsp;</div>
+    <div class="tile__sub">${escapeHtml(sub)}</div>
+    <div class="track"><i style="width:${v}%;background:${tone}"></i></div>
+  </div>`;
+}
+
+const plain = (label, value, sub) => `<div class="tile">
+  <span class="eyebrow">${escapeHtml(label)}</span>
+  <div class="tile__value">${escapeHtml(String(value))}</div>
+  <div class="tile__delta">&nbsp;</div>
+  <div class="tile__sub">${escapeHtml(sub)}</div>
+</div>`;
+
+const forecastLabel = (f) => (f.margin > 12 ? "Safe" : f.margin > 3 ? "Likely" : f.margin > -3 ? "Toss-up" : f.margin > -12 ? "Behind" : "Lost");
+
+const forecastNote = (f) =>
+  `${f.margin > 0 ? "+" : ""}${f.margin} today · ${f.sameParty ? "running on the President's record" : "running against the President"}`;

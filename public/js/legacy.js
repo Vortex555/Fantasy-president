@@ -3,10 +3,15 @@
 import { $, show, escapeHtml, shortMonthLabel, ordinalTerm } from "./util.js";
 import { G, saveCareer } from "./store.js";
 import { liveArcs, scarArcs, favorableEV } from "./dashboard.js";
+import { getVerdict } from "./api.js";
 
 const DOMAIN_LABEL = {
   economy: "Economy", security: "National Security", justice: "Law & Justice",
   social: "Society", foreign: "Foreign Affairs", health: "Health & Environment",
+};
+
+const BILL_OUTCOME = {
+  signed: "Signed", vetoed: "Vetoed", overridden: "Overridden",
 };
 
 const ENDINGS = {
@@ -16,11 +21,110 @@ const ENDINGS = {
   removed: { seal: "⛓️", title: "Removed from Office", cls: "lose" },
   collapse: { seal: "💥", title: "The Government Falls", cls: "lose" },
   resigned: { seal: "📜", title: "Resigned", cls: "lose" },
+  // Removed by the cabinet under the Twenty-Fifth rather than by the voters.
+  incapacitated: { seal: "🩺", title: "Declared Unfit", cls: "lose" },
+  // Your own party chose somebody else before the country ever voted.
+  primaried: { seal: "🥊", title: "Denied the Nomination", cls: "lose" },
   // Two full terms, and the Constitution rather than the voters ended it.
   term_limited: { seal: "🎖️", title: "Term-Limited", cls: "win" },
   // No election was held, because there was nobody left to call one.
   autocrat: { seal: "🗝️", title: "Still in Office", cls: "lose" },
 };
+
+/**
+ * Every election this career actually fought.
+ *
+ * Three systems produce this — the midterms, the primary and the general — and
+ * until now the closing screen mentioned none of them.
+ */
+function electionsSection(state, startYear) {
+  const rows = [];
+
+  for (const m of state.midterms || []) {
+    const net = (m.houseSwing || 0) + (m.senateSwing || 0);
+    rows.push({
+      when: shortMonthLabel(m.month || 24, startYear),
+      what: `Midterms — ${m.houseSwing > 0 ? "+" : ""}${m.houseSwing} House, ` +
+        `${m.senateSwing > 0 ? "+" : ""}${m.senateSwing} Senate`,
+      good: net >= 0,
+    });
+  }
+  if (state.primaryResult) {
+    const p = state.primaryResult;
+    rows.push({
+      when: "Primary",
+      what: p.won
+        ? `Renominated over ${p.challenger} — ${p.delegates.you} delegates to ${p.delegates.them}`
+        : `Denied the nomination by ${p.challenger} — ${p.delegates.you} to ${p.delegates.them}`,
+      good: p.won,
+    });
+  }
+  for (const e of state.elections || []) {
+    rows.push({
+      when: `Term ${e.term}`,
+      what: `Re-elected with ${e.electoral} electoral votes`,
+      good: true,
+    });
+  }
+  if (state.election) {
+    const r = state.election;
+    rows.push({
+      when: "Election night",
+      what: `${r.ev.you}–${r.ev.them} in the college, ${r.popular.you.toFixed(1)}% of the vote` +
+        (r.split ? " — a split decision" : ""),
+      good: r.won,
+    });
+  }
+  if (state.twentyFifthSurvived) {
+    rows.push({
+      when: "The 25th",
+      what: `Survived ${state.twentyFifthSurvived} cabinet attempt${state.twentyFifthSurvived === 1 ? "" : "s"} to declare you unfit`,
+      good: true,
+    });
+  }
+  if (!rows.length) return "";
+
+  return `<div class="card">
+    <span class="eyebrow">🗳️ Every election you fought</span>
+    <div style="margin-top:12px">
+      ${rows.map((r) => `
+        <div class="timeline__item">
+          <span class="timeline__when">${escapeHtml(r.when)}</span>
+          <span class="timeline__what">${escapeHtml(r.what)}
+            <b style="color:${r.good ? "var(--green)" : "var(--red)"}">${r.good ? "✓" : "✕"}</b></span>
+        </div>`).join("")}
+    </div>
+  </div>`;
+}
+
+/** What the histories say. Scored by the engine so it cannot drift from it. */
+async function paintVerdict(state) {
+  const box = $("verdictCard");
+  if (!box) return;
+  let v;
+  try {
+    v = await getVerdict(state);
+  } catch {
+    return;
+  }
+  box.innerHTML = `
+    <div class="card verdict">
+      <span class="eyebrow">⚖️ The verdict of history</span>
+      <div class="verdict__head">
+        <div>
+          <div class="verdict__rank">${escapeHtml(v.title)}</div>
+          <p class="verdict__summary">${escapeHtml(v.summary)}</p>
+        </div>
+        <div class="verdict__score">
+          <b>${v.score}</b><span>/100</span>
+        </div>
+      </div>
+      ${v.findings.length ? `<div class="verdict__findings">
+        ${v.findings.map((f) => `<div class="finding finding--${f.good ? "good" : "bad"}">
+          ${escapeHtml(f.text)}</div>`).join("")}
+      </div>` : ""}
+    </div>`;
+}
 
 /** The historical record — what the country was handed back. */
 export function renderLegacy(onCareers) {
@@ -78,6 +182,47 @@ export function renderLegacy(onCareers) {
         </div>
       </div>
 
+      ${(state.formerPresidents || []).length ? `
+      <div class="card">
+        <span class="eyebrow">🏛️ Everyone who held the office</span>
+        <p class="hint" style="margin:6px 0 12px">
+          This career outlived more than one presidency. The country carried on; the numbers below
+          are what each of them left behind.
+        </p>
+        <div style="margin-top:12px">
+          ${state.formerPresidents.map((p) => `
+            <div class="timeline__item">
+              <span class="timeline__when">${escapeHtml(shortMonthLabel(((p.term || 1) - 1) * 48 + p.leftMonth, startYear))}</span>
+              <span class="timeline__what">${escapeHtml(p.name)} — ${escapeHtml(
+                (ENDINGS[p.ending?.type] || {}).title || "left office")}
+                <b>${Math.round(p.finalApproval)}%</b></span>
+            </div>`).join("")}
+          <div class="timeline__item">
+            <span class="timeline__when">now</span>
+            <span class="timeline__what">${escapeHtml(state.scenario.presidentName)} — ${escapeHtml(look.title)}
+              <b>${Math.round(state.approval)}%</b></span>
+          </div>
+        </div>
+      </div>` : ""}
+
+      ${electionsSection(state, startYear)}
+
+            ${(state.billLog || []).length ? `
+      <div class="card">
+        <span class="eyebrow">✒️ What you signed</span>
+        <p class="hint" style="margin:6px 0 12px">
+          The legislative record — every bill Congress put on the desk and what you did with it.
+          This is the list your own party reads back to you at a primary.
+        </p>
+        <div style="margin-top:12px">
+          ${state.billLog.slice(0, 14).map((b) => `
+            <div class="timeline__item">
+              <span class="timeline__when">${escapeHtml(BILL_OUTCOME[b.outcome] || b.outcome)}</span>
+              <span class="timeline__what">${escapeHtml(b.title)}</span>
+            </div>`).join("")}
+        </div>
+      </div>` : ""}
+
       ${unfinished.length ? `
       <div class="card">
         <span class="eyebrow">🗂️ Unfinished business</span>
@@ -90,7 +235,9 @@ export function renderLegacy(onCareers) {
         </div>
       </div>` : ""}
 
-      <button class="btn btn--primary btn--block" id="backToCareers" style="margin-top:22px">
+      <div id="verdictCard"></div>
+
+            <button class="btn btn--primary btn--block" id="backToCareers" style="margin-top:22px">
         ← Back to Your Careers
       </button>
     </div>`;
@@ -98,4 +245,6 @@ export function renderLegacy(onCareers) {
   saveCareer();
   $("backToCareers").onclick = onCareers;
   show("legacy");
+  // The verdict is scored server-side; it arrives a beat after the record.
+  paintVerdict(state);
 }

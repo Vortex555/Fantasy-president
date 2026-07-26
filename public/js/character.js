@@ -62,6 +62,10 @@ function compositionSection() {
   return `<div class="opts opts--wide" data-pick="composition">${optionsHtml(COMPOSITIONS, draft.composition)}</div>`;
 }
 
+/** What the button at the bottom says depends on which office you chose. */
+let nextLabel = "Begin Your Presidency →";
+export function setNextLabel(label) { nextLabel = label; }
+
 export function renderCharacter(scenario, era, onConfirm, onBack) {
   handlers = { onConfirm, onBack };
   context = { scenario, era };
@@ -126,7 +130,7 @@ export function renderCharacter(scenario, era, onConfirm, onBack) {
     ${settingsHtml(draft)}
 
     <button type="button" class="btn btn--primary btn--block" id="beginBtn" style="margin-top:26px">
-      ${draft.bio ? "Next: Your Bio →" : "Begin Your Presidency →"}
+      ${draft.bio ? "Next: Your Bio →" : nextLabel}
     </button>`;
 
   flagUnavailableSettings();
@@ -259,7 +263,7 @@ function handleToggle(btn) {
   draft[key] = on;
   // Switching the bio on changes what the primary button promises.
   if (key === "bio") {
-    $("beginBtn").textContent = on ? "Next: Your Bio →" : "Begin Your Presidency →";
+    $("beginBtn").textContent = on ? "Next: Your Bio →" : nextLabel;
   }
 }
 

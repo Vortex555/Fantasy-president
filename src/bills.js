@@ -1,6 +1,7 @@
 import { seeded, clamp, round1 } from "./rng.js";
 import { buildCongress } from "../public/js/data/government.js";
 import { STATES } from "./states.js";
+import { vpSupports } from "./succession.js";
 
 /**
  * Bills on your desk.
@@ -156,8 +157,14 @@ const agreement = (memberAxis, billAxis) => 1 - Math.abs(memberAxis - billAxis) 
 // of the room does not.
 const YES_THRESHOLD = 0.78;
 
-/** A full roll call, member by member, on a bill at a given position. */
-export function rollCall(roster, billAxis) {
+/**
+ * A full roll call, member by member, on a bill at a given position.
+ *
+ * `tieBreak` is the Vice President's casting vote, and it only ever applies to
+ * a simple majority — an override needs its two thirds on its own, and the
+ * Vice President has no vote in it.
+ */
+export function rollCall(roster, billAxis, { tieBreak = false } = {}) {
   let yes = 0, dYes = 0, rYes = 0;
   for (const m of roster) {
     if (agreement(m.axis, billAxis) < YES_THRESHOLD) continue;
@@ -166,9 +173,11 @@ export function rollCall(roster, billAxis) {
   }
   const total = roster.length;
   const threshold = Math.floor(total / 2) + 1;
+  const passed = yes >= threshold || (tieBreak && yes * 2 === total);
   return {
     yes, no: total - yes, dYes, rYes, total, threshold,
-    passed: yes >= threshold,
+    passed,
+    brokenByVp: passed && yes < threshold,
     overrode: yes >= Math.ceil(total * 2 / 3),
     overrideThreshold: Math.ceil(total * 2 / 3),
   };
@@ -209,7 +218,7 @@ export function originateBills(state, roster = rosterFor(state)) {
     .map((bill) => ({
       bill,
       house: rollCall(roster.house, bill.axis),
-      senate: rollCall(roster.senate, bill.axis),
+      senate: rollCall(roster.senate, bill.axis, { tieBreak: vpSupports(state, bill.axis) }),
     }))
     .filter((c) => c.house.passed && c.senate.passed)
     .map((c) => ({ ...c, weight: 1 / (0.12 + Math.abs(c.bill.axis - median)) }));
@@ -301,7 +310,8 @@ export function actOnBill(state, billId, action) {
   // A veto. Congress gets its say.
   const roster = rosterFor(state);
   const house = rollCall(roster.house, bill.axis);
-  const senate = rollCall(roster.senate, bill.axis);
+  // The casting vote cannot save a veto: an override is a two-thirds question.
+  const senate = rollCall(roster.senate, bill.axis, { tieBreak: vpSupports(state, bill.axis) });
   const overridden = house.overrode && senate.overrode;
 
   if (overridden) {

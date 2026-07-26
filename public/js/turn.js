@@ -247,18 +247,26 @@ function renderConsequences(result, delta) {
     </div>`);
   }
 
-  const next = state.over
-    ? `<button class="btn btn--primary btn--block" id="nextBtn">See Your Legacy →</button>`
-    : state.phase === "campaign"
-      ? `<button class="btn btn--primary btn--block" id="nextBtn">Enter the Campaign →</button>`
-      : `<button class="btn btn--primary btn--block" id="nextBtn">Continue to ${monthLabel(absoluteMonth(state), startYear)} →</button>`;
+  // The office changed hands this month: nothing else matters until the oath.
+  const label = result.succession ? "The Oath is Administered →"
+    : state.over ? "See Your Legacy →"
+    : state.phase === "campaign" ? "Enter the Campaign →"
+    : state.phase === "midterms" ? "To the Midterms →"
+    : state.phase === "primary" ? "Face the Primary →"
+    : state.phase === "twentyfifth" ? "Answer the Cabinet →"
+    : `Continue to ${monthLabel(absoluteMonth(state), startYear)} →`;
 
-  sections.push(`<div class="next-step"><div style="min-width:300px">${next}</div></div>`);
+  sections.push(`<div class="next-step"><div style="min-width:300px">` +
+    `<button class="btn btn--primary btn--block" id="nextBtn">${label}</button></div></div>`);
 
   $("turnBody").innerHTML = sections.join("");
   $("nextBtn").onclick = () => {
+    if (result.succession) return handlers.onOath(result.succession.from?.name);
     if (state.over) return handlers.onLegacy();
     if (state.phase === "campaign") return handlers.onCampaign();
+    if (state.phase === "midterms") return handlers.onMidterms();
+    if (state.phase === "primary") return handlers.onPrimary();
+    if (state.phase === "twentyfifth") return handlers.onTwentyFifth();
     G.event = G.pendingEvent || {
       title: "A Quiet Month",
       brief: "No single crisis dominates the news, which gives you rare room to set your own agenda. What will you push?",
@@ -282,6 +290,40 @@ const JEOPARDY_TONE = {
 
 function subsystemSections(result) {
   const out = [];
+
+  // The most dramatic thing that can happen in a month, so it leads.
+  if (result.twentyFifth) {
+    out.push(`<div class="card card--alarm">
+      <span class="eyebrow">🩺 The Twenty-Fifth Amendment</span>
+      <p style="margin:10px 0 0">${escapeHtml(result.twentyFifth.detail)}</p>
+      <p class="hint" style="margin:10px 0 0">
+        No crime is alleged. This is the people you appointed deciding you cannot do the job.
+      </p>
+    </div>`);
+  }
+
+  if (result.succession) {
+    out.push(`<div class="card card--alarm">
+      <span class="eyebrow">📜 The office changes hands</span>
+      <p style="margin:10px 0 0">${escapeHtml(result.succession.from?.reason || "")}</p>
+    </div>`);
+  }
+
+  if (result.governorMoves?.length) {
+    out.push(`<div class="card">
+      <span class="eyebrow">🏛️ The statehouses</span>
+      <div style="margin-top:12px">
+        ${result.governorMoves.map((g) => `
+          <div class="arc-event">
+            <div class="arc-event__top">
+              <span class="badge ${g.defiance >= 70 ? "badge--red" : "badge--live"}">${escapeHtml(g.state)}</span>
+              <b>${escapeHtml(g.name)}</b>
+            </div>
+            <div class="arc-event__detail">${escapeHtml(g.detail)}</div>
+          </div>`).join("")}
+      </div>
+    </div>`);
+  }
 
   if (result.jeopardyEvents?.length) {
     out.push(`<div class="card card--alarm">
@@ -379,6 +421,30 @@ function checkCard(label, c) {
     <div class="check__status">${info.txt}</div>
     ${note ? `<div class="check__note">${escapeHtml(note)}</div>` : ""}
     ${c?.tally ? tally(c.tally) : ""}
+    ${c?.ruling?.heard ? ruling(c.ruling) : ""}
+  </div>`;
+}
+
+/**
+ * The nine, individually. A 6–3 bench is not a 6–3 ruling, so the split and
+ * who crossed are the interesting part — especially the justice whose vote
+ * actually decided it.
+ *
+ * Named `ruling`, not `bench`: the dashboard's court card already owns that
+ * class, and reusing it silently restyled the nine portraits on the dashboard.
+ */
+function ruling(r) {
+  const seat = (v, joinedMajority) => `<span class="seat seat--${joinedMajority ? "with" : "against"}"
+    title="${escapeHtml(`${v.name} — ${v.reason}`)}">${escapeHtml(v.name.replace(/^Justice /, ""))}${
+      v.chief ? " ★" : ""}</span>`;
+  return `<div class="ruling">
+    <div class="ruling__tally">${r.struck ? "Struck down" : "Upheld"} ${r.tally}</div>
+    <div class="ruling__seats">
+      ${r.votes.map((v) => seat(v, v.uphold !== r.struck)).join("")}
+    </div>
+    ${r.swing ? `<div class="ruling__swing">
+      <b>${escapeHtml(r.swing.name)}</b> decided it — ${escapeHtml(r.swing.reason)}.
+    </div>` : ""}
   </div>`;
 }
 

@@ -172,6 +172,10 @@
 /* Paired cards align to the top so a short card doesn't stretch to match a
    tall neighbour and leave a block of dead white space. */
 .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; align-items: start; }
+/* A 1fr track sizes to its content's minimum, so one wide child (the cartogram)
+   drags every card beside it past the viewport. Grid and flex children need an
+   explicit min-width:0 to be allowed to shrink at all. */
+.grid-2 > *, .grid-3 > * { min-width: 0; }
 .grid-3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; align-items: start; }
 
 .check { padding: 16px 18px; border-radius: var(--r-md); border: 1px solid var(--line); background: var(--surface-2); }
@@ -239,4 +243,100 @@
   .opts--party { grid-template-columns: 1fr; }
   .screen-head { flex-direction: column; }
   .career { flex-direction: column; align-items: flex-start; }
+}
+
+/* --- Choosing an office, and a seat --------------------------------------- */
+
+.office { align-items: flex-start; gap: 16px; text-align: left; }
+.office__icon { flex: none; font-size: 30px; line-height: 1.2; }
+.office__text { display: grid; gap: 4px; min-width: 0; }
+.office__title { font-family: var(--display); font-size: 18px; font-weight: 700; color: var(--ink); }
+.office__lede { font-size: 14px; color: var(--body); }
+.office__detail { font-size: 13.5px; line-height: 1.55; color: var(--muted); }
+
+.seat-group { margin-bottom: 26px; }
+.seat-group__head { display: flex; align-items: baseline; gap: 12px; margin-bottom: 10px; flex-wrap: wrap; }
+.seat-group__head .hint { flex: 1 1 260px; }
+
+.seat-row { align-items: center; gap: 14px; text-align: left; }
+.seat-row__code {
+  flex: none; display: grid; place-items: center;
+  width: 62px; height: 38px; border-radius: 8px;
+  background: var(--surface-3);
+  font-family: var(--display); font-size: 14px; font-weight: 700; color: var(--ink);
+}
+.seat-row__text { display: grid; gap: 3px; min-width: 0; }
+.seat-row__name { font-size: 15px; font-weight: 600; color: var(--ink); }
+.seat-row__meta { font-size: 13px; color: var(--muted); }
+
+/* --- The floor ------------------------------------------------------------ */
+
+.stances { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.stance {
+  display: grid; gap: 4px;
+  padding: 13px 15px;
+  border: 1px solid var(--line); border-left-width: 3px;
+  border-radius: 4px var(--r-md) var(--r-md) 4px;
+  background: var(--surface-2);
+}
+.stance--yes { border-left-color: var(--green); }
+.stance--no { border-left-color: var(--red); }
+.stance__who { font-size: 11px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--faint); }
+.stance__pos { font-family: var(--display); font-size: 19px; font-weight: 700; color: var(--ink); }
+.stance--yes .stance__pos { color: var(--green); }
+.stance--no .stance__pos { color: var(--red); }
+.stance__note { font-size: 13px; line-height: 1.5; color: var(--muted); }
+.stance__heat { font-size: 11.5px; color: var(--faint); }
+
+.vote-result { margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--line); }
+.vote-result.hidden { display: none; }
+.vote-result__head { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.vote-result__deltas { display: flex; gap: 18px; margin-top: 12px; font-size: 13.5px; color: var(--muted); }
+.vote-result__deltas b.up { color: var(--green); }
+.vote-result__deltas b.down { color: var(--red); }
+
+.sponsor-row { display: flex; align-items: flex-end; gap: 14px; margin-top: 12px; flex-wrap: wrap; }
+.sponsor-field { display: grid; gap: 5px; flex: 1 1 180px; }
+.sponsor-field input[type="range"] { width: 100%; }
+
+/* --- One district's election night ---------------------------------------- */
+
+.factors { display: grid; gap: 15px; }
+.factor__head { display: flex; justify-content: space-between; font-size: 14px; color: var(--body); }
+.factor__head b.up { color: var(--green); }
+.factor__head b.down { color: var(--red); }
+.factor__track { height: 7px; margin-top: 6px; border-radius: 999px; background: var(--surface-3); overflow: hidden; }
+.factor__fill { height: 100%; border-radius: 999px; }
+.factor__fill.is-pos { background: var(--green); }
+.factor__fill.is-neg { background: var(--red); }
+.factor__note { margin-top: 5px; font-size: 12.5px; color: var(--muted); }
+
+@media (max-width: 640px) {
+  .stances { grid-template-columns: 1fr; }
+  .seat-row { flex-direction: row; }
+}
+
+/* --- The gavel and the count ---------------------------------------------- */
+
+.gavel {
+  margin-top: 14px; padding: 13px 15px;
+  border: 1px dashed var(--line); border-radius: var(--r-md);
+  background: var(--surface-2);
+}
+
+.whipbox {
+  margin-top: 14px; padding: 13px 15px;
+  border-left: 3px solid var(--ink);
+  border-radius: 3px var(--r-md) var(--r-md) 3px;
+  background: var(--surface-2);
+}
+.whipbox__head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+.whipbox__head b { font-family: var(--display); font-size: 19px; }
+.whipbox__head b.up { color: var(--green); }
+.whipbox__head b.down { color: var(--red); }
+.whipbox__act { display: flex; align-items: center; gap: 12px; margin-top: 12px; flex-wrap: wrap; }
+.whipbox__act input[type="range"] { flex: 1 1 140px; min-width: 0; }
+
+@media (max-width: 640px) {
+  .whipbox__act { flex-direction: column; align-items: stretch; }
 }

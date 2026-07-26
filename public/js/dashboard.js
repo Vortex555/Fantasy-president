@@ -4,6 +4,7 @@ import { $, el, show, escapeHtml, monthLabel, shortMonthLabel, track, toneFor, n
   absoluteMonth, ordinalTerm } from "./util.js";
 import { G, saveCareer } from "./store.js";
 import { PORTFOLIOS } from "./data/catalog.js";
+import { partyStanding as partySupport } from "./data/party.js";
 import { openDrawer } from "./drawer.js";
 import { institutionsCard, wireInstitutions } from "./cards/institutions.js";
 import { firstLadyCard, wireFirstLady } from "./cards/firstLady.js";
@@ -13,6 +14,7 @@ import { foreignCard, societyCard, warCard, covertCard } from "./cards/world.js"
 import { chamberRow, courtCard } from "./cards/legislature.js";
 import { billsCard, wireBills } from "./cards/bills.js";
 import { jeopardyCard } from "./cards/jeopardy.js";
+import { governorsCard, wireGovernors } from "./cards/governors.js";
 
 const TERM = 48;
 
@@ -37,26 +39,13 @@ export function favorableEV(state) {
 }
 
 /**
- * How the president's own coalition is holding. Averages the stakeholders who
- * lean the president's way; for an independent, the whole board.
+ * How the president's own coalition is holding.
+ *
+ * Re-exported from the engine rather than derived here: this number now decides
+ * whether the party comes for you at the primary, so there must be exactly one
+ * of it. See primary.js.
  */
-export function partySupport(state) {
-  const sign = state.scenario.party === "Republican" ? 1 : state.scenario.party === "Democrat" ? -1 : 0;
-  const relevant = G.meta.stakeholders.filter((s) => {
-    if (!sign) return true;
-    const lean = STAKE_LEAN[s.id] ?? 0;
-    return Math.sign(lean) === sign;
-  });
-  const pool = relevant.length ? relevant : G.meta.stakeholders;
-  const total = pool.reduce((sum, s) => sum + (state.stakeholders[s.id] ?? 50), 0);
-  return Math.round(total / (pool.length || 1));
-}
-
-// Mirrors STAKEHOLDERS in the engine — only the sign matters here.
-const STAKE_LEAN = {
-  wall_street: 1, big_business: 1, pentagon: 0.5, labor: -1,
-  greens: -1, civil_rights: -1, gun_owners: 1, faith: 0.7,
-};
+export { partyStanding as partySupport } from "./data/party.js";
 
 function timelineCopy(state) {
   const monthsLeft = TERM - state.month + 1;
@@ -75,6 +64,9 @@ function timelineCopy(state) {
     ];
   }
   if (state.phase === "campaign") return ["Election season", "The country is deciding whether to keep you."];
+  if (state.phase === "midterms") {
+    return ["The midterms", "Every seat in the House and a third of the Senate. Your name is not on the ballot; your record is."];
+  }
   if (state.month <= 6) {
     return [`${term} Term · ${24 - state.month} months until the mid-term election`,
       (state.term || 1) > 1
@@ -87,6 +79,30 @@ function timelineCopy(state) {
     canRunAgain
       ? "The campaign is already underway in everything but name."
       : "You cannot run again. Every ally in this town knows it, and is already looking past you."];
+}
+
+/**
+ * The war chest. It accrues quietly every month from approval and the blocs,
+ * and is only ever spent on a map — at the midterms and on election night — so
+ * the tile has to say what it is *for*, not just how much of it there is.
+ */
+function warChestTile(state) {
+  const money = Math.round(state.warChest ?? 0);
+  const next = (state.month <= 24 && state.midtermTerm !== (state.term || 1))
+    ? "the midterms" : "election night";
+  // A full bar is a war chest that can genuinely contest a national map.
+  const FULL = 300;
+  const sub = money >= 150 ? `Enough to contest a real map at ${next}`
+    : money >= 60 ? `Buys a few states at ${next}`
+    : "Thin — popularity and warm blocs are what raise money";
+
+  return `<div class="tile">
+    <span class="eyebrow">War chest</span>
+    <div class="tile__value">$${money}M</div>
+    <div class="tile__delta">Raised every month</div>
+    <div class="tile__sub">${escapeHtml(sub)}</div>
+    ${track(Math.min(100, (money / FULL) * 100), toneFor(Math.min(100, (money / FULL) * 100)))}
+  </div>`;
 }
 
 export function renderDashboard(handlers, delta) {
@@ -136,13 +152,15 @@ export function renderDashboard(handlers, delta) {
       </div>
     </div>
 
-    <div class="tiles">
+    <div class="tiles tiles--four">
       ${tile("Net approval", netApproval(state.approval), deltaHtml(delta),
         `${approval}% approve · voter mood`, toneFor(approval), { signed: true })}
       ${tile("Government stability", stability, "Net — 0", "Cabinet & agency support", toneFor(stability))}
       ${tile(`${partyLabel} stability`, party, "Net — 0", "Internal party support", toneFor(party))}
+      ${warChestTile(state)}
     </div>
 
+    ${primaryWarning(state)}
     ${congressCard(state)}
     ${billsCard(state)}
     ${jeopardyCard(state)}
@@ -168,6 +186,7 @@ export function renderDashboard(handlers, delta) {
     <div class="grid-2" style="margin-top:14px">
       ${foreignCard(state)}
       ${mapCard(state, { flush: true })}
+      ${governorsCard(state)}
     </div>`;
 
   wire(handlers);
@@ -184,6 +203,9 @@ export async function renderDashboardAsync(handlers, delta) {
   if (G.state && !G.state.over) {
     await loadActions(G.state);
     renderDashboard(handlers, delta);
+    // The statehouses fetch their own roster and re-paint in place, so a slow
+    // call never holds up the rest of the dashboard.
+    wireGovernors(() => renderDashboardAsync(handlers, delta));
   }
 }
 
@@ -336,18 +358,78 @@ function vpCard(state) {
   </div>`;
 }
 
+/**
+ * The Twenty-Fifth Amendment, before it happens.
+ *
+ * Section 4 needs three things at once: a Vice President willing to lead it, a
+ * majority of the cabinet willing to sign, and a presidency visibly failing.
+ * All three are things the player can act on, so all three are shown — a
+ * declaration should never be the first the player hears of it.
+ */
+/**
+ * The primary, before it happens.
+ *
+ * Party standing is now the thing that decides whether you are challenged, so
+ * it has to be legible as a threat and not just a number in a tile. Shown from
+ * the year before, while there is still time to do something about it.
+ */
+function primaryWarning(state) {
+  if (state.over || state.phase || state.primaryHeld) return "";
+  if ((state.term || 1) >= 2 && !state.specialActions?.termLimitGone) return "";
+  if (state.scenario.party === "Independent" || state.congressDissolved) return "";
+  if (state.month < 24 || state.month >= 40) return "";
+
+  const standing = partySupport(state);
+  if (standing >= 42 && state.approval >= 40) return "";
+
+  return `<div class="alarm-note">
+    <b>Your own party is the first election you have to win.</b>
+    Your coalition is at ${standing}. If it is still there in ${Math.max(1, 40 - state.month)} months,
+    somebody from your own side files against you — and what you have signed since taking office
+    is the case they will make.
+  </div>`;
+}
+
+function twentyFifthWarning(state) {
+  const vp = (state.cabinet || []).find((c) => c.id === "vp");
+  if (!vp || state.congressDissolved || state.over) return "";
+
+  const cabinet = (state.cabinet || []).filter((c) => c.id !== "vp" && c.id !== "spouse");
+  const signatories = cabinet.filter((c) => c.loyalty < 45).length;
+  const locks = [
+    vp.loyalty < 45,
+    signatories > cabinet.length / 2,
+    state.stability < 35 && state.approval < 32,
+  ];
+  const open = locks.filter(Boolean).length;
+  if (open < 2) return "";
+
+  const missing = !locks[0] ? `${escapeHtml(vp.name)} will not lead it`
+    : !locks[1] ? "not enough of the cabinet would sign"
+    : "the presidency is not visibly failing — yet";
+
+  return `<div class="alarm-note">
+    <b>${open === 3 ? "Your cabinet can remove you." : "Your cabinet is close to being able to remove you."}</b>
+    ${open === 3
+      ? `${escapeHtml(vp.name)} and ${signatories} secretaries could declare you unable to serve at any time. ` +
+        `Two of the three things they need are things you control: who sits in those chairs, and how they feel about you.`
+      : `Two of the three conditions for a Twenty-Fifth Amendment declaration are met — only that ${missing}.`}
+  </div>`;
+}
+
 function cabinetCard(state) {
   // The VP and the spouse each have a card of their own above this one.
   const others = (state.cabinet || []).filter((c) => c.id !== "vp" && c.id !== "spouse");
   const avg = Math.round(others.reduce((s, c) => s + c.loyalty, 0) / (others.length || 1));
   const weakest = [...others].sort((a, b) => a.loyalty - b.loyalty)[0];
-  return `<div class="card">
+  return `<div class="card${twentyFifthWarning(state) ? " card--alarm" : ""}">
     <div class="card__head">
       <span class="eyebrow">🏛️ Cabinet & inner circle</span>
       <span class="hint">Avg loyalty: ${avg}${
         weakest && weakest.loyalty < 45 ? ` · ${escapeHtml(weakest.name.split(" ").at(-1))} is a problem` : ""}
         <button class="btn btn--sm" id="manageCabinet" style="margin-left:10px">Manage →</button></span>
     </div>
+    ${twentyFifthWarning(state)}
     <div class="cabinet">
       ${others.map((c) => `
         <button class="cab" data-advisor="${c.id}" title="Talk to ${escapeHtml(c.name)}">

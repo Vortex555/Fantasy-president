@@ -236,6 +236,27 @@ export function tickInstitutions(next) {
     next.economy.inflation = round1(clamp(next.economy.inflation - skill * 0.25, -3, 40));
   }
 
+  // A trusted Surgeon General quietly moves public health, exactly as the Fed
+  // quietly moves inflation — nobody notices the office until the chair is
+  // empty and a health crisis is running.
+  const sg = next.institutions.surgeon_general;
+  const healthCrisis = (next.arcs || []).some(
+    (a) => a.domain === "health" && (a.status === "active" || a.status === "detonated") && a.severity >= 3);
+
+  if (sg && !sg.vacant) {
+    const skill = (sg.holder.competence - 60) / 100 + (sg.holder.independence - 45) / 160;
+    if (next.society) {
+      next.society.lifeExpectancy = round1(next.society.lifeExpectancy + skill * 0.05);
+      next.society.uninsured = clamp(round1(next.society.uninsured - skill * 0.2), 0, 100);
+    }
+    // Guidance the country actually follows is worth something in a crisis.
+    if (healthCrisis) next.stability = clamp(next.stability + Math.round(skill * 3));
+  } else if (healthCrisis) {
+    // No podium anybody trusts, in the month it matters most.
+    stabilityDrag += 1.5;
+    next.approval = clamp(round1(next.approval - 0.4));
+  }
+
   next.stability = clamp(Math.round(next.stability - stabilityDrag));
 }
 

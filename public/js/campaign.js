@@ -1,13 +1,29 @@
 "use strict";
 
 import { $, show, escapeHtml, loader } from "./util.js";
-import { G, saveCareer } from "./store.js";
-import { debateRound, finishCampaign } from "./api.js";
+import { G } from "./store.js";
+import { debateRound } from "./api.js";
+import { renderCampaignSpend, resolveElection } from "./elections.js";
 
 let handlers = {};
+let spend = {};
 
-/** Election season: three debate rounds, then the country votes. */
+/**
+ * Election season: the ground game, three debate rounds, then the country
+ * votes. The money is committed before a word is spoken, because that is when
+ * a campaign actually has to make the choice.
+ */
 export function renderCampaign(hooks) {
+  handlers = hooks;
+  spend = {};
+  // Draw the map first; the debate stage comes after the money is placed.
+  renderCampaignSpend(hooks, (plan) => {
+    spend = plan;
+    renderDebate(hooks);
+  });
+}
+
+function renderDebate(hooks) {
   handlers = hooks;
   const state = G.state;
   const c = state.campaign;
@@ -200,25 +216,10 @@ function appendExchange(round, topic, youLine, res) {
   $("debateLog").appendChild(node);
 }
 
-async function resolve(total) {
-  loader(true, "The polls are closing. The nation votes…");
-  try {
-    const res = await finishCampaign(G.state, total);
-    G.state = res.state;
-    saveCareer();
-    // Winning re-election does not end the career — it starts the next term.
-    if (!G.state.over) {
-      G.event = null;
-      alert(`You won. A ${G.state.term === 2 ? "second" : "further"} term begins.` +
-        (G.state.cabinetChanges?.length
-          ? ` ${G.state.cabinetChanges.length} of your cabinet went home rather than serve another four years.`
-          : ""));
-      return handlers.onDashboard();
-    }
-    handlers.onLegacy();
-  } catch (err) {
-    alert("The election could not be resolved: " + err.message);
-  } finally {
-    loader(false);
-  }
+/**
+ * Hand the night over to the results screen, which counts the map state by
+ * state and decides whether the career continues into another term.
+ */
+function resolve(total) {
+  return resolveElection(handlers, total, spend);
 }

@@ -15,6 +15,17 @@ import { rememberEvent } from "./eventPool.js";
 import { buildCourt, cabinetIdeology } from "../public/js/data/government.js";
 import { originateBills, ageBills } from "./bills.js";
 import { tickJeopardy, emptyJeopardy } from "./impeachment.js";
+import {
+  runMidterms, runPresidential, fundraise, challengerFor, totalSpend, WAR_CHEST_START,
+} from "./elections.js";
+import {
+  canSucceed, succeed, tickTwentyFifth, hasTieBreak, vpSupports,
+} from "./succession.js";
+import { PRIMARY_MONTH, primaryThreat, primaryChallenger, runPrimary } from "./primary.js";
+import { buildGovernors, tickGovernors, defianceDrag } from "./governors.js";
+import { courtRuling } from "./court.js";
+import { createHouseCareer } from "./house.js";
+import { createSenateCareer } from "./senate.js";
 
 export const TERM_LENGTH = 48; // months
 export const MIDTERM_MONTH = 24;
@@ -40,7 +51,20 @@ export function absoluteMonth(state) {
  */
 export function canServeAnotherTerm(state) {
   if (state.specialActions?.termLimitGone) return true;
-  return (state.term || 1) < TERM_LIMIT;
+
+  // A president who inherited the office part-way through somebody else's term
+  // only has that term counted against them if they served more than half of
+  // it. Serve two years and a day of a predecessor's term and it costs you an
+  // election; take the oath late enough and it costs you nothing.
+  const clock = pacing(state);
+  const inherited = state.succeeded
+    ? clock.termLength - state.succeeded.month + 1
+    : 0;
+  const limit = inherited > 0 && inherited <= clock.termLength / 2
+    ? TERM_LIMIT + 1
+    : TERM_LIMIT;
+
+  return (state.term || 1) < limit;
 }
 
 /** Weekly pacing keeps the same four-year term at a finer grain. */
@@ -99,7 +123,32 @@ export function presidentAxis(scenario) {
   return partySign(scenario?.party) * 0.45;
 }
 
+/**
+ * How far a state sits from the national number for structural reasons — a
+ * president is more popular where the electorate already agrees with them.
+ * This is the same gap `createGame` opens on day one, and it is what a state
+ * is pulled back toward rather than to the bare national figure.
+ */
+export function structuralOffset(scenario, code) {
+  const lean = STATES[code]?.lean ?? 0;
+  const home = (scenario?.homeStates || []).includes(code) ? 7 : 0;
+  return round1(presidentAxis(scenario) * lean * 0.55 + home);
+}
+
+/** How hard each month pulls a state back toward the country. */
+const NATIONAL_PULL = 0.3;
+
+/**
+ * Start a career.
+ *
+ * The presidency is one office among several now. A House scenario builds a
+ * completely different state — a seat, a district and a president who is
+ * somebody else — and shares only the country. Everything below this line is
+ * the presidential game, unchanged.
+ */
 export function createGame(scenario) {
+  if (scenario?.office === "house") return createHouseCareer(scenario);
+  if (scenario?.office === "senate") return createSenateCareer(scenario);
   const sign = partySign(scenario.party);
 
   // Seed state-by-state approval from where the president actually stands, not
@@ -136,6 +185,7 @@ export function createGame(scenario) {
     : seedCongress(sign);
 
   const state = {
+    office: "president",
     scenario,
     month: 1,
     term: 1,
@@ -170,6 +220,16 @@ export function createGame(scenario) {
     billLog: [],
     // Investigation, articles, and the Senate trial. See impeachment.js.
     jeopardy: emptyJeopardy(),
+    // Money, in $M. It accrues every month from approval and the blocs, and it
+    // is the only thing a president can spend on a map they cannot otherwise
+    // reach. See elections.js.
+    warChest: WAR_CHEST_START,
+    // Which term's midterms have already been held, so a second term gets its
+    // own. Null until the first one is fought.
+    midtermTerm: null,
+    // How hard each statehouse is resisting. The governors themselves are
+    // derived from rosterSeed; only this moves. See governors.js.
+    governors: null,
     over: false,
     ending: null,
   };
@@ -190,6 +250,9 @@ export function createGame(scenario) {
     }
     Object.assign(member, cabinetIdeology(rosterSeed, member.id, scenario.party, scenario.radicals === true));
   }
+
+  // Fifty governors the president did not pick and cannot remove.
+  state.governors = buildGovernors(state);
 
   // The bench, named, so the court is nine people rather than two numbers.
   state.justices = buildCourt({
@@ -306,11 +369,33 @@ function seedCongress(sign) {
   return { houseR: 220, houseD: 215, senateR: 49, senateD: 51 };
 }
 
+/** The caucus the President belongs to, or null if they have no party. */
+const presidentCaucus = (state) =>
+  state.scenario?.party === "Republican" ? "Republican"
+    : state.scenario?.party === "Democrat" ? "Democrat" : null;
+
+/**
+ * Who controls each chamber.
+ *
+ * A 50–50 Senate is not a majority for anybody — except that the Vice
+ * President breaks the tie, which is the constitutional power the running-mate
+ * pick has always implied and never actually had. With no Vice President in
+ * post a tied Senate goes the other way, because the President has no way to
+ * carry a vote through it. There is no casting vote in the House.
+ */
 export function partyControl(state) {
-  const { congress } = state;
+  const c = state.congress;
+  const winner = (d, r) => (r > d ? "Republican" : d > r ? "Democrat" : null);
+  const mine = presidentCaucus(state);
+  const theirs = mine === "Republican" ? "Democrat" : "Republican";
+
+  const house = winner(c.houseD, c.houseR);
+  const senate = winner(c.senateD, c.senateR);
+
   return {
-    house: congress.houseR > congress.houseD ? "Republican" : "Democrat",
-    senate: congress.senateR > congress.senateD ? "Republican" : "Democrat",
+    house: house ?? (mine ? theirs : "Democrat"),
+    senate: senate ?? (mine ? (hasTieBreak(state) ? mine : theirs) : "Democrat"),
+    senateTied: senate === null,
   };
 }
 
@@ -349,7 +434,7 @@ export function computeRollCall(state, bipartisan) {
   const approvalFactor = (state.approval - 50) / 100; // ~ -0.3..+0.2
   const c = state.congress;
 
-  const chamber = (dSeats, rSeats) => {
+  const chamber = (dSeats, rSeats, { tieBreak = false } = {}) => {
     let dYes, rYes;
     if (party === "Democrat") {
       dYes = Math.round(dSeats * clamp(0.82 + approvalFactor, 0.45, 0.98));
@@ -364,11 +449,14 @@ export function computeRollCall(state, bipartisan) {
     }
     const total = dSeats + rSeats;
     const yes = dYes + rYes;
-    return { dYes, rYes, yes, no: total - yes, total, threshold: Math.floor(total / 2) + 1, passed: yes >= Math.floor(total / 2) + 1 };
+    const threshold = Math.floor(total / 2) + 1;
+    // The Vice President breaks an exact tie for the administration.
+    const passed = yes >= threshold || (tieBreak && yes * 2 === total);
+    return { dYes, rYes, yes, no: total - yes, total, threshold, passed, brokenByVp: passed && yes < threshold };
   };
 
   const house = chamber(c.houseD, c.houseR);
-  const senate = chamber(c.senateD, c.senateR);
+  const senate = chamber(c.senateD, c.senateR, { tieBreak: hasTieBreak(state) });
   let status;
   if (house.passed && senate.passed) status = "passed";
   else if (house.passed || senate.passed) status = "compromised";
@@ -442,22 +530,25 @@ export function computeChecks(state, policyText) {
     checks.congress = { status: "executive", note: "Implemented through the powers of the office; no act of Congress was required." };
   }
 
-  // --- Supreme Court --- (mainly scrutinizes aggressive executive action)
-  if (kind.aggressive || (kind.executive && roll < 22)) {
-    const conservativeCourt = state.court.conservative > state.court.liberal;
-    // A court is more hostile when the action's ideological thrust opposes it.
-    const opposesCourt = (conservativeCourt && sign < 0) || (!conservativeCourt && sign > 0);
-    let strike = 42 + (opposesCourt ? 26 : -14) + (kind.aggressive ? 10 : 0);
-    strike = Math.max(8, Math.min(88, strike));
-    const margin = conservativeCourt
-      ? `${state.court.conservative}–${state.court.liberal} conservative majority`
-      : `${state.court.liberal}–${state.court.conservative} liberal majority`;
-    if (roll < strike) {
-      checks.court = { status: "struck_down", note: `The Supreme Court's ${margin} struck it down as executive overreach. A humiliating defeat.` };
-      checks.effectMultiplier *= 0.4;
-      checks.courtPenalty = -3;
-    } else {
-      checks.court = { status: "upheld", note: `Challenged all the way to the Supreme Court — but its ${margin} let it stand, at least for now.` };
+  // --- Supreme Court ---
+  //
+  // Nine justices, each deciding the case on its own merits, exactly as both
+  // chambers of Congress already vote seat by seat. The 6–3 count on the
+  // dashboard is a summary of who sits there, not the ruling itself: a bench
+  // with two institutionalists on it upholds things its politics dislike, and
+  // a 5–4 is genuinely uncertain until the votes are counted. See court.js.
+  const ruling = courtRuling(state, policyText);
+  if (ruling.heard) {
+    checks.court = {
+      status: ruling.struck ? "struck_down" : "upheld",
+      note: ruling.opinion,
+      ruling,
+    };
+    if (ruling.struck) {
+      // A unanimous rebuke costs more than a 5–4 the White House can spin.
+      const decisiveness = ruling.strikes / ruling.votes.length;
+      checks.effectMultiplier *= round1(0.55 - decisiveness * 0.25);
+      checks.courtPenalty = -round1(1.5 + decisiveness * 3);
     }
   }
 
@@ -572,17 +663,26 @@ export function applyResult(state, policy, result) {
     }
   }
 
+  // A policy is only worth what the state actually implements. A hostile
+  // governor slow-walks it, litigates it and refuses to staff it — so the same
+  // announcement lands harder in a friendly state than a defiant one.
   for (const se of result.stateEffects || []) {
     const code = (se.code || "").toUpperCase();
     if (next.stateApproval[code] != null) {
-      stateDeltas[code] = (stateDeltas[code] || 0) + (se.change || 0);
-      next.stateApproval[code] = clamp(Math.round(next.stateApproval[code] + (se.change || 0)));
+      const raw = se.change || 0;
+      // Only the good a president is trying to do gets blunted. Damage lands
+      // wherever it lands — a governor cannot refuse to implement a disaster.
+      const change = raw > 0
+        ? round1(raw * defianceDrag((next.governors || {})[code] ?? 0))
+        : raw;
+      stateDeltas[code] = (stateDeltas[code] || 0) + change;
+      next.stateApproval[code] = clamp(round1(next.stateApproval[code] + change));
     }
   }
   for (const [code, delta] of Object.entries(arcOutcome.states)) {
     if (next.stateApproval[code] != null) {
       stateDeltas[code] = (stateDeltas[code] || 0) + delta;
-      next.stateApproval[code] = clamp(Math.round(next.stateApproval[code] + delta));
+      next.stateApproval[code] = clamp(round1(next.stateApproval[code] + delta));
     }
   }
 
@@ -602,10 +702,18 @@ export function applyResult(state, policy, result) {
   });
   result.personas = scored;
   result.speakers = selectSpeakers(scored, state.month);
-  // General drift of every state toward the new national number (small).
-  const drift = (next.approval - state.approval) * 0.35;
+  // Every state is pulled back toward the national number.
+  //
+  // Without this the map is free to drift away from reality entirely: a
+  // president can fall to 15% nationally while fifty states still read 53,
+  // because a monthly swing of a few tenths rounds away to nothing. States
+  // hold their own structural gap from the country — a president is always
+  // stronger where the electorate agrees with them — but the country is the
+  // anchor, and a local shock decays back toward it over a few months.
   for (const code of STATE_CODES) {
-    next.stateApproval[code] = clamp(Math.round(next.stateApproval[code] + drift));
+    const target = clamp(next.approval + structuralOffset(state.scenario, code));
+    const now = next.stateApproval[code];
+    next.stateApproval[code] = clamp(round1(now + (target - now) * NATIONAL_PULL));
   }
 
   // Stability reflects approval, stakeholder average and economic pain.
@@ -626,6 +734,7 @@ export function applyResult(state, policy, result) {
   next.bills = [...(next.bills || []), ...originateBills(next)];
   result.newBills = next.bills.filter((b) => b.arrivedMonth === next.month);
   result.amendment = tickSpecialActions(next);
+  result.governorMoves = tickGovernors(next, policy);
   result.foreignMoves = applyForeign(next, policy, result);
   if (next.society) result.societyMoves = applySociety(next, policy, result);
   if (next.deployments) result.warEvents = tickDeployments(next, policy);
@@ -647,12 +756,11 @@ export function applyResult(state, policy, result) {
   });
   rememberEvent(next, result.usedEvent);
 
-  const clock = pacing(state);
+  // A month of fundraising. Popularity and a warm coalition both pay.
+  result.raised = fundraise(next);
+  next.warChest = round1((next.warChest ?? WAR_CHEST_START) + result.raised);
 
-  // Midterm elections reshuffle Congress — unless there is no Congress.
-  if (state.month === clock.midterm && !next.congressDissolved) {
-    applyMidterms(next);
-  }
+  const clock = pacing(state);
 
   next.month = state.month + 1;
 
@@ -688,44 +796,171 @@ export function applyResult(state, policy, result) {
     // term-limited president is not on the ballot, so there is nothing to run.
     next.phase = "campaign";
     next.campaign = createCampaign(next);
+  } else if (next.month === PRIMARY_MONTH && !next.primaryHeld
+             && primaryThreat(next).serious) {
+    // Your own party comes first. A president has to be renominated before
+    // there is any point thinking about the other side.
+    next.phase = "primary";
+    next.primary = { challenger: primaryChallenger(next), threat: primaryThreat(next) };
+  } else if (next.month === clock.midterm && next.midtermTerm !== (next.term || 1)
+             && !next.congressDissolved) {
+    // Midterm season. The whole House and a third of the Senate are on the
+    // ballot, and the president is not — which is the point. It runs as its own
+    // phase rather than silently inside a turn, because the chamber that comes
+    // out of it decides what is possible for the rest of the presidency.
+    next.phase = "midterms";
+    next.midtermCampaign = { spend: {}, challenger: challengerFor(next) };
   } else if (next.month > clock.termLength) {
     next.over = true;
     next.ending = evaluateReelection(next);
   }
 
+  // The cabinet's own option, considered only while the presidency is still
+  // running. A declaration under the Twenty-Fifth takes over the month.
+  if (!next.over && !next.phase) {
+    result.twentyFifth = tickTwentyFifth(next);
+  }
+
+  // A presidency ending is not the career ending: if there is a Vice President
+  // and a constitution still standing, the office passes to them.
+  return maybeSucceed(next, result);
+}
+
+/**
+ * Hand the office to the Vice President where the Constitution provides for
+ * it, instead of closing the career. Returns the state unchanged when this
+ * ending has no successor — an election defeat, or a coup that already
+ * dissolved the government that would have carried anyone into office.
+ */
+export function maybeSucceed(state, result = null) {
+  if (!state.over || !canSucceed(state, state.ending)) return state;
+  const departed = state.ending;
+  const next = succeed(state, departed);
+  next.succession = {
+    from: departed,
+    president: next.scenario.presidentName,
+    month: next.month,
+    term: next.term || 1,
+  };
+  if (result) result.succession = next.succession;
   return next;
 }
 
-function applyMidterms(next) {
-  // President's party gains/loses seats based on approval vs. the 50 baseline.
-  const sign = partySign(next.scenario.party);
-  const swing = Math.round((next.approval - 50) / 4); // seats
-  if (sign >= 0) {
-    next.congress.houseR = clampSeats(next.congress.houseR + swing, 435);
-    next.congress.houseD = 435 - next.congress.houseR;
-    next.congress.senateR = clampSeats(next.congress.senateR + Math.round(swing / 6), 100);
-    next.congress.senateD = 100 - next.congress.senateR;
-  } else {
-    next.congress.houseD = clampSeats(next.congress.houseD + swing, 435);
-    next.congress.houseR = 435 - next.congress.houseD;
-    next.congress.senateD = clampSeats(next.congress.senateD + Math.round(swing / 6), 100);
-    next.congress.senateR = 100 - next.congress.senateD;
-  }
-}
 const clampSeats = (v, total) => Math.max(0, Math.min(total, v));
+
+/**
+ * Hold the midterms.
+ *
+ * `spend` is the map the player drew with their war chest — dollars per state,
+ * trimmed to what is actually in the bank. What comes back is a new Congress
+ * and the night that produced it, which the client renders as a results screen
+ * rather than a number that quietly changed.
+ */
+export function finishMidterms(state, spend = {}) {
+  const next = structuredClone(state);
+  const result = runMidterms(next, { spend });
+
+  next.congress = result.congress;
+  next.warChest = round1(Math.max(0, (next.warChest ?? 0) - totalSpend(result.spend)));
+  next.midtermTerm = next.term || 1;
+  next.phase = null;
+  next.midtermCampaign = null;
+  next.midterms = [...(next.midterms || []), {
+    term: next.term || 1,
+    month: absoluteMonth(next),
+    env: result.env,
+    houseSwing: result.house?.swing ?? 0,
+    senateSwing: result.senate?.swing ?? 0,
+    congress: result.congress,
+  }];
+
+  // A midterm is a verdict, and the country reacts to its own verdict: a
+  // rebuked president is weaker the morning after, a vindicated one steadier.
+  const net = (result.house?.swing ?? 0) + (result.senate?.swing ?? 0);
+  next.stability = clamp(Math.round(next.stability + Math.max(-10, Math.min(6, net / 4))));
+
+  next.history.push({
+    month: next.month,
+    term: next.term || 1,
+    midterm: true,
+    headline: result.held ? result.note : "No midterms were held.",
+    approval: next.approval,
+    approvalChange: 0,
+  });
+
+  return { state: next, result };
+}
 
 function evaluateReelection(next) {
   // A president who has run out of terms is not on the ballot at all.
   if (!canServeAnotherTerm(next)) return termLimitedEnding(next);
 
-  const ec = electoralCount(next);
-  if (ec.win >= 270) {
-    return { type: "reelected", reason: `You won re-election with roughly ${ec.win} electoral votes.` };
+  // The safety net for a career that reaches the end of a term without ever
+  // entering campaign season. It votes on the same map as election night.
+  const result = runPresidential(next, { bonus: difficultyBonus(next) });
+  const ending = describeElection(next, result, "The country voted");
+  ending.election = result;
+  return ending;
+}
+
+/**
+ * Difficulty as points of national margin rather than a threshold. The easier
+ * tiers put the president a little ahead of where the map says they are; Hard,
+ * the design baseline, gives them nothing.
+ */
+function difficultyBonus(state) {
+  const { winApproval } = difficultyOf(state.scenario.difficulty);
+  return round1((46 - winApproval) * 2);
+}
+
+/**
+ * Turn an election result into an ending. Split decisions get their own
+ * language, because losing while winning more votes is a different kind of
+ * defeat and the game should say so.
+ */
+function describeElection(state, result, opener) {
+  const { ev, popular } = result;
+  const pv = `${popular.you.toFixed(1)}–${popular.them.toFixed(1)}`;
+
+  if (result.won && result.split) {
+    return {
+      type: "reelected", electoral: ev.you,
+      reason: `${opener}, and the two verdicts disagreed. ${result.challenger?.name || "Your challenger"} ` +
+        `won the popular vote ${popular.them.toFixed(1)}–${popular.you.toFixed(1)}, and you won the ` +
+        `presidency ${ev.you}–${ev.them}. You have a second term and half the country thinks you should not.`,
+    };
   }
-  if (next.approval >= 47) {
-    return { type: "narrow", reason: "A brutally close election — the result hangs on a handful of states, and the recounts have only just begun." };
+  if (result.won) {
+    const landslide = ev.you >= 375;
+    return {
+      type: "reelected", electoral: ev.you,
+      reason: landslide
+        ? `${opener} and it was not close. ${ev.you} electoral votes, ${pv} in the popular vote, and a ` +
+          `mandate nobody can argue with. A second term begins.`
+        : `${opener}. You held on — ${ev.you} electoral votes to ${ev.them}, ${pv} in the popular vote. ` +
+          `Not a mandate, but four more years.`,
+    };
   }
-  return { type: "defeated", reason: `You lost re-election. The nation voted for change after a term that ended near ${Math.round(next.approval)}% approval.` };
+  if (result.split) {
+    return {
+      type: "narrow", electoral: ev.you,
+      reason: `${opener}, and you won more votes than the winner — ${pv} — and lost anyway, ` +
+        `${ev.you} electoral votes to ${ev.them}. The result is legitimate, and it will be argued ` +
+        `about for a generation.`,
+    };
+  }
+  if (ev.them - ev.you <= 40) {
+    return {
+      type: "narrow", electoral: ev.you,
+      reason: `${opener} and nobody can call it. ${ev.you}–${ev.them} with ${result.tooClose.length} ` +
+        `states still inside the margin, and the recounts have only just begun.`,
+    };
+  }
+  return {
+    type: "defeated", electoral: ev.you,
+    reason: `${opener}, and the country turned the page. ${result.challenger?.name || "Your challenger"} ` +
+      `won ${ev.them} electoral votes to your ${ev.you}, ${pv} in the popular vote.`,
+  };
 }
 
 const ordinal = (n) => ["", "first", "second", "third", "fourth", "fifth", "sixth"][n] || `${n}th`;
@@ -878,20 +1113,8 @@ export function fireAdvisor(state, advisorId) {
 // Campaign season & the presidential debate.
 // ---------------------------------------------------------------------------
 
-const OPPONENTS = {
-  Republican: [
-    { name: "Gov. Caroline Hastings", party: "Republican", style: "a polished, disciplined governor", attack: "reckless spending and a weak hand abroad" },
-    { name: "Sen. Roy Callahan", party: "Republican", style: "a folksy, combative senator", attack: "out-of-touch elitism and a bad economy" },
-  ],
-  Democrat: [
-    { name: "Gov. Marisol Reyes", party: "Democrat", style: "an energetic, progressive governor", attack: "cruelty to working families and cuts to the safety net" },
-    { name: "Sen. Daniel Okonkwo", party: "Democrat", style: "a cerebral, principled senator", attack: "corruption, division, and broken promises" },
-  ],
-  Independent: [
-    { name: "Gov. Marisol Reyes", party: "Democrat", style: "an energetic Democratic governor", attack: "a chaotic, rudderless presidency" },
-    { name: "Sen. Roy Callahan", party: "Republican", style: "a combative Republican senator", attack: "a chaotic, rudderless presidency" },
-  ],
-};
+// The challenger is drawn on day one and lives in elections.js, so the country
+// has a face for the opposition long before the debate stage is built.
 
 const DEBATE_TOPICS = [
   { topic: "The economy & cost of living", q: "Prices are still high and families are hurting. In one answer: why do you deserve four more years to run this economy?" },
@@ -900,18 +1123,16 @@ const DEBATE_TOPICS = [
 ];
 
 export function createCampaign(state) {
-  const rng = mulberry32(hashString(state.scenario.presidentName + "campaign"));
-  // The challenger comes from the opposing party.
-  const oppKey = state.scenario.party === "Democrat" ? "Republican"
-    : state.scenario.party === "Republican" ? "Democrat" : "Independent";
-  const pool = OPPONENTS[oppKey] || OPPONENTS.Independent;
-  const opponent = pool[Math.floor(rng() * pool.length)];
   return {
-    opponent,
+    // The same challenger the country has been hearing about all term, not a
+    // stranger drawn on the eve of the debate.
+    opponent: challengerFor(state),
     topics: DEBATE_TOPICS,
     round: 1,
     scores: [],
-    warChest: Math.round(180 + rng() * 220), // $M, flavor
+    // Whatever four years of fundraising actually left in the bank.
+    warChest: round1(state.warChest ?? 0),
+    spend: {},
   };
 }
 
@@ -945,47 +1166,152 @@ export function mockDebate(state, round, topic, playerLine) {
   return { opponentLine, score, pundit };
 }
 
-export function finishCampaign(state, debateScore) {
+/**
+ * The nomination.
+ *
+ * Win it and the term simply carries on toward the general — bruised, because
+ * a contested primary always costs something. Lose it and the career ends
+ * here, without the other party ever having had to beat you.
+ */
+export function finishPrimary(state, strategyId = "record") {
+  const next = structuredClone(state);
+  const result = runPrimary(next, strategyId);
+
+  next.primaryHeld = true;
+  next.phase = null;
+  next.primary = null;
+  next.primaryResult = {
+    strategy: result.strategy.id,
+    challenger: result.challenger.name,
+    delegates: result.delegates,
+    won: result.won,
+  };
+
+  if (!result.won) {
+    next.over = true;
+    next.ending = {
+      type: "primaried",
+      reason: `Your own party denied you the nomination. ${result.challenger.name} took ` +
+        `${result.delegates.them} delegates to your ${result.delegates.you}, and you will not be ` +
+        `on the ballot in November. The other side never had to beat you.`,
+      delegates: result.delegates.you,
+    };
+    return { state: next, result };
+  }
+
+  // A contested nomination is never free, however it is won.
+  next.approval = clamp(round1(next.approval - 2));
+  next.stability = clamp(next.stability - 3);
+
+  if (result.strategy.id === "base") {
+    // Adopting the wing's platform moves where the president stands — and the
+    // general-election map is drawn off exactly that number.
+    const anchor = presidentAxis(next.scenario);
+    const shift = Math.sign(anchor || partySign(next.scenario.party)) * 0.18;
+    next.scenario = {
+      ...next.scenario,
+      ideologyAxis: round1(Math.max(-1, Math.min(1, anchor + shift))),
+    };
+    // The base comes home; the centre does not.
+    for (const [id, lean] of Object.entries(BLOC_ALIGNMENT)) {
+      if (next.stakeholders[id] == null) continue;
+      const aligned = Math.sign(lean) === partySign(next.scenario.party);
+      next.stakeholders[id] = clamp(Math.round(next.stakeholders[id] + (aligned ? 7 : -5)));
+    }
+  }
+
+  if (result.strategy.id === "deal") {
+    // The challenger takes the ticket. They have their own base, their own
+    // ambitions, and no reason whatever to be loyal to you — which is exactly
+    // the profile that can invoke the Twenty-Fifth. See succession.js.
+    const vp = next.cabinet.find((c) => c.id === "vp");
+    if (vp) {
+      vp.name = result.challenger.name;
+      vp.loyalty = seeded(`${next.rosterSeed}|deal|${next.month}`).between(12, 34);
+      vp.competence = seeded(`${next.rosterSeed}|dealc|${next.month}`).between(62, 92);
+      vp.persona = `${vp.persona}. They ran against you for this party's nomination, ` +
+        `withdrew in exchange for this office, and have not forgotten either fact.`;
+    }
+    next.stability = clamp(next.stability - 3);
+  }
+
+  next.history.push({
+    month: next.month,
+    term: next.term || 1,
+    primary: true,
+    headline: `Renominated — ${result.delegates.you} delegates to ${result.delegates.them}`,
+    approval: next.approval,
+    approvalChange: -2,
+  });
+
+  return { state: next, result };
+}
+
+/** The eight blocs and which way they lean. Mirrors STAKEHOLDERS. */
+const BLOC_ALIGNMENT = Object.fromEntries(STAKEHOLDERS.map((s) => [s.id, s.lean]));
+
+/**
+ * Election night.
+ *
+ * Four years of the map the player has been watching finally get counted. The
+ * debate is a swing applied to every state at once, the war chest is a swing
+ * applied only where it was spent, and the result is fifty-one separate calls
+ * rather than a threshold — which is why the electoral college and the popular
+ * vote can, and sometimes do, disagree.
+ */
+export function finishCampaign(state, debateScore, spend = {}) {
   const next = structuredClone(state);
   const adj = Math.max(-8, Math.min(8, round1(debateScore * 0.28)));
   next.approval = clamp(round1(next.approval + adj));
   // The debate ripples out to the states.
   for (const code of STATE_CODES) {
-    next.stateApproval[code] = clamp(Math.round(next.stateApproval[code] + adj * 0.5));
+    next.stateApproval[code] = clamp(round1(next.stateApproval[code] + adj * 0.5));
   }
-  const ec = electoralCount(next);
+
+  const plan = { ...(next.campaign?.spend || {}), ...spend };
+  const result = runPresidential(next, {
+    swing: debateScore,
+    bonus: difficultyBonus(next),
+    spend: plan,
+  });
+  result.challenger = next.campaign?.opponent || challengerFor(next);
+
+  next.warChest = round1(Math.max(0, (next.warChest ?? 0) - totalSpend(result.spend)));
   next.month = pacing(next).termLength + 1;
   next.phase = "concluded";
   next.over = true;
+  next.election = result;
 
-  const debateWord = debateScore > 8 ? "Your commanding debate performance" :
-    debateScore > 0 ? "A solid debate showing" :
-    debateScore < -8 ? "A disastrous debate" : "An uneven debate";
+  const debateWord = debateScore > 8 ? "Your commanding debate performance"
+    : debateScore > 0 ? "A solid debate showing"
+    : debateScore < -8 ? "A disastrous debate"
+    : "An uneven debate";
 
-  const { winApproval } = difficultyOf(next.scenario.difficulty);
-
-  // The alternative model skips the map: a national popular verdict, nothing
-  // else. Some players simply want the number they have been watching to be
-  // the number that decides it.
+  // The alternative model skips the college: whoever wins more votes wins.
+  // Some players simply want the number they have been watching to decide it.
   if (next.scenario.elections === "alternative") {
-    next.ending = next.approval >= 50
-      ? { type: "reelected", reason: `${debateWord} carried it. You finished on ${Math.round(next.approval)}% and the country returned you for a second term.` }
-      : next.approval >= winApproval
-        ? { type: "narrow", reason: `${debateWord} left it inside the margin. At ${Math.round(next.approval)}% the result is contested and nobody will call it tonight.` }
-        : { type: "defeated", reason: `${debateWord} could not close a ${Math.round(50 - next.approval)}-point gap. ${next.campaign.opponent.name} won, and the country turns the page.` };
-    next.ending.electoral = ec.win;
+    const pv = result.popular;
+    next.ending = pv.you > 50
+      ? { type: "reelected",
+          reason: `${debateWord} carried it. You took ${pv.you.toFixed(1)}% of the vote to ` +
+            `${result.challenger.name}'s ${pv.them.toFixed(1)}%, and there is no college to argue with.` }
+      : pv.you >= 49.4
+        ? { type: "narrow",
+            reason: `${debateWord} left it inside the margin — ${pv.you.toFixed(1)}% to ` +
+              `${pv.them.toFixed(1)}%. Nobody will call it tonight.` }
+        : { type: "defeated",
+            reason: `${debateWord} could not close the gap. ${result.challenger.name} won the country ` +
+              `${pv.them.toFixed(1)}% to ${pv.you.toFixed(1)}%, and the page turns.` };
+    next.ending.electoral = result.ev.you;
+    next.ending.popular = pv.you;
     if (next.ending.type === "reelected") return beginNextTerm(next, next.ending);
     return next;
   }
 
-  if (ec.win >= 270 && next.approval >= winApproval) {
-    next.ending = { type: "reelected", reason: `${debateWord} sealed it. You won re-election with roughly ${ec.win} electoral votes — a second term begins.` };
-  } else if (next.approval >= winApproval + 1) {
-    next.ending = { type: "narrow", reason: `${debateWord} kept it agonizingly close. The networks won't call it — it comes down to recounts in three states.` };
-  } else {
-    next.ending = { type: "defeated", reason: `${debateWord} wasn't enough. ${next.campaign.opponent.name} defeated you, and the country turns the page after a single term.` };
-  }
-  next.ending.electoral = ec.win;
+  // The debate's contribution is reported as points on the results screen, so
+  // the ending itself stays about the country rather than the podium.
+  next.ending = describeElection(next, result, "The country voted");
+  next.ending.popular = result.popular.you;
   // Winning is not the end of the career — it is the start of the next term.
   if (next.ending.type === "reelected") return beginNextTerm(next, next.ending);
   return next;

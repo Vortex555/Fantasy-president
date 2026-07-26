@@ -9,6 +9,15 @@
 const CAREERS_KEY = "fp.careers.v1";
 const PRESIDENTS_KEY = "fp.presidents.v1";
 
+/**
+ * How long a term runs in each office. The careers list dates a save from this,
+ * and hardcoding forty-eight months put every House career six years into the
+ * future — and another two years further with every term served.
+ */
+export const TERM_MONTHS = { president: 48, house: 24, senate: 72 };
+
+export const termLengthOf = (state) => TERM_MONTHS[state?.office] || TERM_MONTHS.president;
+
 export const G = {
   meta: null,
   careerId: null,
@@ -57,7 +66,10 @@ export function saveCareer() {
     scenarioName: s.scenario.scenarioName || "Custom",
     startYear: s.scenario.startYear || 2025,
     // Absolute, so the career list shows the right calendar date in term two.
-    month: ((s.term || 1) - 1) * 48 + s.month,
+    month: ((s.term || 1) - 1) * termLengthOf(s) + s.month,
+    office: s.office || "president",
+    seat: s.seat ? { district: s.seat.district, state: s.seat.state, stateName: s.seat.stateName } : null,
+    rank: s.rank || null,
     term: s.term || 1,
     over: Boolean(s.over),
     lastPlayed: new Date().toISOString(),
