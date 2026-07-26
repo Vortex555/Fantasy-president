@@ -5,6 +5,7 @@ import { G, saveCareer } from "./store.js";
 import { playTurn } from "./api.js";
 import { openDrawer } from "./drawer.js";
 import { liveArcs } from "./dashboard.js";
+import { renderModeBadge } from "./careers.js";
 
 const DOMAIN_LABEL = {
   economy: "Economy", security: "National Security", justice: "Law & Justice",
@@ -145,6 +146,13 @@ async function submitPolicy() {
     const data = await playTurn(G.state, G.event, policy, $("publicMessage").value.trim());
     G.state = data.state;
     G.pendingEvent = data.result.nextEvent;
+    // Which brain answered this month. If the model was unreachable the turn
+    // still resolved — on the offline engine — and the badge has to say so
+    // rather than letting the player assume otherwise for a whole term.
+    if (data.ai) {
+      G.ai = data.ai;
+      renderModeBadge();
+    }
     saveCareer();
     renderConsequences(data.result, G.state.approval - before);
   } catch (err) {

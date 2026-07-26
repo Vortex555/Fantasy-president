@@ -7,6 +7,8 @@ import {
   runReelection, advanceSenateMonth,
 } from "../src/senate.js";
 import { createGame } from "../src/gameEngine.js";
+import { runCongressionalCycle } from "../src/elections.js";
+import { rankIndex } from "../src/committees.js";
 
 const scenario = (o = {}) => ({
   office: "senate", presidentName: "Marguerite Vance", party: "Democrat", startYear: 2025,
@@ -176,4 +178,159 @@ test("bills still reach the floor, at a chamber's pace", () => {
   let total = 0;
   for (let m = 1; m <= 36; m++) total += floorBills({ ...game(), month: m }).length;
   assert.ok(total > 5, "the Senate does eventually do something");
+});
+
+// --- The country goes to the polls without you -------------------------------
+//
+// A six-year term contains three congressional elections and a senator is on
+// the ballot for one of them. The other two still happen, and used to not: the
+// chamber a career was handed in its first month was the chamber it died in.
+
+test("the chamber is elected every two years, whether or not you are", () => {
+  const s = { ...game(), month: 24 };
+  const out = advanceSenateMonth(s);
+  assert.ok(out.cycle, "a congressional election was held");
+  assert.equal(out.reelection, null, "but not yours — your class is not up");
+  assert.equal(out.state.month, 25, "and the month still turns over");
+  assert.notDeepEqual(out.state.congress, s.congress, "the seat counts moved");
+});
+
+test("nothing is elected in an ordinary month", () => {
+  const out = advanceSenateMonth({ ...game(), month: 11 });
+  assert.equal(out.cycle, undefined);
+});
+
+test("a mid-term election can take the gavel off you", () => {
+  // A chair whose party is about to be swept out of the majority.
+  const chair = {
+    ...game(), month: 24, rank: "chair", leadership: 90,
+    seat: { ...game().seat, seniority: 3 },
+    congress: { houseD: 220, houseR: 215, senateD: 51, senateR: 49 },
+    president: { ...game().president, party: "Democrat", approval: 24 },
+    economy: { gdpGrowth: -2.4, unemployment: 9.5, inflation: 7.2, debt: 41 },
+  };
+  const out = advanceSenateMonth(chair);
+  assert.ok(out.cycle);
+  if (out.state.congress.senateD <= out.state.congress.senateR) {
+    assert.ok(rankIndex(out.state.rank) < rankIndex("chair"),
+      "you cannot chair a committee your party no longer runs");
+    assert.ok(out.ladder, "and you are told about it");
+  }
+});
+
+test("the President's standing moves over a career that outlasts the news", () => {
+  let s = game();
+  const started = s.president.approval;
+  const seen = new Set([started]);
+  for (let m = 0; m < 30; m++) {
+    s = advanceSenateMonth(s).state;
+    seen.add(s.president.approval);
+  }
+  assert.ok(seen.size > 4, "a static president makes every election night identical");
+  assert.ok(s.president.approval >= 0 && s.president.approval <= 100);
+});
+
+// --- The cycle itself --------------------------------------------------------
+
+test("an unpopular president costs their own party seats", () => {
+  const base = {
+    ...game(),
+    congress: { houseD: 230, houseR: 205, senateD: 53, senateR: 47 },
+    arcs: [],
+  };
+  const sinking = runCongressionalCycle({
+    ...base,
+    president: { ...base.president, party: "Democrat", approval: 26 },
+    economy: { gdpGrowth: -1.8, unemployment: 8.9, inflation: 6.5, debt: 40 },
+  }, { index: 1 });
+  const soaring = runCongressionalCycle({
+    ...base,
+    president: { ...base.president, party: "Democrat", approval: 68 },
+    economy: { gdpGrowth: 3.6, unemployment: 3.4, inflation: 2.1, debt: 32 },
+  }, { index: 1 });
+
+  assert.ok(sinking.houseSwing < soaring.houseSwing,
+    "the President's record lands on their own party's seats");
+  assert.ok(sinking.congress.houseD < base.congress.houseD);
+});
+
+test("a cycle keeps both chambers whole and tells you who runs them", () => {
+  const out = runCongressionalCycle(game(), { index: 2 });
+  assert.equal(out.congress.houseD + out.congress.houseR, 435);
+  assert.equal(out.congress.senateD + out.congress.senateR, 100);
+  assert.ok(["Republican", "Democrat"].includes(out.control.house));
+  assert.ok(["Republican", "Democrat"].includes(out.control.senate));
+  assert.equal(typeof out.note, "string");
+  assert.ok(out.note.length > 10);
+  assert.equal(out.year, 2025 + 2 * 2 - 1, "the third election of the career is 2028");
+});
+
+test("only a third of the Senate is ever on the ballot", () => {
+  const seen = new Set();
+  for (const index of [1, 2, 3, 4]) seen.add(runCongressionalCycle(game(), { index }).cycle);
+  assert.deepEqual([...seen].sort(), [1, 2, 3]);
+});
+
+test("midterms and presidential years alternate", () => {
+  assert.equal(runCongressionalCycle(game(), { index: 1 }).midterm, true);
+  assert.equal(runCongressionalCycle(game(), { index: 2 }).midterm, false);
+  assert.equal(runCongressionalCycle(game(), { index: 3 }).midterm, true);
+});
+
+test("a cycle is deterministic — the same night twice is the same night", () => {
+  const s = game();
+  assert.deepEqual(runCongressionalCycle(s, { index: 1 }), runCongressionalCycle(s, { index: 1 }));
+});
+
+/**
+ * The swing each cycle is measured against a neutral map, so applying it to
+ * last cycle's result compounds it: a president 15 points under water costs
+ * their party the same 20 seats over and over until the chamber reads 0–435.
+ * It has to be applied to the chamber the career was handed, with a memory.
+ */
+const disaster = (s) => ({
+  ...s,
+  president: { ...s.president, party: "Democrat", approval: 22 },
+  economy: { gdpGrowth: -2.6, unemployment: 9.8, inflation: 7.4, debt: 44 },
+});
+
+test("a bad presidency costs seats without emptying the chamber", () => {
+  let s = disaster({ ...game(), congress: { houseD: 230, houseR: 205, senateD: 53, senateR: 47 } });
+  const counts = [];
+  for (let index = 1; index <= 8; index++) {
+    const out = runCongressionalCycle(s, { index });
+    s = { ...s, congress: out.congress, congressStart: out.congressStart, congressDrift: out.congressDrift };
+    counts.push(out.congress.houseD);
+  }
+  assert.ok(counts[0] < 230, "the first bad night costs real seats");
+  assert.ok(Math.min(...counts) >= 120,
+    `eight bad nights should not leave 435 seats one-sided: ${counts.join(", ")}`);
+  // And it settles rather than sliding: the last two nights are close together.
+  assert.ok(Math.abs(counts[7] - counts[6]) < Math.abs(counts[1] - counts[0]) + 1);
+});
+
+test("a wave that passes is a wave that recedes", () => {
+  const base = { ...game(), congress: { houseD: 230, houseR: 205, senateD: 53, senateR: 47 } };
+  let s = disaster(base);
+  let out = runCongressionalCycle(s, { index: 1 });
+  const trough = out.congress.houseD;
+
+  // The presidency recovers, and the seats come back with it.
+  s = {
+    ...base,
+    congressStart: out.congressStart, congressDrift: out.congressDrift, congress: out.congress,
+    president: { ...base.president, party: "Democrat", approval: 64 },
+    economy: { gdpGrowth: 3.4, unemployment: 3.6, inflation: 2.2, debt: 33 },
+  };
+  out = runCongressionalCycle(s, { index: 2 });
+  assert.ok(out.congress.houseD > trough,
+    `seats should return when the weather does: ${trough} → ${out.congress.houseD}`);
+});
+
+test("a career remembers which chamber it was handed", () => {
+  const s = { ...game(), congress: { houseD: 230, houseR: 205, senateD: 53, senateR: 47 } };
+  const out = runCongressionalCycle(s, { index: 1 });
+  assert.deepEqual(out.congressStart, s.congress);
+  assert.ok(Number.isFinite(out.congressDrift.house));
+  assert.ok(Number.isFinite(out.congressDrift.senate));
 });

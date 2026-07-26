@@ -7,7 +7,7 @@ import {
   ideologiesFor, mainstreamIdeologies, fringeIdeologies, ideologyEffects, ideologyPosition,
 } from "./data/ideologies.js";
 import { PROFILE_DEFAULTS, PROFILE_FIELDS, profileEffects, homeStates } from "./data/profile.js";
-import { settingDefaults, SETTINGS, NO_HINTS } from "./data/settings.js";
+import { settingDefaults, SETTINGS, NO_HINTS, appliesTo } from "./data/settings.js";
 import { profileHtml, applyProfileClick, opensExtra, profileSummary } from "./profile.js";
 import { settingsHtml, refreshNote, unavailable } from "./settings.js";
 
@@ -62,23 +62,65 @@ function compositionSection() {
   return `<div class="opts opts--wide" data-pick="composition">${optionsHtml(COMPOSITIONS, draft.composition)}</div>`;
 }
 
-/** What the button at the bottom says depends on which office you chose. */
-let nextLabel = "Begin Your Presidency →";
-export function setNextLabel(label) { nextLabel = label; }
+/**
+ * What this screen is for depends entirely on which office was just chosen.
+ *
+ * It used to say "Create your own president" and offer a Mandate Strength
+ * control to somebody running for a House seat in Ohio — a starting approval
+ * rating their district never reads, chosen on a screen naming a job they are
+ * not applying for. Everything here that differs between the three careers is
+ * named once, in this table, rather than guessed at further down.
+ */
+const OFFICE = {
+  president: {
+    lede: "Create your own president.",
+    next: "Begin Your Presidency →",
+    // The same word in all three offices: it is a character draft, and the
+    // screen is called Character Setup.
+    savedNoun: "character",
+    mandate: true,
+    compositionLabel: "Congressional Composition",
+    compositionNote: "(your party's strength in Congress at start)",
+  },
+  house: {
+    lede: "Create the member of Congress you are about to become.",
+    next: "Choose Your District →",
+    savedNoun: "character",
+    // A district decides how it rates you; nobody hands a freshman a mandate.
+    mandate: false,
+    compositionLabel: "The Chamber You Arrive In",
+    compositionNote: "(your caucus's strength in the House — it decides who holds the gavels)",
+  },
+  senate: {
+    lede: "Create the senator you are about to become.",
+    next: "Choose Your State →",
+    savedNoun: "character",
+    mandate: false,
+    compositionLabel: "The Chamber You Arrive In",
+    compositionNote: "(your caucus's strength in the Senate — it decides who holds the gavels)",
+  },
+};
 
-export function renderCharacter(scenario, era, onConfirm, onBack) {
+const officeOf = () => OFFICE[context.office] || OFFICE.president;
+const isPresident = () => (context.office || "president") === "president";
+
+export function renderCharacter(scenario, era, office, onConfirm, onBack) {
   handlers = { onConfirm, onBack };
-  context = { scenario, era };
+  context = { scenario, era, office: OFFICE[office] ? office : "president" };
   if (!draft.ideology) draft.ideology = ideologiesFor(draft.party)[0].value;
 
-  const savedOptions = ['<option value="">— Saved presidents —</option>']
+  const o = officeOf();
+  const lede = $("characterLede");
+  if (lede) lede.textContent = o.lede;
+
+  const savedOptions = [`<option value="">— Saved ${o.savedNoun}s —</option>`]
     .concat(listPresidents().map((p) =>
       `<option value="${escapeHtml(p.presidentName)}">${escapeHtml(p.presidentName)} · ${escapeHtml(p.party)}</option>`))
     .join("");
 
   $("characterForm").innerHTML = `
     <div class="load-saved">
-      <span class="load-saved__label">📋 Load a saved president</span>
+      <span class="load-saved__label">📋 Load a saved ${o.savedNoun}</span>
       <select id="savedSelect">${savedOptions}</select>
       <button type="button" class="btn btn--danger" id="deletePresident">Delete</button>
     </div>
@@ -115,22 +157,23 @@ export function renderCharacter(scenario, era, onConfirm, onBack) {
       <div id="ideologyWrap">${ideologySection(draft.party, draft.ideology)}</div>
     </div>
 
-    <div class="field">
+    ${o.mandate ? `<div class="field">
       <span class="field__label">Mandate Strength</span>
       <div class="opts opts--grid" data-pick="mandate">${optionsHtml(MANDATES, draft.mandate)}</div>
-    </div>
+    </div>` : `<p class="hint">Your standing at home is not something you choose — it comes from
+      how well the seat you pick next actually fits the politics you just described.</p>`}
 
     <div class="field">
-      <span class="field__label">Congressional Composition
-        <span class="field__note">(your party's strength in Congress at start)</span></span>
+      <span class="field__label">${escapeHtml(o.compositionLabel)}
+        <span class="field__note">${escapeHtml(o.compositionNote)}</span></span>
       <div id="compositionWrap">${compositionSection()}</div>
     </div>
 
     <div class="divider"><span class="eyebrow">Rules of play</span></div>
-    ${settingsHtml(draft)}
+    ${settingsHtml(draft, context.office)}
 
     <button type="button" class="btn btn--primary btn--block" id="beginBtn" style="margin-top:26px">
-      ${draft.bio ? "Next: Your Bio →" : nextLabel}
+      ${draft.bio && isPresident() ? "Next: Your Bio →" : o.next}
     </button>`;
 
   flagUnavailableSettings();
@@ -153,7 +196,10 @@ function flagUnavailableSettings() {
   }
 }
 
-const repaint = () => renderCharacter(context.scenario, context.era, handlers.onConfirm, handlers.onBack);
+// The office has to be carried through a repaint. Dropping it sent every
+// re-render — a profile click, the Random button — back to the presidency.
+const repaint = () =>
+  renderCharacter(context.scenario, context.era, context.office, handlers.onConfirm, handlers.onBack);
 
 // #characterForm outlives every repaint, so its delegated listeners are bound
 // exactly once. Binding per render stacks duplicates, and a toggle handled an
@@ -263,7 +309,7 @@ function handleToggle(btn) {
   draft[key] = on;
   // Switching the bio on changes what the primary button promises.
   if (key === "bio") {
-    $("beginBtn").textContent = on ? "Next: Your Bio →" : nextLabel;
+    $("beginBtn").textContent = on ? "Next: Your Bio →" : officeOf().next;
   }
 }
 
@@ -308,19 +354,30 @@ function submit() {
     return;
   }
 
-  const { scenario, era } = context;
+  const { scenario, era, office } = context;
   const mandate = MANDATES.find((m) => m.value === draft.mandate);
   const composition = COMPOSITIONS.find((c) => c.value === draft.composition);
+
+  /**
+   * Only send the rules this office actually plays by.
+   *
+   * The rack is filtered on screen, but a saved character carries every switch
+   * it was created with — so loading a president into a House career would
+   * otherwise smuggle `bio: true` through and route a freshman member into the
+   * presidential bio form for questions about their campaign promises.
+   */
   const settings = {};
   for (const s of SETTINGS) {
-    settings[s.key] = draft[s.key];
-    if (s.sub) settings[s.sub.key] = draft[s.sub.key];
+    const on = appliesTo(s, office);
+    settings[s.key] = on ? draft[s.key] : s.default;
+    if (s.sub) settings[s.sub.key] = on ? draft[s.sub.key] : s.sub.default;
   }
 
   handlers.onConfirm({
     ...draft,
     ...settings,
-    [NO_HINTS.key]: draft[NO_HINTS.key],
+    [NO_HINTS.key]: isPresident() ? draft[NO_HINTS.key] : NO_HINTS.default,
+    difficulty: isPresident() ? draft.difficulty : "hard",
     presidentName: name,
     profile: profileSummary(draft),
     // Who you are and what you believe both seed the board.

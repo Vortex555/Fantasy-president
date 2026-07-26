@@ -268,3 +268,58 @@ test("a re-election is deterministic — the same district votes the same way", 
   const s = { ...game(), month: HOUSE_TERM };
   assert.deepEqual(runReelection(s).margin, runReelection(s).margin);
 });
+
+// --- What setup actually promised -------------------------------------------
+
+test("the chamber you chose in setup is the chamber you arrive in", () => {
+  // The setup screen offers a congressional composition and the House career
+  // used to seed Congress from a dice roll and ignore it entirely.
+  const strong = createHouseCareer(
+    scenario({ party: "Democrat", district: "MA-4", congress: { house: 255, senate: 58 } }));
+  assert.equal(strong.congress.houseD, 255);
+  assert.equal(strong.congress.houseR, 180);
+  assert.equal(strong.congress.senateD, 58);
+  assert.equal(strong.congress.senateR, 42);
+
+  // Expressed from your own caucus's side, whichever side that is.
+  const republican = createHouseCareer(
+    scenario({ party: "Republican", district: "TX-1", congress: { house: 255, senate: 58 } }));
+  assert.equal(republican.congress.houseR, 255);
+  assert.equal(republican.congress.houseD, 180);
+});
+
+test("an independent gets the chamber the seed deals, because they have no bloc", () => {
+  const indie = createHouseCareer(
+    scenario({ party: "Independent", district: "VT-1", congress: null }));
+  assert.equal(indie.congress.houseD + indie.congress.houseR, 435);
+  assert.equal(indie.congress.senateD + indie.congress.senateR, 100);
+});
+
+// --- The rest of the ballot --------------------------------------------------
+
+test("the chamber you serve in is re-elected alongside you", () => {
+  const s = { ...game(), month: HOUSE_TERM, approval: 74 };
+  const out = advanceHouseMonth(s);
+  if (out.reelection?.won) {
+    assert.ok(out.cycle, "the other 434 races happened too");
+    assert.notDeepEqual(out.state.congress, s.congress);
+    assert.equal(out.state.congress.houseD + out.state.congress.houseR, 435);
+  }
+});
+
+test("who runs the chamber is not decided once and then frozen for twenty years", () => {
+  // Play out five terms and see whether control ever moves. It used to be
+  // impossible: `congress` was written at career creation and never again, so
+  // the gavel a member was handed in month one was theirs until they retired.
+  let s = { ...game({ scenario: { district: "MA-4" } }), approval: 82, leadership: 80 };
+  const seen = new Set();
+  for (let term = 0; term < 5 && !s.over; term++) {
+    for (let m = 0; m < HOUSE_TERM; m++) {
+      const out = advanceHouseMonth(s);
+      s = out.state;
+      if (s.over) break;
+    }
+    seen.add(`${s.congress.houseD}-${s.congress.senateD}`);
+  }
+  assert.ok(seen.size > 1, "the composition of Congress never moved across five terms");
+});

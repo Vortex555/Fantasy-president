@@ -17,7 +17,18 @@ import { buildCongress } from "../public/js/data/government.js";
  * voting the party line — the exact votes your district is punishing you for.
  * That is the point: the ladder is not a reward for playing well, it is the
  * other side of the trade the whole mode is built on.
+ *
+ * **Both chambers run on this file**, which is why almost everything here takes
+ * a whole career rather than a number: the rungs, the committee list, the
+ * majority that hands out gavels and the size of the room a whip is counting
+ * are all different in the Senate, and answering a House question on a
+ * senator's behalf produced a Speaker of the House who had never been elected
+ * to it. The shape of the ladder is genuinely shared; every quantity on it is
+ * not.
  */
+
+/** Which chamber a career is being played in. */
+export const chamberOf = (state) => (state?.office === "senate" ? "senate" : "house");
 
 export const COMMITTEES = [
   { id: "ways_means", name: "Ways and Means", prestige: 5, domains: ["economy"],
@@ -44,11 +55,60 @@ export const COMMITTEES = [
     remit: "The one committee nobody attacks you for sitting on." },
 ];
 
-export const committeeById = (id) => COMMITTEES.find((c) => c.id === id) || null;
+/**
+ * The Senate's own rooms. Not the House list with different labels — the
+ * jurisdictions genuinely differ, and one of them exists in only one chamber:
+ * Foreign Relations, where treaties and ambassadors live and where a senator
+ * can build a reputation on something the House never gets to vote on.
+ */
+export const SENATE_COMMITTEES = [
+  { id: "s_finance", name: "Finance", prestige: 5, domains: ["economy", "health"],
+    remit: "Taxes, trade, Social Security and Medicare. The Senate's answer to Ways and Means." },
+  { id: "s_appropriations", name: "Appropriations", prestige: 5, domains: ["economy", "security"],
+    remit: "Who gets the money. Every dollar the government spends is written in this room." },
+  { id: "s_foreign", name: "Foreign Relations", prestige: 5, domains: ["security"],
+    remit: "Treaties, ambassadors and the wars nobody declared. The committee the other chamber does not have." },
+  { id: "s_judiciary", name: "Judiciary", prestige: 4, domains: ["justice"],
+    remit: "Courts, crime, civil liberties — and every judge the President nominates." },
+  { id: "s_armed_services", name: "Armed Services", prestige: 4, domains: ["security"],
+    remit: "The military, the bases, and the promotions that do not happen without this room." },
+  { id: "s_help", name: "Health, Education, Labor and Pensions", prestige: 4, domains: ["health", "social"],
+    remit: "Health, schools and labour law. Broad, and quietly enormous." },
+  { id: "s_intelligence", name: "Intelligence", prestige: 4, domains: ["security", "justice"],
+    remit: "What the agencies are actually doing, in a room with no windows." },
+  { id: "s_banking", name: "Banking, Housing and Urban Affairs", prestige: 3, domains: ["economy"],
+    remit: "Banks, markets, housing — and the Fed chair's confirmation hearing." },
+  { id: "s_commerce", name: "Commerce, Science and Transportation", prestige: 3, domains: ["economy", "health"],
+    remit: "Trade, transport, telecoms and the sciences." },
+  { id: "s_rules", name: "Rules and Administration", prestige: 3, domains: ["justice", "social"],
+    remit: "The chamber's own procedure, and the federal elections it runs." },
+  { id: "s_agriculture", name: "Agriculture, Nutrition and Forestry", prestige: 2, domains: ["economy", "health"],
+    remit: "Farms, food and the states everybody flies over. Unglamorous and quietly powerful." },
+  { id: "s_veterans", name: "Veterans' Affairs", prestige: 2, domains: ["security", "social"],
+    remit: "The one committee nobody attacks you for sitting on." },
+];
+
+/** The rooms this member could possibly sit in. */
+export const committeesFor = (state) =>
+  (chamberOf(state) === "senate" ? SENATE_COMMITTEES : COMMITTEES);
+
+/**
+ * Ids are unique across both tables, so a committee resolves without being told
+ * which chamber asked. That matters for saved careers: a senator stored on a
+ * House committee before the two lists were separated still renders, and
+ * `evaluateLadder` moves them off it at the next term.
+ */
+const ALL_COMMITTEES = [...COMMITTEES, ...SENATE_COMMITTEES];
+
+export const committeeById = (id) => ALL_COMMITTEES.find((c) => c.id === id) || null;
 
 /**
  * The ladder. Each rung is a different verb: you vote, then you shape, then you
  * decide whether anybody votes at all, then you decide what the vote is about.
+ *
+ * The rungs are the same in both chambers because the powers are the same. The
+ * names are not: the Senate has no Speaker, and its top job is held by somebody
+ * the whole chamber has to keep tolerating rather than formally elect.
  */
 export const RANKS = [
   { id: "member", title: "Member", power: "You vote. That is the whole of it." },
@@ -58,20 +118,49 @@ export const RANKS = [
   { id: "speaker", title: "Speaker of the House", power: "You set the floor schedule. Nothing is voted on that you did not choose." },
 ];
 
+export const SENATE_RANKS = [
+  { id: "member", title: "Senator", power: "You vote — and you can stop the chamber on your own, which no backbencher in the other chamber can." },
+  { id: "subchair", title: "Subcommittee Chair", power: "You can amend a bill in your domain before it reaches the floor." },
+  { id: "chair", title: "Committee Chair", power: "You can bury a bill in your domain, or send it out amended. Nothing in your jurisdiction reaches the floor without you." },
+  { id: "whip", title: "Majority Whip", power: "You see the count before every vote, and you can spend favours to move it." },
+  { id: "speaker", title: "Senate Majority Leader", power: "You decide what the chamber votes on and when. Nothing is scheduled that you did not schedule." },
+];
+
+export const ranksFor = (state) =>
+  ((typeof state === "string" ? state : chamberOf(state)) === "senate" ? SENATE_RANKS : RANKS);
+
+/** The rungs are shared, so an index is chamber-independent. */
 export const rankIndex = (id) => Math.max(0, RANKS.findIndex((r) => r.id === id));
-export const rankById = (id) => RANKS.find((r) => r.id === id) || RANKS[0];
+
+export const rankById = (id, chamber = "house") => {
+  const table = ranksFor(chamber);
+  return table.find((r) => r.id === id) || table[0];
+};
 
 /** Favours banked per party-line vote, spent later on whipping. */
 export const CAPITAL_PER_VOTE = 3;
 
 const partySign = (party) => (party === "Republican" ? 1 : party === "Democrat" ? -1 : 0);
 
-/** Does the member's caucus actually run the chamber? */
+/**
+ * Does the member's caucus actually run the chamber they sit in?
+ *
+ * *Their* chamber. A senator's gavel has nothing to do with who runs the House,
+ * and reading the House columns for both meant a senator in a 55-seat majority
+ * could be denied a committee because of an election in a building across the
+ * road.
+ */
 function holdsMajority(state) {
   const caucus = state.caucus || state.scenario?.party;
   const c = state.congress || {};
-  return caucus === "Republican" ? c.houseR > c.houseD : c.houseD > c.houseR;
+  const [mine, theirs] = chamberOf(state) === "senate"
+    ? [c.senateR, c.senateD]
+    : [c.houseR, c.houseD];
+  return caucus === "Republican" ? mine > theirs : theirs > mine;
 }
+
+/** What the chamber's name is, for the sentences that have to say it. */
+const chamberName = (state) => (chamberOf(state) === "senate" ? "Senate" : "House");
 
 // --- Committees -------------------------------------------------------------
 
@@ -88,8 +177,9 @@ export function assignCommittee(state) {
   // What leadership thinks you have earned, on the same 1–5 scale as prestige.
   const earned = 1 + Math.min(4, Math.floor((standing - 30) / 18) + Math.floor(seniority / 2));
 
-  const eligible = COMMITTEES.filter((c) => c.prestige <= earned);
-  const pool = eligible.length ? eligible : COMMITTEES.filter((c) => c.prestige <= 2);
+  const table = committeesFor(state);
+  const eligible = table.filter((c) => c.prestige <= earned);
+  const pool = eligible.length ? eligible : table.filter((c) => c.prestige <= 2);
   const r = seeded(`${state.rosterSeed}|committee|${state.seat?.district}`);
 
   // Prefer the best you can get, but not deterministically the same one.
@@ -115,15 +205,32 @@ export function inYourDomain(state, bill) {
  * freshman nobody owes. The top three rungs additionally require your caucus to
  * run the chamber, because a minority has no gavels to hand out.
  */
+/**
+ * The gates, per chamber: [terms served, standing with the caucus].
+ *
+ * The standing required is identical, because being trusted is being trusted.
+ * The years are not, and cannot be: a House term is two years and a Senate term
+ * is six, so the House's five-term Speakership would be thirty years in the
+ * Senate — longer than any career here runs. Four Senate terms is twenty-four
+ * years, which is about what leading the chamber has historically cost.
+ */
+const LADDER = {
+  house: { speaker: [5, 88], whip: [4, 78], chair: [3, 66], subchair: [2, 56] },
+  senate: { speaker: [4, 88], whip: [3, 78], chair: [2, 66], subchair: [2, 54] },
+};
+
+/** The three rungs that only exist for a caucus that runs the chamber. */
+const GAVEL_RANKS = ["speaker", "whip", "chair"];
+
 export function rankOf(state) {
   const seniority = state.seat?.seniority || 1;
   const standing = state.leadership ?? 50;
   const majority = holdsMajority(state);
+  const gates = LADDER[chamberOf(state)];
 
-  if (majority && seniority >= 5 && standing >= 88) return "speaker";
-  if (majority && seniority >= 4 && standing >= 78) return "whip";
-  if (majority && seniority >= 3 && standing >= 66) return "chair";
-  if (seniority >= 2 && standing >= 56) return "subchair";
+  const earns = (id) => seniority >= gates[id][0] && standing >= gates[id][1];
+  for (const id of GAVEL_RANKS) if (majority && earns(id)) return id;
+  if (earns("subchair")) return "subchair";
   return "member";
 }
 
@@ -136,12 +243,17 @@ export function rankOf(state) {
  */
 export function evaluateLadder(state) {
   const next = structuredClone(state);
+  const chamber = chamberOf(next);
   const was = next.rank || "member";
   const wasCommittee = next.committee;
   const now = rankOf(next);
   next.rank = now;
 
-  if (!next.committee) {
+  // A career that predates the two committee lists being separated can be
+  // sitting in the other chamber's room. Put them where they actually work.
+  const seated = committeesFor(next).some((c) => c.id === next.committee);
+
+  if (!next.committee || !seated) {
     next.committee = assignCommittee(next);
   } else if (rankIndex(now) > rankIndex(was)) {
     // A member who has clearly outgrown their committee moves to a better one.
@@ -150,24 +262,28 @@ export function evaluateLadder(state) {
     const current = committeeById(next.committee);
     const offered = committeeById(assignCommittee(next));
     if (offered && current && offered.prestige > current.prestige) next.committee = offered.id;
-    // The Speaker runs Rules. That is what Rules is for.
-    if (now === "speaker") next.committee = "rules";
+    // The Speaker runs Rules. That is what Rules is for — in the House. The
+    // Senate's leader schedules the floor without owning a room to do it from,
+    // so they keep whichever committee their seniority earned them.
+    if (now === "speaker" && chamber === "house") next.committee = "rules";
   }
 
   const movedCommittee = next.committee !== wasCommittee;
   const promoted = rankIndex(now) > rankIndex(was);
   const demoted = rankIndex(now) < rankIndex(was);
   const committee = committeeById(next.committee);
+  const title = (id) => rankById(id, chamber).title;
 
   const note = promoted
-    ? `You are ${rankById(now).title === "Member" ? "a Member" : `the ${rankById(now).title}`}` +
-      `${now === "chair" || now === "subchair" ? ` of ${committee.name}` : ""}. ${rankById(now).power}` +
+    ? `You are ${/^(Member|Senator)$/.test(title(now)) ? `a ${title(now)}` : `the ${title(now)}`}` +
+      `${now === "chair" || now === "subchair" ? ` of ${committee.name}` : ""}. ${rankById(now, chamber).power}` +
       `${movedCommittee && now !== "chair" && now !== "subchair" ? ` You moved to ${committee.name}.` : ""}`
     : demoted
       ? holdsMajority(next)
-        ? `The caucus has taken it off you. You are back to ${rankById(now).title}.`
-        : `Your party lost the House, and the gavels went with it. You are ${rankById(now).title} now.`
-      : `No change — still ${rankById(now).title}${now === "chair" || now === "subchair" ? ` of ${committee.name}` : ""}.`;
+        ? `The caucus has taken it off you. You are ${now === "member" ? "on the back bench" : `back to ${title(now)}`}.`
+        : `Your party lost the ${chamberName(next)}, and the gavels went with it. ` +
+          `You are ${now === "member" ? "a backbencher again" : `${title(now)} now`}.`
+      : `No change — still ${title(now)}${now === "chair" || now === "subchair" ? ` of ${committee.name}` : ""}.`;
 
   return {
     state: next,
@@ -257,7 +373,9 @@ export function whipCount(state, bill) {
     return { visible: false, note: "You will find out how it went when everybody else does." };
   }
   const roster = buildCongress(state, STATES);
-  const tally = rollCall(roster.house, bill.axis);
+  // Count the room you are standing in. A senate whip walked in knowing a
+  // House number, which was both wrong and 335 votes too large.
+  const tally = rollCall(roster[chamberOf(state)], bill.axis);
   const swung = (state.swung || {})[bill.id] || 0;
   const yes = tally.yes + swung;
 

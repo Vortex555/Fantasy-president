@@ -2,9 +2,11 @@
 
 import { $, show, escapeHtml, loader, monthLabel } from "../util.js";
 import { G, saveCareer } from "../store.js";
+import { chamberCard } from "./election.js";
 import {
-  houseFloor, houseVote, houseSponsor, houseAdvance, houseCommittee, houseWhip, houseArticles,
+  houseFloor, houseVote, houseAdvance, houseSponsor, houseCommittee, houseWhip, houseArticles,
   senateFloor, senateVote, senateFilibuster, senateAdvance,
+  senateSponsor, senateCommittee, senateWhip, senateArticles, senateConfirm,
 } from "../api.js";
 
 /**
@@ -15,15 +17,22 @@ import {
  * duplicated into a second four-hundred-line file. What actually differs is the
  * term length, the word for your constituency, and the fact that a senator can
  * stop the chamber on their own.
+ *
+ * Every call a member can make belongs to a chamber. Leaving the filing, the
+ * gavel, the whip and the impeachment vote pointed at the House endpoints meant
+ * a senator's bill was counted by 435 people and their whip count was taken in
+ * the wrong building.
  */
 const CHAMBER = {
   house: {
     term: 24, seatWord: "district", chamberName: "House",
     floor: houseFloor, vote: houseVote, advance: houseAdvance,
+    sponsor: houseSponsor, committee: houseCommittee, whip: houseWhip, articles: houseArticles,
   },
   senate: {
     term: 72, seatWord: "state", chamberName: "Senate",
     floor: senateFloor, vote: senateVote, advance: senateAdvance,
+    sponsor: senateSponsor, committee: senateCommittee, whip: senateWhip, articles: senateArticles,
   },
 };
 
@@ -40,6 +49,8 @@ const chamber = () => CHAMBER[G.state?.office] || CHAMBER.house;
 
 let handlers = {};
 let board = null;
+/** A congressional election the member was not standing in, waiting to be read. */
+let pendingCycle = null;
 
 export async function renderFloor(hooks) {
   handlers = hooks;
@@ -109,7 +120,15 @@ function paint() {
       </div>
     </div>` : ""}
 
+    ${pendingCycle ? chamberCard(pendingCycle.cycle) : ""}
+    ${pendingCycle?.ladder && (pendingCycle.ladder.promoted || pendingCycle.ladder.demoted)
+      ? `<div class="card ${pendingCycle.ladder.promoted ? "card--accent" : "card--alarm"}">
+          <span class="eyebrow">${pendingCycle.ladder.promoted ? "⬆️" : "⬇️"} A new Congress picks new leadership</span>
+          <p style="margin:10px 0 0">${escapeHtml(pendingCycle.ladder.note)}</p>
+        </div>` : ""}
+
     ${board.articles ? articlesCard(board.articles) : ""}
+    ${board.nomination ? nominationCard(board.nomination) : ""}
 
     ${pending.length ? `
       <div class="card">
@@ -140,9 +159,12 @@ function paint() {
     </div>`;
 
   if (board.articles) wireArticles();
+  if (board.nomination) wireNomination();
   for (const b of pending) wireBill(b);
   if (board.canSponsor) wireSponsor();
   $("endMonth").onclick = endMonth;
+  // Read once. It is news, not a standing feature of the floor.
+  pendingCycle = null;
   show("floor");
   window.scrollTo(0, 0);
 }
@@ -199,7 +221,7 @@ function wireArticles() {
     for (const b of card.querySelectorAll("[data-articles]")) b.disabled = true;
     loader(true, "The Clerk is calling the roll…");
     try {
-      const data = await houseArticles(G.state, btn.dataset.articles);
+      const data = await chamber().articles(G.state, btn.dataset.articles);
       G.state = data.state;
       saveCareer();
       const r = data.result;
@@ -221,6 +243,106 @@ function wireArticles() {
     } catch (err) {
       alert("The vote could not be recorded: " + err.message);
       for (const b of card.querySelectorAll("[data-articles]")) b.disabled = false;
+    } finally {
+      loader(false);
+    }
+  };
+}
+
+// --- Advice and consent -----------------------------------------------------
+
+/**
+ * A nomination, which is the same bind as a bill with a third question attached:
+ * can this person do the job. That question is why the card shows competence as
+ * its own meter rather than folding it into the two stances — a senator of the
+ * President's own party facing an indefensible pick is the most interesting vote
+ * in the mode, and it only reads that way if you can see all three pressures at
+ * once.
+ */
+function nominationCard(n) {
+  const s = n.stance;
+  const nom = n.nominee;
+  const q = s.qualification;
+  return `<div class="card ${nom.unqualified ? "card--alarm" : "card--accent"}" id="nominationCard">
+    <div class="card__head">
+      <span class="eyebrow">⚖️ Advice and consent</span>
+      <span class="hint">${escapeHtml(n.post.tenure)}</span>
+    </div>
+    <h3 class="display display--sm" style="margin:4px 0 6px">
+      ${escapeHtml(nom.name)} — ${escapeHtml(n.post.title)}</h3>
+    <p class="brief__body" style="margin:0 0 12px">
+      President ${escapeHtml(n.president.name)} has sent up ${escapeHtml(nom.name)} to take charge of
+      ${escapeHtml(n.post.remit)}. Nothing happens until this chamber votes.
+    </p>
+
+    <div class="stances">
+      <div class="stance ${s.party.position === "yes" ? "stance--yes" : "stance--no"}">
+        <span class="stance__who">${G.state.independent ? escapeHtml(G.state.caucus) + " caucus" : "Your leadership"}</span>
+        <span class="stance__pos">${s.party.position.toUpperCase()}</span>
+        <span class="stance__note">${escapeHtml(s.party.reason)}</span>
+        <span class="stance__heat">Pressure ${s.party.intensity}</span>
+      </div>
+      <div class="stance ${s.district.position === "yes" ? "stance--yes" : "stance--no"}">
+        <span class="stance__who">${escapeHtml(G.state.seat.stateName)}</span>
+        <span class="stance__pos">${s.district.position.toUpperCase()}</span>
+        <span class="stance__note">${escapeHtml(s.district.reason)}</span>
+        <span class="stance__heat">Pressure ${s.district.intensity}</span>
+      </div>
+    </div>
+
+    <div class="whipbox" style="margin-top:14px">
+      <div class="whipbox__head">
+        <span class="eyebrow">🎓 On the merits</span>
+        <b class="${q.unqualified ? "down" : "up"}">${q.competence}%</b>
+      </div>
+      <p class="hint" style="margin:6px 0 0">${escapeHtml(q.note)}</p>
+    </div>
+
+    <p class="hint" style="margin:12px 0 0">${escapeHtml(s.district.pressureNote)}</p>
+
+    <div class="btn-row" style="margin-top:16px;justify-content:flex-end">
+      <button class="btn" data-confirm="abstain">Abstain</button>
+      <button class="btn btn--danger" data-confirm="no">Vote to Reject</button>
+      <button class="btn btn--primary" data-confirm="yes">Vote to Confirm</button>
+    </div>
+    <div class="vote-result hidden"></div>
+  </div>`;
+}
+
+function wireNomination() {
+  const card = $("nominationCard");
+  if (!card) return;
+  card.onclick = async (e) => {
+    const btn = e.target.closest("[data-confirm]");
+    if (!btn) return;
+    for (const b of card.querySelectorAll("[data-confirm]")) b.disabled = true;
+    loader(true, "The clerk is calling the roll…");
+    try {
+      const data = await senateConfirm(G.state, btn.dataset.confirm);
+      G.state = data.state;
+      saveCareer();
+      const r = data.result;
+      const delta = (v) => `<b class="${v >= 0 ? "up" : "down"}">${v > 0 ? "+" : ""}${v}</b>`;
+      card.querySelector(".btn-row").remove();
+      const box = card.querySelector(".vote-result");
+      box.className = "vote-result";
+      box.innerHTML = `
+        <div class="vote-result__head">
+          <span class="badge ${r.confirmed ? "badge--live" : "badge--red"}">
+            ${r.confirmed ? "Confirmed" : "Rejected"} ${r.tally.yes}–${r.tally.no}</span>
+          <span class="hint">You voted <b>${r.yourVote.toUpperCase()}</b>${
+            r.tally.crossed ? ` · ${r.tally.crossed} crossed over` : ""}${
+            r.tally.defected ? ` · ${r.tally.defected} broke ranks` : ""}</span>
+        </div>
+        <p style="margin:10px 0 0">${escapeHtml(r.note)}</p>
+        <div class="vote-result__deltas">
+          <span>${escapeHtml(G.state.seat.stateName)} ${delta(r.district.delta)}</span>
+          <span>Leadership ${delta(r.party.delta)}</span>
+        </div>`;
+      refreshMeters();
+    } catch (err) {
+      alert("The vote could not be recorded: " + err.message);
+      for (const b of card.querySelectorAll("[data-confirm]")) b.disabled = false;
     } finally {
       loader(false);
     }
@@ -315,7 +437,7 @@ function wireBill(bill) {
     card.querySelector("[data-whip-go]").onclick = async () => {
       loader(true, "You are making calls…");
       try {
-        const data = await houseWhip(G.state, live, Number(range.value));
+        const data = await chamber().whip(G.state, live, Number(range.value));
         G.state = data.state;
         saveCareer();
         renderFloor(handlers);
@@ -344,7 +466,7 @@ function wireBill(bill) {
     g.onclick = async () => {
       loader(true, "The committee is marking it up…");
       try {
-        const data = await houseCommittee(G.state, live, g.dataset.gavel);
+        const data = await chamber().committee(G.state, live, g.dataset.gavel);
         G.state = data.state;
         saveCareer();
         if (data.result.buried) return renderFloor(handlers);
@@ -450,7 +572,7 @@ function wireSponsor() {
     const title = $("sponsorTitle").value.trim() || "An Act";
     loader(true, "It has been referred to committee…");
     try {
-      const data = await houseSponsor(G.state, title, Number(axis.value) / 100, $("sponsorDomain").value);
+      const data = await chamber().sponsor(G.state, title, Number(axis.value) / 100, $("sponsorDomain").value);
       G.state = data.state;
       saveCareer();
       const box = $("sponsorResult");
@@ -458,7 +580,7 @@ function wireSponsor() {
       box.innerHTML = `
         <div class="vote-result__head">
           <span class="badge ${data.result.passed ? "badge--live" : data.result.reachedFloor ? "badge--amber" : "badge--red"}">
-            ${data.result.passed ? "Passed the House" : data.result.reachedFloor ? "Got a vote" : "Died in committee"}</span>
+            ${data.result.passed ? `Passed the ${chamber().chamberName}` : data.result.reachedFloor ? "Got a vote" : "Died in committee"}</span>
           <span class="hint">${data.result.odds}% chance of a hearing</span>
         </div>
         <p style="margin:10px 0 0">${escapeHtml(data.result.note)}</p>`;
@@ -481,7 +603,10 @@ async function endMonth() {
     const data = await chamber().advance(G.state);
     G.state = data.state;
     saveCareer();
-    if (data.reelection) return handlers.onElection(data.reelection, data.ladder);
+    if (data.reelection) return handlers.onElection(data.reelection, data.ladder, data.cycle);
+    // A senator sits through two elections they are not in. They still need to
+    // be told what happened in them — it may have just cost them a gavel.
+    if (data.cycle) pendingCycle = { cycle: data.cycle, ladder: data.ladder };
     renderFloor(handlers);
   } catch (err) {
     alert("The month could not be closed out: " + err.message);

@@ -5,7 +5,7 @@ import { G, newCareerId, saveCareer } from "./store.js";
 import { getMeta, startGame, resignOffice } from "./api.js";
 import { renderCareers, renderModeBadge } from "./careers.js";
 import { renderScenarios, renderEras } from "./scenario.js";
-import { renderCharacter, setNextLabel } from "./character.js";
+import { renderCharacter } from "./character.js";
 import { renderBio } from "./bio.js";
 import { renderRunningMate } from "./runningmate.js";
 import { renderDashboardAsync } from "./dashboard.js";
@@ -53,7 +53,7 @@ const goOath = (formerName) => renderOath(electionHooks, null, formerName);
 const houseHooks = {
   onDashboard: () => goPlay(),
   onFloor: () => renderFloor(houseHooks),
-  onElection: (result, ladder) => renderHouseElection(houseHooks, result, ladder),
+  onElection: (result, ladder, cycle) => renderHouseElection(houseHooks, result, ladder, cycle),
   // A member's career closes on the House's own record, not the presidency's.
   onLegacy: () => renderHouseLegacy(goCareers),
 };
@@ -101,10 +101,10 @@ function onEraChosen(scenario, era) {
 
 function onOfficeChosen(office) {
   pending.office = office;
-  setNextLabel(office === "house" ? "Choose Your District →"
-    : office === "senate" ? "Choose Your State →" : "Begin Your Presidency →");
   const back = () => renderOffice(onOfficeChosen, goScenarios);
-  renderCharacter(pending.scenario, pending.era, onCharacterReady, back);
+  // The character screen is the same screen for all three offices, but almost
+  // nothing on it means the same thing, so it is told which one it is drawing.
+  renderCharacter(pending.scenario, pending.era, office, onCharacterReady, back);
 }
 
 function onCharacterReady(draft) {
@@ -191,6 +191,9 @@ async function resign() {
 
 async function init() {
   G.meta = await getMeta();
+  // What the last real call found out, so a reload does not reset the badge to
+  // whatever the server believed when it booted.
+  G.ai = G.meta?.aiHealth || null;
   renderModeBadge();
   wireDrawer();
 

@@ -1,5 +1,5 @@
 import { completeAnthropic, anthropicInfo } from "./anthropic.js";
-import { completeOpenAI, openAiInfo, discoverModel } from "./openai.js";
+import { completeOpenAI, openAiInfo, discoverModel, probeLocal, forgetModel } from "./openai.js";
 
 /**
  * Where the intelligence comes from.
@@ -36,7 +36,16 @@ export function providerId() {
   return process.env.ANTHROPIC_API_KEY ? "anthropic" : "off";
 }
 
-/** Whether there is a model of any kind to talk to. */
+/**
+ * Whether a model is *configured* — not whether it answers.
+ *
+ * The distinction is the point. For a local provider there is always a URL,
+ * because there is a default, so this can only ever tell you the game was asked
+ * to use a model. It used to be read as "there is a model there", which is how
+ * the game came to name a model on the title screen that it had never once
+ * reached. `probeProvider()` is the version of this question with a real answer,
+ * and `providerHealth()` is what the last actual call found out.
+ */
 export function aiAvailable() {
   const id = providerId();
   if (id === "anthropic") return Boolean(process.env.ANTHROPIC_API_KEY);
@@ -79,9 +88,95 @@ export async function providerInfo() {
  */
 export async function complete(req) {
   const id = providerId();
-  if (id === "anthropic") return completeAnthropic(req);
-  if (id === "local") return completeOpenAI(req);
-  throw new Error("No model provider is configured.");
+  if (id !== "anthropic" && id !== "local") {
+    throw new Error("No model provider is configured.");
+  }
+
+  try {
+    const out = id === "anthropic" ? await completeAnthropic(req) : await completeOpenAI(req);
+    health = { ok: true, reason: null, at: Date.now(), failures: 0, id, model: out.model };
+    return out;
+  } catch (err) {
+    health = {
+      ok: false, reason: err.message, at: Date.now(),
+      failures: health.failures + 1, id, model: health.model,
+    };
+    // A local machine that just refused is a machine worth re-checking, and the
+    // model it had may not be the model it has.
+    if (id === "local") forgetModel();
+    throw err;
+  }
 }
 
-export { discoverModel };
+// --- Is it actually answering? ----------------------------------------------
+
+/**
+ * What the last real call discovered.
+ *
+ * Every model call in the game goes through `complete`, so this is always the
+ * current truth regardless of which endpoint made the call. `ok: null` means
+ * nothing has been asked yet — which is different from working and different
+ * from broken, and the badge says so.
+ */
+let health = { ok: null, reason: null, at: 0, failures: 0, id: null, model: null };
+
+export function providerHealth() {
+  const id = providerId();
+  // Health is per provider; switching provider invalidates what we knew, so
+  // everything below reads the scoped value rather than the raw record. A local
+  // model that was down says nothing about an API key that has just been set.
+  const mine = health.id === id;
+  const ok = mine ? health.ok : null;
+
+  return {
+    id,
+    configured: aiAvailable(),
+    ok,
+    reason: mine ? health.reason : null,
+    failures: mine ? health.failures : 0,
+    model: mine ? health.model : null,
+    checkedAt: mine ? health.at : 0,
+    /**
+     * The engine the game is actually playing on. This is the field the player
+     * needs: "off" and "a local model that is not answering" produce identical
+     * months, and only one of them used to admit it.
+     */
+    engine: id === "off" || ok === false ? "offline" : id,
+  };
+}
+
+/** Called when a turn falls back, so the count reflects turns and not just calls. */
+export function recordModelFailure(reason) {
+  const id = providerId();
+  health = { ok: false, reason, at: Date.now(), failures: health.failures + 1, id, model: health.model };
+}
+
+/** Wipe what we think we know, so the next question is asked for real. */
+export function resetProviderHealth() {
+  health = { ok: null, reason: null, at: 0, failures: 0, id: null, model: null };
+  forgetModel();
+}
+
+/**
+ * Ask the provider whether it is there, right now.
+ *
+ * Only the local path can be probed cheaply — an Anthropic key cannot be
+ * verified without spending a token on it, so a configured key is taken at its
+ * word and the first real call is what finds out.
+ */
+export async function probeProvider() {
+  const id = providerId();
+  if (id === "local") {
+    const probe = await probeLocal();
+    return { id, reachable: probe.reachable && Boolean(probe.model), ...probe };
+  }
+  if (id === "anthropic") {
+    return {
+      id, reachable: Boolean(process.env.ANTHROPIC_API_KEY), model: anthropicInfo().model,
+      error: process.env.ANTHROPIC_API_KEY ? null : "ANTHROPIC_API_KEY is not set.",
+    };
+  }
+  return { id, reachable: false, model: null, error: "No model provider is configured." };
+}
+
+export { discoverModel, forgetModel };

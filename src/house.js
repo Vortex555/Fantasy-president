@@ -1,7 +1,7 @@
 import { seeded, hashString, clamp, round1 } from "./rng.js";
 import { STATES } from "./states.js";
 import { BILL_POOL, billById, rollCall } from "./bills.js";
-import { houseRaces, nationalEnvironment } from "./elections.js";
+import { houseRaces, nationalEnvironment, runCongressionalCycle } from "./elections.js";
 import { buildCongress } from "../public/js/data/government.js";
 import { assignCommittee, earnCapital, evaluateLadder, committeeById } from "./committees.js";
 import { emptyArticles, tickArticles } from "./articles.js";
@@ -27,6 +27,29 @@ import { emptyArticles, tickArticles } from "./articles.js";
 
 export const HOUSE_TERM = 24;          // months — two years, every time
 export const SPONSOR_COOLDOWN = 4;     // months between bills you can file
+
+/**
+ * The Senate files less often, because a senator has fewer chances and takes
+ * longer over each one. It lives here rather than in senate.js because senate.js
+ * imports this module for the shared chamber machinery, and pointing the import
+ * the other way as well would make the two files a cycle.
+ */
+const SENATE_SPONSOR_COOLDOWN = 6;
+
+export const sponsorCooldown = (state) =>
+  (state?.office === "senate" ? SENATE_SPONSOR_COOLDOWN : SPONSOR_COOLDOWN);
+
+/**
+ * Whether the member may file this month. Both floor endpoints ask this, so the
+ * card is never offered on a month the filing would be refused — which is
+ * exactly what the Senate floor used to do.
+ */
+export function canFileAgain(state) {
+  const last = (state?.sponsored || []).slice(-1)[0];
+  if (!last) return true;
+  if ((last.term || 1) !== (state.term || 1)) return true;
+  return state.month - last.month >= sponsorCooldown(state);
+}
 
 const partySign = (party) => (party === "Republican" ? 1 : party === "Democrat" ? -1 : 0);
 const otherParty = (p) => (p === "Republican" ? "Democrat" : "Republican");
@@ -195,7 +218,31 @@ function buildCareer(scenario) {
   };
 }
 
-function seedCongress(scenario) {
+/**
+ * The Congress a member is sworn into.
+ *
+ * Setup asks which chamber you are arriving in and this used to throw the answer
+ * away and roll dice instead — which mattered more here than it does for a
+ * president, because for a member the majority *is* the game: it decides whether
+ * their caucus schedules the floor and whether there is a gavel at the top of
+ * the ladder for anybody on their side to hold.
+ *
+ * The composition is expressed as the player's own caucus's seats. An
+ * independent has no bloc to size, so they get the seeded chamber.
+ */
+export function seedCongress(scenario) {
+  const chosen = scenario.congress;
+  if (chosen && Number.isFinite(chosen.house) && Number.isFinite(chosen.senate)) {
+    const mine = caucusOf(scenario) === "Republican" ? "R" : "D";
+    const theirs = mine === "R" ? "D" : "R";
+    const house = clamp(Math.round(chosen.house), 0, 435);
+    const senate = clamp(Math.round(chosen.senate), 0, 100);
+    return {
+      [`house${mine}`]: house, [`house${theirs}`]: 435 - house,
+      [`senate${mine}`]: senate, [`senate${theirs}`]: 100 - senate,
+    };
+  }
+
   const r = seeded(`${scenario.presidentName}|${scenario.startYear}|chamber`);
   const houseR = r.between(200, 235);
   const senateR = r.between(45, 55);
@@ -396,28 +443,35 @@ function describeVote({ withDistrict, withParty, vote, passed, decisive, distric
 // --- Your own legislation ---------------------------------------------------
 
 /**
- * File a bill.
+ * File a bill, in either chamber.
  *
  * A freshman with no standing files bills that die in committee, and should:
  * the ability to get something heard is exactly what seniority and leadership
  * goodwill buy, and it is the reason to spend a vote on the caucus rather than
  * the district.
+ *
+ * The chamber matters twice. It decides which roll call the bill faces — a
+ * senator's bill used to be counted by 435 people who had never seen it — and
+ * it decides how often you get to try.
  */
 export function sponsorBill(state, { title, axis, domain }) {
+  const cooldown = sponsorCooldown(state);
   const last = (state.sponsored || []).slice(-1)[0];
-  if (last && state.month - last.month < SPONSOR_COOLDOWN && (last.term || 1) === (state.term || 1)) {
-    return { state, rejected: true, note: `You can file again in ${SPONSOR_COOLDOWN - (state.month - last.month)} months.` };
+  if (last && state.month - last.month < cooldown && (last.term || 1) === (state.term || 1)) {
+    return { state, rejected: true, note: `You can file again in ${cooldown - (state.month - last.month)} months.` };
   }
   const billAxis = Math.max(-1, Math.min(1, Number(axis) || 0));
 
   const next = structuredClone(state);
+  const senate = next.office === "senate";
+  const chamberName = senate ? "Senate" : "House";
   const roster = buildCongress(next, STATES);
-  const tally = rollCall(roster.house, billAxis);
+  const tally = rollCall(roster[senate ? "senate" : "house"], billAxis);
 
   // Getting a hearing at all is about clout, not merit.
   const seniority = next.seat.seniority || 1;
   /**
-   * Revenue bills originate in the House, and they originate in one room.
+   * Legislation originates in one room, whichever chamber that room is in.
    * A member on the committee that owns the domain gets a real hearing;
    * everybody else is filing paper.
    */
@@ -452,14 +506,60 @@ export function sponsorBill(state, { title, axis, domain }) {
   return {
     state: next,
     result: {
-      title, axis: billAxis, odds, reachedFloor, passed, cosponsors, tally,
+      title, axis: billAxis, odds, reachedFloor, passed, cosponsors, tally, chamberName,
       note: passed
-        ? `It passed the House ${tally.yes}–${tally.no}. Your name is on a law.`
+        ? `It passed the ${chamberName} ${tally.yes}–${tally.no}. Your name is on a law.`
         : reachedFloor
           ? `It got a floor vote and failed ${tally.yes}–${tally.no}. That is further than most freshmen get.`
           : `It died in committee, like almost every bill. ${cosponsors} members signed on.`,
     },
   };
+}
+
+// --- The country, while you were in committee --------------------------------
+
+/**
+ * The President's own standing, month by month.
+ *
+ * A congressional career outlasts a news cycle and often a presidency, and this
+ * number was written once at career creation and then never touched — which
+ * made the national wave a constant. Every election night in a twenty-year
+ * career blew in the same direction by the same amount.
+ *
+ * A seeded walk pulled gently back toward the middle: presidencies move, and
+ * they move back, and none of it is up to you.
+ */
+export function driftPresident(state) {
+  const potus = state.president;
+  if (!potus) return potus;
+  const r = seeded(`${state.rosterSeed}|potusdrift|${state.term || 1}|${state.month}`);
+  const pull = (50 - (potus.approval ?? 50)) * 0.028;
+  const shock = (r.next() - 0.5) * 3.4;
+  return { ...potus, approval: clamp(round1((potus.approval ?? 50) + pull + shock)) };
+}
+
+/** Congressional elections are two years apart. Which one is this? */
+const CYCLES_PER_TERM = { house: 1, senate: 3 };
+
+export function electionIndex(state) {
+  const perTerm = CYCLES_PER_TERM[state.office === "senate" ? "senate" : "house"];
+  const within = Math.round((state.month || 0) / 24);
+  return ((state.term || 1) - 1) * perTerm + within;
+}
+
+/** Is a congressional election held at the end of this month? Every 24 of them. */
+export const isElectionMonth = (state) => (state.month || 0) % 24 === 0;
+
+/**
+ * Fold a night's result into the career. The baseline and the running deviation
+ * travel with the state, because the next wave is measured from the chamber
+ * this member was handed rather than from the last one they lived through.
+ */
+export function applyCycle(state, cycle) {
+  state.congress = cycle.congress;
+  state.congressStart = cycle.congressStart;
+  state.congressDrift = cycle.congressDrift;
+  return state;
 }
 
 // --- Re-election ------------------------------------------------------------
@@ -539,6 +639,10 @@ export function advanceHouseMonth(state) {
   next.approval = clamp(round1(next.approval + (50 - next.approval) * 0.04));
   next.leadership = clamp(round1(next.leadership + (52 - next.leadership) * 0.05));
 
+  // The presidency moves whether or not it is yours, and the wave you run in is
+  // made of it.
+  next.president = driftPresident(next);
+
   // The President's difficulties accumulate whether or not you are watching.
   const trouble = tickArticles(next);
   Object.assign(next, trouble.state);
@@ -547,6 +651,10 @@ export function advanceHouseMonth(state) {
     next.month += 1;
     return { state: next, reelection: null, articles: trouble.event };
   }
+
+  // The other 434 districts vote on the same night you do.
+  const cycle = runCongressionalCycle(next, { index: electionIndex(next) });
+  applyCycle(next, cycle);
 
   const result = runReelection(next);
   next.reelection = result;
@@ -579,7 +687,9 @@ export function advanceHouseMonth(state) {
   next.swung = {};
 
   // Between terms the caucus works out what you are worth to it. This is where
-  // two years of voting the party line — or not — is finally priced.
+  // two years of voting the party line — or not — is finally priced, and where
+  // a caucus that has just lost the chamber discovers it has no gavels to hand
+  // anybody.
   const ladder = evaluateLadder(next);
-  return { state: ladder.state, reelection: result, ladder: ladder.change };
+  return { state: ladder.state, reelection: result, ladder: ladder.change, cycle };
 }

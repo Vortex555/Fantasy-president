@@ -15,7 +15,7 @@ import { G, saveCareer } from "../store.js";
 
 const ordinal = (n) => ["", "first", "second", "third", "fourth", "fifth", "sixth", "seventh"][n] || `${n}th`;
 
-export function renderHouseElection(hooks, result, ladder) {
+export function renderHouseElection(hooks, result, ladder, cycle = null) {
   const state = G.state;
   const seat = state.seat;
   const won = result.won;
@@ -81,6 +81,8 @@ export function renderHouseElection(hooks, result, ladder) {
       </p>` : ""}
     </div>
 
+    ${cycle ? chamberCard(cycle) : ""}
+
     ${won && ladder ? `<div class="card${ladder.promoted ? " card--accent" : ladder.demoted ? " card--alarm" : ""}">
       <span class="eyebrow">${ladder.promoted ? "⬆️ The caucus has decided" : ladder.demoted ? "⬇️ The caucus has decided" : "🏛️ Your standing in the caucus"}</span>
       <p style="margin:10px 0 0">${escapeHtml(ladder.note)}</p>
@@ -108,3 +110,47 @@ const cell = (label, value) => `<div class="tile tile--compact">
   <div class="tile__label">${escapeHtml(label)}</div>
   <div class="tile__value">${escapeHtml(String(value))}</div>
 </div>`;
+
+/**
+ * The other 434 races, and the third of the Senate that was up with them.
+ *
+ * This is the half of election night a member does not control and cannot
+ * campaign in, and it decides more about the next two years than their own
+ * margin does: whether their caucus schedules the floor, and whether there is a
+ * gavel at the top of the ladder for anybody on their side to hold.
+ */
+export function chamberCard(cycle) {
+  const flipped = cycle.flipped.house || cycle.flipped.senate;
+  const row = (label, chamber, contested, moved) => {
+    const d = cycle.congress[`${chamber}D`];
+    const r = cycle.congress[`${chamber}R`];
+    const side = cycle.control[chamber];
+    const was = cycle.controlBefore[chamber];
+    return `<div class="factor">
+      <div class="factor__head">
+        <span>${escapeHtml(label)} — D ${d} · R ${r}</span>
+        <b class="${moved >= 0 ? "up" : "down"}">${moved > 0 ? "+" : ""}${moved}</b>
+      </div>
+      <div class="factor__note">
+        ${escapeHtml(side)} control${side !== was ? ` — taken from the ${escapeHtml(was)}s` : ""}
+        ${contested ? ` · ${contested} seats contested` : ""}
+      </div>
+    </div>`;
+  };
+
+  return `<div class="card${flipped ? " card--alarm" : ""}">
+    <div class="card__head">
+      <span class="eyebrow">🏛️ The rest of the ballot</span>
+      <span class="hint">${cycle.year} ${cycle.midterm ? "midterm" : "presidential year"}</span>
+    </div>
+    <p style="margin:10px 0 0">${escapeHtml(cycle.note)}</p>
+    <div class="factors" style="margin-top:14px">
+      ${row("The House", "house", cycle.house.contested, cycle.houseSwing)}
+      ${row("The Senate", "senate", cycle.senate.contested, cycle.senateSwing)}
+    </div>
+    <p class="hint" style="margin:14px 0 0">
+      Seats shown as a swing for the President's party, which is where the national wave lands first.
+      Only a third of the Senate is ever on the ballot.
+    </p>
+  </div>`;
+}

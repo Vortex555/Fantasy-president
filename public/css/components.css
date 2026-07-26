@@ -284,6 +284,10 @@
 .badge--amber { color: var(--amber); background: var(--amber-bg); }
 .badge--red { color: var(--red); background: var(--red-bg); }
 
+/* A badge you can click — used by the mode chip to re-check the model. */
+.badge--action { cursor: pointer; }
+.badge--action:hover { filter: brightness(1.25); }
+
 .delta { font-size: 13px; font-weight: 700; }
 .delta--up { color: var(--green); }
 .delta--down { color: var(--red); }

@@ -174,7 +174,10 @@ only thing that is genuinely yours is which way you vote and what it costs you.
   power in the House, and one term is a footnote.
 ### The Senate
 
-The same floor, and three facts that change everything about standing on it.
+The same floor, and a handful of facts that change everything about standing on
+it. Its committees are its own — Finance, Foreign Relations, Intelligence — and
+the ladder tops out at **Majority Leader**, on the majority in *this* chamber
+rather than the one across the road.
 
 - **Six years.** A member of the House can never take a vote their district will
   remember. A senator can, because unpopular votes **decay** — a grudge fades
@@ -193,9 +196,35 @@ The same floor, and three facts that change everything about standing on it.
   convicts on **two thirds**, which no party has ever held alone, so a
   conviction needs the President's own side to break. The same articles pass the
   House 228–207 and fail the Senate 52–48.
+- **Advice and consent — the vote whose consequences outlive everybody casting
+  it.** A president may nominate whoever they like and it means nothing until
+  fifty-one senators agree. Justices, the Attorney General, the Fed chair, the
+  Director of the FBI: each arrives with your caucus and your state already on
+  the record, *and* with a third question the rest of the mode never asks —
+  **can this person do the job**. That is what makes it the sharpest vote here.
+  A qualified nominee you disagree with is a hard vote. An **indefensible one
+  from your own President** is the hard vote: the caucus whips less hard for
+  somebody it cannot defend, which leaves a gap you can walk through at a price.
+  Roughly one nominee in six has no business in the room, a bad one costs the
+  President about a dozen of his own senators, and a genuinely distinguished one
+  is confirmed 80–20 by people who agree with nothing else. Fifty-fifty goes to
+  the Vice President. Reject somebody and the seat stays empty until the
+  President finds a name the chamber will take. Confirm a judge and it is
+  **for life** — the one line of a legislative record still in force decades
+  after the senator who wrote it is a plaque, and it is scored that way.
 
 ### Both chambers
 
+- **The chamber is elected every two years, whether or not you are.** A House
+  member's own race *is* that election. A senator's six-year term contains three
+  of them and they are on the ballot for one — and the other two can still cost
+  them everything they have earned. Control turns on the President's standing,
+  which drifts month by month over a career that outlasts any news cycle, so the
+  majority genuinely changes hands: **lose it mid-term and the gavel goes with
+  it**, in the month it happens rather than at your next election. Waves are
+  measured against the chamber you were handed and fade at half strength per
+  cycle, so a bad presidency costs real seats without grinding either party out
+  of existence — and when the weather turns, the seats come back.
 - **Two-year terms.** You are never more than eighteen months from the voters,
   and the night breaks down into the four things that actually decided it: the
   ground, your own standing, the national wave — which is the President's record
@@ -230,7 +259,15 @@ Open the URL, set up your president, and take the oath.
 | **A model on your own machine** | `FP_PROVIDER=local` | The same game, free and private — nothing leaves your computer. Slower and shallower, but it is genuinely the whole loop. |
 | **No model at all** | neither | A built-in keyword engine. Fully playable offline; reactions are the shallowest of the three. |
 
-The title screen shows which one is running, by name.
+The title screen shows which one is running, by name — and, importantly, when it
+*isn't*. A configured model that cannot be reached does not stop the game: the
+month still resolves, on the built-in engine. But the badge turns red and says
+so, every turn reports which brain actually answered, and **clicking the badge
+re-checks** — so a machine that was asleep when you started the server is one
+click away rather than a restart away. Reloading the page re-checks too.
+
+The alternative, which is what this used to do, is a game that plays a whole
+term on the keyword engine while the screen names a model it has never reached.
 
 ### Running it on your own machine
 
@@ -341,9 +378,10 @@ src/
   gameEngine.js     Game state, checks & balances, cabinet, elections, local-sim fallback
   rng.js            Seeded randomness + numeric helpers shared by every subsystem
   ai/
-    provider.js     Which brain answers: hosted, local, or none
+    provider.js     Which brain answers: hosted, local, or none — and whether it is actually answering
     anthropic.js    The hosted path, with prompt caching and two model tiers
-    openai.js       Any OpenAI-compatible endpoint — Ollama, LM Studio, llama.cpp, vLLM
+    openai.js       Any OpenAI-compatible endpoint — Ollama, LM Studio, llama.cpp, vLLM;
+                    plus everything that happens when the machine is not there
     json.js         Getting usable JSON out of a model that promised some
   elections.js      Both elections: districts, Senate classes, the college, the war chest
   succession.js     The oath, the Twenty-Fifth Amendment, and the casting vote
@@ -351,7 +389,8 @@ src/
   court.js          Nine justices, deference, and how a case is actually decided
   house.js          A seat in the House: the floor, the bind, and two-year terms
   senate.js         A seat in the Senate: six years, a long memory, and the filibuster
-  committees.js     Committees, the ladder to the Speakership, gavels and the whip count
+  committees.js     Committees and the ladder, in both chambers: gavels and the whip count
+  confirmations.js  Advice and consent: vacancies, the third axis, and a bench for life
   articles.js       Impeachment as a member experiences it: the President's trouble, and your vote
   houseVerdict.js   What the House remembers about a member
   verdict.js        What the histories say, scored from the whole record
@@ -379,10 +418,12 @@ tests/
   court.test.js           Thrust, deference, the split, and the contract it must keep
   house.test.js           Seats, the floor, the district-versus-party bind, re-election
   senate.test.js          Six-year terms, the state's memory, the filibuster, the trial
-  committees.test.js      Assignments, the ladder, what a gavel does, whipping
+  committees.test.js      Assignments, the ladder, what a gavel does, whipping, both chambers
+  confirmations.test.js   Vacancies, the third axis, the roll call, and the bench
   articles.test.js        The President's trouble, the bind, and the member's verdict
   verdict.test.js         Scoring a presidency from what it actually did
   governors.test.js       The roster, defiance, courting, and where challengers come from
+  provider.test.js        Reaching a model on your own machine, and every way that fails
 public/
   index.html         Screen shells; every screen body is rendered by its module
   css/
@@ -400,15 +441,15 @@ public/
       catalog.js     Scenarios, eras, parties, mandates, compositions
       ideologies.js  58 ideologies with spectrum positions and bloc effects
       profile.js     The demographic catalogs and their bloc effects
-      settings.js    The rules-of-play rack and the guided-bio questions
+      settings.js    The rules-of-play rack, which office each rule applies to, and the bio questions
       government.js  Congress, the bench and cabinet politics, derived from a seed
       party.js       The president's own coalition — shared by the dashboard and the primary
       rng.js         Seeded randomness, shared with the server
     careers.js       "Your Careers" — resume, delete, start new
     scenario.js      Scenario and era pickers
-    character.js     Character setup
+    character.js     Character setup — the same screen for all three offices, and it says which
     profile.js       The character-profile section of setup
-    settings.js      The rules-of-play section of setup
+    settings.js      The rules-of-play section of setup, filtered to the office
     bio.js           The guided bio, when Custom Bio is on
     runningmate.js   Vice-presidential picker
     dashboard.js     Dashboard shell: timeline, tiles, Congress, court, cabinet, map
@@ -438,7 +479,8 @@ public/
 
 | Endpoint | Purpose |
 |----------|---------|
-| `GET /api/meta` | Mode (AI vs local), state metadata, stakeholder list. |
+| `GET /api/meta` | Mode, model health, state metadata, stakeholder list. Re-probes a local model it last saw as unreachable. |
+| `POST /api/ai/status` | Is the model answering? `{ recheck: true }` forgets what the server knew and asks the machine. |
 | `POST /api/start` | Begin a career; returns initial state (incl. cabinet & court) + opening crisis. |
 | `POST /api/turn` | Resolve a month; returns consequences (incl. `checks` roll-call + `rollout`) + the new state. |
 | `POST /api/advisor` | Chat with a cabinet member — `{ advisorId, message, history }`. |
@@ -451,7 +493,7 @@ public/
 | `POST /api/house/floor` | What leadership scheduled, and where everyone stands. |
 | `POST /api/house/vote` | Cast your vote — `{ state, bill, vote }`. |
 | `POST /api/house/sponsor` | File a bill — `{ state, title, axis, domain }`. |
-| `POST /api/house/advance` | End the month; at month 24 the district answers. |
+| `POST /api/house/advance` | End the month; at month 24 the district — and the whole chamber — answers. |
 | `POST /api/house/committee` | Bury a bill in committee or report it out amended. |
 | `POST /api/house/whip` | Call in favours to move a whip count. |
 | `POST /api/house/articles` | Vote on impeaching the sitting President. |
@@ -460,7 +502,12 @@ public/
 | `POST /api/senate/floor` | The Senate floor, with what your state still resents. |
 | `POST /api/senate/vote` | Cast your vote — `{ state, bill, vote }`. |
 | `POST /api/senate/filibuster` | Hold the floor — `{ state, bill }`. |
-| `POST /api/senate/advance` | End the month; at month 72 the state answers. |
+| `POST /api/senate/sponsor` | File a bill, counted in the Senate — `{ state, title, axis, domain }`. |
+| `POST /api/senate/committee` | Bury a bill in committee or report it out amended. |
+| `POST /api/senate/whip` | Call in favours to move a Senate whip count. |
+| `POST /api/senate/articles` | Vote in the impeachment trial — two thirds to convict. |
+| `POST /api/senate/confirm` | Advice and consent — `{ state, vote }`. |
+| `POST /api/senate/advance` | End the month; every 24th one elects a Congress, and month 72 is yours. |
 | `POST /api/verdict` | Score a finished presidency and return the evidence. |
 | `POST /api/governors` | The fifty statehouses, their defiance, and the bench. |
 | `POST /api/governors/court` | Come to an understanding with one — `{ state, code }`. |
@@ -489,6 +536,7 @@ with each turn, so you can extend it toward multiple saved careers easily.
 | `FP_LOCAL_MODEL` | auto-detected | Which local model. Unset asks the server what it has. |
 | `FP_LOCAL_CHAT_MODEL` | = `FP_LOCAL_MODEL` | A cheaper model for flavour, if you want one. |
 | `FP_LOCAL_TIMEOUT_MS` | `180000` | Three minutes, because CPU inference is slow, not broken. |
+| `FP_LOCAL_RETRY_MS` | `15000` | How long to wait before asking an unreachable machine again. |
 | `FP_MODEL` | `claude-sonnet-5` | The judge: consequences, checks & balances, arc verdicts. Set to `claude-opus-4-8` for maximum depth at roughly 2.5× the cost. |
 | `FP_CHAT_MODEL` | `claude-haiku-4-5` | Flavor and chat: voter quotes, advisor conversations, debate rounds, opening crises. |
 | `PORT` | `3000` | Server port. |

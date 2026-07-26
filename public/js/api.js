@@ -24,6 +24,9 @@ export async function getMeta() {
 
 export const startGame = (scenario) => post("/api/start", { scenario });
 
+/** Is the model answering? `recheck` makes the server ask the machine again. */
+export const aiStatus = (recheck = false) => post("/api/ai/status", { recheck });
+
 export const playTurn = (state, event, policy, publicMessage) =>
   post("/api/turn", { state, event, policy, publicMessage });
 
@@ -81,6 +84,19 @@ export const senateVote = (state, bill, vote) => post("/api/senate/vote", { stat
 export const senateFilibuster = (state, bill) => post("/api/senate/filibuster", { state, bill });
 
 export const senateAdvance = (state) => post("/api/senate/advance", { state });
+
+export const senateSponsor = (state, title, axis, domain) =>
+  post("/api/senate/sponsor", { state, title, axis, domain });
+
+export const senateCommittee = (state, bill, action) =>
+  post("/api/senate/committee", { state, bill, action });
+
+export const senateWhip = (state, bill, amount) =>
+  post("/api/senate/whip", { state, bill, amount });
+
+export const senateArticles = (state, vote) => post("/api/senate/articles", { state, vote });
+
+export const senateConfirm = (state, vote) => post("/api/senate/confirm", { state, vote });
 
 export const houseVerdict = (state) => post("/api/house/verdict", { state });
 

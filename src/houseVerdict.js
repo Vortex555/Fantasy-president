@@ -1,5 +1,6 @@
 import { round1 } from "./rng.js";
 import { committeeById, rankById, rankIndex } from "./committees.js";
+import { confirmationRecord } from "./confirmations.js";
 
 /**
  * What the House remembers.
@@ -87,15 +88,16 @@ export function historicalHouseVerdict(state) {
 
   // --- The ladder.
   const rank = state.rank || "member";
+  const chamber = senate ? "senate" : "house";
   score += rankIndex(rank) * 7;
   if (rank === "speaker") {
     findings.push({ good: true, text: senate
-      ? `You were Majority Leader of the Senate.`
+      ? `You were Majority Leader of the Senate — you decided what a hundred people voted on.`
       : `You were Speaker of the House. Second in line to the presidency.` });
   } else if (rankIndex(rank) >= 2) {
     const committee = committeeById(state.committee);
     findings.push({ good: true, text:
-      `You rose to ${rankById(rank).title}${committee && rank !== "whip" ? ` of ${committee.name}` : ""}.` });
+      `You rose to ${rankById(rank, chamber).title}${committee && rank !== "whip" ? ` of ${committee.name}` : ""}.` });
   }
 
   // --- Whose side you took, and what it cost.
@@ -137,6 +139,38 @@ export function historicalHouseVerdict(state) {
         `You held the floor ${filibusters} time${filibusters === 1 ? "" : "s"}, which any senator may do ` +
         `and few do twice.` });
     }
+
+    /**
+     * Advice and consent, which outlives everybody involved. This is the only
+     * part of a legislative record that is still in force decades later, so it
+     * is scored as the thing a senator is actually remembered for.
+     */
+    const consent = confirmationRecord(state);
+    if (consent.total) {
+      score += consent.lifetime * 7 + consent.total * 1.5 + consent.blocked * 3;
+      if (consent.lifetime) {
+        findings.push({ good: true, text:
+          `You put ${consent.lifetime} ${consent.lifetime === 1 ? "judge" : "judges"} on the federal ` +
+          `bench for life. They will still be handing down rulings long after anybody remembers ` +
+          `who voted for them.` });
+      }
+      findings.push({ good: null, text:
+        `${consent.total} nomination${consent.total === 1 ? "" : "s"} came before you and you were ` +
+        `one of a hundred votes on each. ${consent.blocked
+          ? `${consent.blocked} of them never took office.`
+          : `Every one of them took office.`}` });
+      if (consent.hacks) {
+        findings.push({ good: false, text:
+          `You voted to confirm ${consent.hacks} ${consent.hacks === 1 ? "nominee" : "nominees"} nobody ` +
+          `could defend on the merits. That is the part of a confirmation record that gets quoted back.` });
+      }
+      if (consent.brokeRanks >= 2) {
+        score += 4;
+        findings.push({ good: true, text:
+          `You broke with your caucus on ${consent.brokeRanks} nominations. In this chamber that is ` +
+          `either independence or unreliability, and only the outcome decides which.` });
+      }
+    }
   }
 
   // --- The vote a career is remembered for.
@@ -163,7 +197,7 @@ export function historicalHouseVerdict(state) {
     terms, years, chamberName, seatWord, senate,
     district: seat.district,
     stateName: seat.stateName,
-    rank: rankById(rank).title,
+    rank: rankById(rank, chamber).title,
     committee: committeeById(state.committee)?.name || null,
     votes: record.length,
     passed,

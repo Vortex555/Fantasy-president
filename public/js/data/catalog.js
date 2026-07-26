@@ -142,7 +142,7 @@ export const SCENARIOS = [
   },
   {
     key: "custom", icon: "✨", name: "Create Your Own", variant: "new",
-    desc: "Build a custom president from scratch. Choose party, ideology, mandate and more.",
+    desc: "Build a character from scratch, for any of the three offices. Choose party, ideology and the rules of play.",
     era: {
       key: "custom", title: "Present day", startYear: 2025,
       prose: "The present day. A polarized nation, thin margins in Congress and a restless electorate.",

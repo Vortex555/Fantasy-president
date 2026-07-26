@@ -7,26 +7,36 @@
  * what the switch does, not what it is called. `tone` picks the card tint so
  * related rules read as a family: blue for the machinery of government, red
  * for conflict, green for measurement, amber for how events are written.
+ *
+ * `offices` is which careers a rule actually does something in, and it is not
+ * decoration. Almost everything here is machinery of the *presidency*: a member
+ * of the House never signs a bill for the courts to strike down, never faces a
+ * focus group, never writes a policy and is never on an electoral-college map.
+ * Offering those switches to a legislator was offering to change something the
+ * mode does not have, so a rule with an `offices` list is hidden everywhere
+ * else rather than shown and ignored.
  */
+
+const ALL_OFFICES = ["president", "house", "senate"];
 
 export const SETTINGS = [
   {
-    key: "economy", kind: "toggle", tone: "", default: true,
+    key: "economy", kind: "toggle", tone: "", default: true, offices: ["president"],
     title: "📈 Economic Simulation",
     desc: "Track GDP, unemployment, inflation and the national debt. Your policies move all four, and voters feel them.",
   },
   {
-    key: "checks", kind: "toggle", tone: "blue", default: true,
+    key: "checks", kind: "toggle", tone: "blue", default: true, offices: ["president"],
     title: "⚖️ Checks & Balances",
     desc: "Congress, the courts and federal agencies can block or water down what you sign. Forces realism.",
   },
   {
-    key: "bio", kind: "toggle", tone: "amber", default: false,
+    key: "bio", kind: "toggle", tone: "amber", default: false, offices: ["president"],
     title: "📝 Custom Bio",
     desc: "Fill out a short guided form about your president — campaign promises, family, past scandals, signature issues. Events tailored to them get mixed into the pool all term.",
   },
   {
-    key: "persona", kind: "segmented", tone: "red", default: "off",
+    key: "persona", kind: "segmented", offices: ["president"], tone: "red", default: "off",
     title: "🤪 Persona Mode",
     desc: "Who the thirty voters in your focus group are.",
     options: [
@@ -36,7 +46,7 @@ export const SETTINGS = [
     ],
   },
   {
-    key: "elections", kind: "segmented", tone: "blue", default: "classic",
+    key: "elections", kind: "segmented", offices: ["president"], tone: "blue", default: "classic",
     title: "🗳️ Elections",
     desc: "How the re-election is decided.",
     options: [
@@ -45,13 +55,13 @@ export const SETTINGS = [
     ],
   },
   {
-    key: "society", kind: "toggle", tone: "green", default: false,
+    key: "society", kind: "toggle", offices: ["president"], tone: "green", default: false,
     title: "📊 Social Engineering Mode",
     desc: "Track national statistics — population, crime, poverty, life expectancy, literacy and unrest. Your policies reshape the country, not just the polls.",
     warn: "Adds a second model call per month, so turns take longer.",
   },
   {
-    key: "events", kind: "segmented", tone: "amber", default: "hybrid",
+    key: "events", kind: "segmented", offices: ["president"], tone: "amber", default: "hybrid",
     title: "⚡ Event Generation",
     desc: "Where each month's situation comes from.",
     options: [
@@ -61,7 +71,7 @@ export const SETTINGS = [
     ],
   },
   {
-    key: "war", kind: "segmented", tone: "red", default: "off",
+    key: "war", kind: "segmented", offices: ["president"], tone: "red", default: "off",
     title: "⚔️ Deployments & War",
     desc: "Track ongoing conflicts and troop deployments. Eras start with the wars they inherited — escalate, draw down, withdraw or negotiate.",
     warn: "Casualties and troop levels feed straight back into approval.",
@@ -72,24 +82,24 @@ export const SETTINGS = [
     ],
   },
   {
-    key: "covert", kind: "toggle", tone: "green", default: false, tag: "'90s onward",
+    key: "covert", kind: "toggle", offices: ["president"], tone: "green", default: false, tag: "'90s onward",
     title: "🎯 Covert Operations",
     desc: "A situation screen for the intelligence war: hunt networks in their havens, penetrate the cells, harden the homeland. Operations leak, plots get through, and a country left to fester produces an attack.",
   },
   {
-    key: "weekly", kind: "toggle", tone: "blue", default: false,
+    key: "weekly", kind: "toggle", offices: ["president"], tone: "blue", default: false,
     title: "🗓️ Weekly Pacing",
     desc: "One turn per week instead of per month — 208 turns across the term instead of 48. Every turn is a real event, just at a finer grain.",
     warn: "A full term takes far longer to play.",
   },
   {
-    key: "radicals", kind: "toggle", tone: "red", default: false,
+    key: "radicals", kind: "toggle", offices: ALL_OFFICES, tone: "red", default: false,
     title: "🗳️ Radicalised Government",
     desc: "Off, the 535 members of Congress, the nine justices and your own cabinet hold the ordinary politics of their party. On, the fringe takes over — theocrats, syndicalists, monarchists and accelerationists fill the benches, and you have to govern with them.",
     warn: "This is an alternate history, not a forecast. Everything downstream gets stranger.",
   },
   {
-    key: "debates", kind: "toggle", tone: "purple", default: true,
+    key: "debates", kind: "toggle", offices: ["president"], tone: "purple", default: true,
     title: "🎤 Presidential Debates",
     desc: "Run the debate rounds when election season arrives. Switch off and the campaign is decided on your record alone.",
     sub: {
@@ -110,6 +120,28 @@ export const NO_HINTS = {
   key: "noHints", default: false,
   title: "🔥 No Hints",
   desc: "No suggestions, no prompts, no placeholder ideas. You write every policy and campaign answer from a blank box.",
+};
+
+/** Does this rule do anything in the office being played? */
+export const appliesTo = (setting, office = "president") =>
+  (setting.offices || ALL_OFFICES).includes(office);
+
+/** The rules worth showing for an office, in rack order. */
+export const settingsFor = (office = "president") =>
+  SETTINGS.filter((s) => appliesTo(s, office));
+
+/**
+ * What a legislator is told instead of the eleven switches they cannot use.
+ * Saying nothing would read as a rendering fault; this says it is deliberate.
+ */
+export const RACK_NOTE = {
+  house: "Most of the rules of play are machinery of the presidency — the economy, the " +
+    "focus group, the electoral college, the debates. A member of the House is inside " +
+    "that machine rather than running it, so only the rules that change the chamber " +
+    "you sit in are here.",
+  senate: "Most of the rules of play are machinery of the presidency — the economy, the " +
+    "focus group, the electoral college, the debates. A senator is inside that machine " +
+    "rather than running it, so only the rules that change the chamber you sit in are here.",
 };
 
 /** Starting values for everything on the rack. */

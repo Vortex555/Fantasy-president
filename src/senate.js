@@ -1,11 +1,15 @@
 import { seeded, clamp, round1 } from "./rng.js";
 import { STATES, STATE_CODES } from "./states.js";
 import { BILL_POOL, rollCall } from "./bills.js";
-import { senateCycle, senateRaces, nationalEnvironment } from "./elections.js";
+import { senateCycle, senateRaces, nationalEnvironment, runCongressionalCycle } from "./elections.js";
 import { buildCongress } from "../public/js/data/government.js";
-import { partyLine, districtView, caucusOf, districtAxis } from "./house.js";
+import {
+  partyLine, districtView, caucusOf, districtAxis, seedCongress,
+  driftPresident, electionIndex, isElectionMonth, applyCycle,
+} from "./house.js";
 import { assignCommittee, earnCapital, evaluateLadder, committeeById } from "./committees.js";
 import { emptyArticles, tickArticles } from "./articles.js";
+import { emptyNomination, tickNomination } from "./confirmations.js";
 
 /**
  * A seat in the Senate.
@@ -31,7 +35,6 @@ import { emptyArticles, tickArticles } from "./articles.js";
  */
 
 export const SENATE_TERM = 72;          // months — six years
-export const SPONSOR_COOLDOWN = 6;
 export const CLOTURE = 60;              // votes to break a filibuster
 
 /**
@@ -130,6 +133,10 @@ export function createSenateCareer(scenario) {
     committeeLog: [],
     swung: {},
     jeopardy: emptyArticles(),
+    // Advice and consent: whoever is on the floor waiting, and everybody the
+    // chamber has already dealt with. See confirmations.js.
+    nomination: emptyNomination(),
+    confirmations: [],
     president: buildPresident(scenario),
     approval: clamp(Math.round(48 + fit * 16 + r.between(-4, 4))),
     leadership: clamp(Math.round(52 + r.between(-8, 8))),
@@ -146,13 +153,6 @@ export function createSenateCareer(scenario) {
   };
   career.committee = assignCommittee(career);
   return career;
-}
-
-function seedCongress(scenario) {
-  const r = seeded(`${scenario.presidentName}|${scenario.startYear}|chamber`);
-  const houseR = r.between(200, 235);
-  const senateR = r.between(45, 55);
-  return { houseR, houseD: 435 - houseR, senateR, senateD: 100 - senateR };
 }
 
 // --- The floor --------------------------------------------------------------
@@ -386,12 +386,44 @@ export function advanceSenateMonth(state) {
   next = decayed.state;
   next.leadership = clamp(round1(next.leadership + (52 - next.leadership) * 0.04));
 
+  next.president = driftPresident(next);
+
   const trouble = tickArticles(next);
   Object.assign(next, trouble.state);
 
+  // Seats fall vacant on their own schedule, and the President fills them with
+  // whoever they like — until this chamber says otherwise.
+  const nominated = tickNomination(next);
+  Object.assign(next, nominated.state);
+
+  /**
+   * Every twenty-fourth month the country votes and this senator does not.
+   *
+   * This is the fact that makes the chamber different from the seat. Two of the
+   * three elections in a six-year term are somebody else's, and they can still
+   * cost you everything you have earned — a majority, a gavel, the floor
+   * schedule — without your name appearing on a single ballot.
+   */
+  const polling = isElectionMonth(next);
+  const cycle = polling
+    ? runCongressionalCycle(next, { index: electionIndex(next) })
+    : null;
+  if (cycle) applyCycle(next, cycle);
+
   if (next.month < SENATE_TERM) {
     next.month += 1;
-    return { state: next, reelection: null, articles: trouble.event, recovered: decayed.recovered };
+    // A new Congress picks new leadership, and a caucus in the minority has
+    // none to pick — so the ladder is re-priced on any election night, not only
+    // on the ones this senator was running in.
+    const shuffled = cycle ? evaluateLadder(next) : null;
+    return {
+      state: shuffled ? shuffled.state : next,
+      reelection: null,
+      articles: trouble.event,
+      nomination: nominated.event,
+      recovered: decayed.recovered,
+      ...(cycle ? { cycle, ladder: shuffled.change } : {}),
+    };
   }
 
   const result = runReelection(next);
@@ -416,5 +448,5 @@ export function advanceSenateMonth(state) {
   next.grudges = [];   // six years is a long time; the slate is genuinely clean
 
   const ladder = evaluateLadder(next);
-  return { state: ladder.state, reelection: result, ladder: ladder.change };
+  return { state: ladder.state, reelection: result, ladder: ladder.change, cycle };
 }

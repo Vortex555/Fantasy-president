@@ -359,7 +359,7 @@ function runChamber(races, party, opposition, env, spend) {
 }
 
 /** Fold a swing into the stored seat counts without breaking either chamber. */
-function applySwing(before, party, houseSwing, senateSwing) {
+export function applySwing(before, party, houseSwing, senateSwing) {
   const houseKey = party === "Republican" ? "houseR" : "houseD";
   const senateKey = party === "Republican" ? "senateR" : "senateD";
   const otherHouse = party === "Republican" ? "houseD" : "houseR";
@@ -378,11 +378,164 @@ function applySwing(before, party, houseSwing, senateSwing) {
 const seatsFor = (congress, party, chamber) =>
   congress[`${chamber}${party === "Republican" ? "R" : "D"}`];
 
-function controlOf(congress) {
+export function controlOf(congress) {
   return {
     house: congress.houseR > congress.houseD ? "Republican" : "Democrat",
     senate: congress.senateR > congress.senateD ? "Republican" : "Democrat",
   };
+}
+
+// --- Congress, from the cheap seats -----------------------------------------
+
+/**
+ * A congressional election held by somebody other than the player.
+ *
+ * The presidential game runs midterms because the president is the whole
+ * weather system. A congressional career is the other way round: the member is
+ * one race out of 435, the President is somebody else, and the country goes to
+ * the polls every two years whether or not this particular seat is on the
+ * ballot. A senator's six-year term contains three of these and they are only
+ * running in one.
+ *
+ * Without this the chamber a career was handed in its first month was the
+ * chamber it died in — which froze every gavel on day one and made the line
+ * about losing the majority unreachable, in a mode whose ladder is half built
+ * out of that risk.
+ *
+ * `index` is which election of the career this is, counting from one. That is
+ * all the calendar it needs: elections are two years apart, odd ones are
+ * midterms, and the Senate class rotates through three.
+ */
+
+/**
+ * How much of the last wave is still in the chamber when the next one arrives.
+ *
+ * This constant is the whole difference between a chamber and a slide. Each
+ * cycle's swing is measured against a *neutral* map, so folding it into last
+ * cycle's result compounds it — a president fifteen points under water costs
+ * their party the same twenty seats every two years until the chamber reads
+ * 0–435 and the mode has no politics left in it.
+ *
+ * So the swing is applied to the chamber the career was handed, and the
+ * deviation from it carries over at reduced strength. A sustained bad
+ * presidency settles at about one and two-thirds of one cycle's damage instead
+ * of sliding forever; a senate wave accumulates across two classes, which is
+ * how long a real one takes to finish; and when the weather changes, seats come
+ * back.
+ */
+const WAVE_MEMORY = 0.4;
+
+/**
+ * The floor under a beaten party.
+ *
+ * A wave takes the seats that were in play. It does not take the safest fifth
+ * of the country, however long it goes on — there is no environment in which
+ * Massachusetts elects a Republican and Wyoming elects a Democrat on the same
+ * night. Without a floor, a decade of catastrophic presidencies grinds a
+ * chamber down to a rump and the mode stops having two sides in it.
+ */
+const CHAMBER_FLOOR = { house: 120, senate: 28 };
+
+const holdTheFloor = (congress, party) => {
+  const key = (chamber) => `${chamber}${party === "Republican" ? "R" : "D"}`;
+  const other = (chamber) => `${chamber}${party === "Republican" ? "D" : "R"}`;
+  const out = { ...congress };
+  for (const [chamber, seats] of [["house", HOUSE_SEATS], ["senate", SENATE_SEATS]]) {
+    const floor = CHAMBER_FLOOR[chamber];
+    const mine = clamp(out[key(chamber)], floor, seats - floor);
+    out[key(chamber)] = mine;
+    out[other(chamber)] = seats - mine;
+  }
+  return out;
+};
+
+export function runCongressionalCycle(state, { index = 1 } = {}) {
+  const president = state.president || {};
+  const party = president.party === "Republican" ? "Republican" : "Democrat";
+  const opposition = otherParty(party);
+  const caucus = state.caucus || state.scenario?.party;
+  const before = { ...state.congress };
+  // The chamber this career started with is the thing waves are measured from.
+  const start = { ...(state.congressStart || state.congress) };
+  const drift = state.congressDrift || { house: 0, senate: 0 };
+  const startYear = state.scenario?.startYear ?? 2025;
+
+  // Odd elections are midterms: the first one is two years into a presidency,
+  // and the President's party is punished for being in office.
+  const midterm = index % 2 === 1;
+  const cycle = ((index - 1) % 3) + 1;
+  const year = startYear + 2 * index - 1;
+
+  /**
+   * The weather, which belongs to the President and not to the member. Passing
+   * the career itself here would read the member's own standing with their
+   * district as if it were national approval.
+   */
+  const env = nationalEnvironment({
+    approval: president.approval ?? 50,
+    economy: state.economy,
+    arcs: state.arcs || [],
+    scenario: { party },
+  }, { midterm });
+
+  const houseResult = runChamber(houseRaces(state), party, opposition, env, null);
+  const senateResult = runChamber(senateRaces(state, cycle), party, opposition, env, null);
+
+  const congressDrift = {
+    house: round1(drift.house * WAVE_MEMORY + houseResult.swing),
+    senate: round1(drift.senate * WAVE_MEMORY + senateResult.swing),
+  };
+  const congress = holdTheFloor(applySwing(start, party,
+    Math.round(congressDrift.house), Math.round(congressDrift.senate)), party);
+
+  const controlBefore = controlOf(before);
+  const control = controlOf(congress);
+
+  return {
+    index, year, midterm, cycle, env,
+    before, congress, control, controlBefore,
+    congressStart: start, congressDrift,
+    houseSwing: houseResult.swing,
+    senateSwing: senateResult.swing,
+    house: { ...houseResult, seats: seatsFor(congress, party, "house") },
+    senate: { ...senateResult, seats: seatsFor(congress, party, "senate") },
+    flipped: {
+      house: control.house !== controlBefore.house,
+      senate: control.senate !== controlBefore.senate,
+    },
+    note: describeCycle(controlBefore, control, caucus, president, houseResult.swing + senateResult.swing),
+  };
+}
+
+/**
+ * What the night meant to the member, which is not what it meant to the
+ * President. A wave against their own party is a wave against the seat they are
+ * sitting in; a wave against the other one is the best news they will get all
+ * term — unless it takes their gavel, which it can.
+ */
+function describeCycle(before, after, caucus, president, net) {
+  const gained = [];
+  const lost = [];
+  for (const chamber of ["house", "senate"]) {
+    if (after[chamber] === before[chamber]) continue;
+    (after[chamber] === caucus ? gained : lost).push(chamber === "house" ? "the House" : "the Senate");
+  }
+
+  const list = (xs) => (xs.length === 2 ? `${xs[0]} and ${xs[1]}` : xs[0]);
+  if (gained.length && lost.length) {
+    return `Your caucus took ${list(gained)} and lost ${list(lost)} on the same night.`;
+  }
+  if (gained.length) {
+    return `Your caucus won ${list(gained)}. Everything that was impossible last month is now a question of ` +
+      `who you know.`;
+  }
+  if (lost.length) {
+    return `Your caucus lost ${list(lost)}. The gavels go with it, and so does the floor schedule.`;
+  }
+  const side = caucus === president.party ? "your own" : "the President's";
+  if (net <= -12) return `A bad night nationally for ${side} party, but control did not change hands.`;
+  if (net >= 12) return `A good night nationally for ${side} party, though nobody's majority changed.`;
+  return `Control did not change: the same two people run the same two chambers.`;
 }
 
 function describeMidterm(houseSwing, senateSwing, party) {

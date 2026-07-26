@@ -23,13 +23,14 @@ import { governorRoster, courtGovernor, risingStars, COURTING_COST } from "./gov
 import { historicalVerdict } from "./verdict.js";
 import {
   districtOptions, seatFor, floorBills, partyLine, districtView,
-  castVote, sponsorBill, advanceHouseMonth, runReelection, HOUSE_TERM, SPONSOR_COOLDOWN,
+  castVote, sponsorBill, advanceHouseMonth, runReelection, HOUSE_TERM, canFileAgain,
 } from "./house.js";
 import {
   COMMITTEES, RANKS, committeeById, rankById, inYourDomain,
   chairAction, whipCount, spendCapital,
 } from "./committees.js";
 import { articlesReady, articlesStance, voteArticles } from "./articles.js";
+import { nominationPending, nominationStance, confirmVote } from "./confirmations.js";
 import {
   SENATE_TERM, CLOTURE, stateOptions, floorBills as senateFloor,
   castVote as senateVote, filibuster, advanceSenateMonth,
@@ -48,7 +49,10 @@ import { COVERT_ACTIONS } from "./covert.js";
 import { drawEvent, shouldUsePool } from "./eventPool.js";
 import { actOnBill } from "./bills.js";
 import { claudeAvailable, claudeTurn, claudeVoices, claudeOpening, claudeAdvisor, claudeDebate } from "./claude.js";
-import { providerInfo, providerId } from "./ai/provider.js";
+import {
+  providerInfo, providerId, providerHealth, probeProvider,
+  recordModelFailure, resetProviderHealth,
+} from "./ai/provider.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -64,7 +68,12 @@ let AI_INFO = { id: providerId(), label: "…", detail: "", available: USING_AI 
 providerInfo().then((info) => {
   AI_INFO = info;
   const line = info.id === "local"
-    ? `[Fantasy President] Local model — ${info.model} at ${info.url}. Nothing is sent anywhere.`
+    ? info.reachable
+      ? `[Fantasy President] Local model — ${info.model} at ${info.url}. Nothing is sent anywhere.`
+      // Say it at boot rather than letting the player find out from the prose.
+      : `[Fantasy President] ⚠️  Local model NOT reachable. ${info.error}\n` +
+        `                       Months will play on the built-in offline engine until it answers. ` +
+        `Start your model server, then click the badge on the title screen to re-check.`
     : info.id === "anthropic"
       ? `[Fantasy President] Anthropic API — ${info.model}.`
       : "[Fantasy President] No model configured — running the built-in offline engine. " +
@@ -73,10 +82,24 @@ providerInfo().then((info) => {
 }).catch(() => {});
 
 // Static reference data for the client (states + stakeholders + mode).
-app.get("/api/meta", (_req, res) => {
+app.get("/api/meta", async (_req, res) => {
+  /**
+   * If we last saw the local machine as unreachable, ask again before answering.
+   *
+   * This is the intuitive fix a player will try — start the model server,
+   * reload the page — and it costs a probe only in the case where we already
+   * believe something is wrong. A healthy provider is never re-probed here.
+   */
+  if (AI_INFO.id === "local" && AI_INFO.reachable === false) {
+    try {
+      AI_INFO = await providerInfo();
+    } catch { /* keep what we had */ }
+  }
+
   res.json({
     ai: USING_AI,
     provider: AI_INFO,
+    aiHealth: providerHealth(),
     states: STATES,
     stakeholders: STAKEHOLDERS.map((s) => ({ id: s.id, name: s.name })),
     institutions: INSTITUTIONS.map(({ id, title, term, remit, vacancyNote }) =>
@@ -88,6 +111,29 @@ app.get("/api/meta", (_req, res) => {
     covertActions: COVERT_ACTIONS,
     firstLadyCauses: FIRST_LADY_CAUSES.map(({ id, label }) => ({ id, label })),
   });
+});
+
+/**
+ * Is the brain answering?
+ *
+ * The title screen asks this once at boot, and the badge asks again whenever the
+ * player clicks it — because the interesting answer usually arrives *after* boot
+ * (a machine that was asleep, a model that was swapped). `recheck` throws away
+ * everything the server thinks it knows and asks the machine directly.
+ */
+app.post("/api/ai/status", async (req, res) => {
+  try {
+    if (req.body?.recheck === true) resetProviderHealth();
+    const probe = await probeProvider();
+    if (req.body?.recheck === true) {
+      // A fresh probe is also fresh information for the title-screen copy.
+      AI_INFO = await providerInfo();
+    }
+    res.json({ ...providerHealth(), probe, provider: AI_INFO });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "The model could not be checked." });
+  }
 });
 
 // Start a new career.
@@ -128,12 +174,22 @@ app.post("/api/turn", async (req, res) => {
     }
     if (state.over) return res.status(400).json({ error: "This career is over." });
 
+    /**
+     * Falling back to the offline engine when the model cannot be reached is
+     * the right behaviour — a sleeping GPU should not end somebody's term. What
+     * was wrong was doing it *silently*: the month played out on the built-in
+     * engine, the badge went on naming a local model, and the only evidence was
+     * a line in a terminal nobody was reading.
+     */
     let result;
+    let fellBack = null;
     if (USING_AI) {
       try {
         result = await claudeTurn(state, policy, publicMessage, event || openingEvent());
       } catch (err) {
-        console.error("Claude turn failed, using fallback:", err.message);
+        console.error("Model turn failed, using the offline engine:", err.message);
+        recordModelFailure(err.message);
+        fellBack = err.message;
         result = mockTurn(state, policy, publicMessage, event || openingEvent());
       }
     } else {
@@ -169,7 +225,9 @@ app.post("/api/turn", async (req, res) => {
     }
     result.personas = attachQuotes(result.personas, quotes);
 
-    res.json({ result, state: nextState });
+    // Which brain actually answered this month, and why if it was not the one
+    // the player configured. The client refreshes its badge from this.
+    res.json({ result, state: nextState, ai: { ...providerHealth(), fellBack } });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "Failed to resolve the turn." });
@@ -339,7 +397,6 @@ app.post("/api/house/floor", (req, res) => {
         yours: inYourDomain(state, bill),
         whip: whipCount(state, bill),
       }));
-    const last = (state.sponsored || []).slice(-1)[0];
     const committee = committeeById(state.committee);
     res.json({
       bills,
@@ -348,11 +405,11 @@ app.post("/api/house/floor", (req, res) => {
         ? { ...state.jeopardy, stance: articlesStance(state), president: state.president }
         : null,
       committee: committee && { ...committee },
-      rank: rankById(state.rank),
+      rank: rankById(state.rank, "house"),
       capital: state.capital ?? 0,
       term: state.term || 1,
       monthsLeft: HOUSE_TERM - state.month + 1,
-      canSponsor: !last || state.month - last.month >= SPONSOR_COOLDOWN || (last.term || 1) !== (state.term || 1),
+      canSponsor: canFileAgain(state),
       forecast: runReelection(state),
     });
   } catch (err) {
@@ -374,10 +431,26 @@ app.post("/api/house/vote", (req, res) => {
   }
 });
 
-app.post("/api/house/sponsor", (req, res) => {
+/**
+ * Filing a bill, working a gavel and counting the floor are the same acts in
+ * both chambers — the machinery in committees.js and house.js is chamber-aware —
+ * so each handler is registered on both paths instead of being written twice
+ * with one of the two versions quietly answering House questions.
+ *
+ * The guard is the part that is not shared: a presidential state has no seat,
+ * no caucus and no committee, and must never reach any of them.
+ */
+const memberOnly = (handler) => (req, res) => {
+  const state = req.body?.state;
+  if (!state || !["house", "senate"].includes(state.office)) {
+    return res.status(400).json({ error: "A congressional career is required." });
+  }
+  return handler(req, res, state);
+};
+
+const sponsorRoute = memberOnly((req, res, state) => {
   try {
-    const { state, title, axis, domain } = req.body || {};
-    if (!state) return res.status(400).json({ error: "state is required." });
+    const { title, axis, domain } = req.body || {};
     const out = sponsorBill(state, {
       title: str(title, "An Act", 90),
       axis: Math.max(-1, Math.min(1, Number(axis) || 0)),
@@ -391,6 +464,9 @@ app.post("/api/house/sponsor", (req, res) => {
   }
 });
 
+app.post("/api/house/sponsor", sponsorRoute);
+app.post("/api/senate/sponsor", sponsorRoute);
+
 /** End the month. At the end of a term, the district answers. */
 app.post("/api/house/advance", (req, res) => {
   try {
@@ -403,12 +479,14 @@ app.post("/api/house/advance", (req, res) => {
   }
 });
 
-/** Impeachment: the vote only the House gets to cast. */
-app.post("/api/house/articles", (req, res) => {
+/**
+ * Impeachment. The House accuses on a simple majority and the Senate convicts
+ * on two thirds, and `voteArticles` knows which room it is in — so both paths
+ * run the same handler and get different arithmetic.
+ */
+const articlesRoute = memberOnly((req, res, state) => {
   try {
-    const { state, vote } = req.body || {};
-    if (!state) return res.status(400).json({ error: "state is required." });
-    const out = voteArticles(state, String(vote));
+    const out = voteArticles(state, String(req.body?.vote));
     if (out.rejected) return res.status(400).json({ error: out.note });
     res.json(out);
   } catch (err) {
@@ -416,6 +494,9 @@ app.post("/api/house/articles", (req, res) => {
     res.status(500).json({ error: "The vote could not be recorded." });
   }
 });
+
+app.post("/api/house/articles", articlesRoute);
+app.post("/api/senate/articles", articlesRoute);
 
 /** What the House remembers about a member. */
 app.post("/api/house/verdict", (req, res) => {
@@ -433,10 +514,10 @@ app.post("/api/house/verdict", (req, res) => {
 });
 
 /** Bury a bill in committee, or report it out amended. */
-app.post("/api/house/committee", (req, res) => {
+const committeeRoute = memberOnly((req, res, state) => {
   try {
-    const { state, bill, action } = req.body || {};
-    if (!state || !bill) return res.status(400).json({ error: "state and bill are required." });
+    const { bill, action } = req.body || {};
+    if (!bill) return res.status(400).json({ error: "bill is required." });
     if (action !== "bury" && action !== "amend") {
       return res.status(400).json({ error: "Bury it or amend it." });
     }
@@ -449,11 +530,14 @@ app.post("/api/house/committee", (req, res) => {
   }
 });
 
+app.post("/api/house/committee", committeeRoute);
+app.post("/api/senate/committee", committeeRoute);
+
 /** Call in favours to move a whip count. */
-app.post("/api/house/whip", (req, res) => {
+const whipRoute = memberOnly((req, res, state) => {
   try {
-    const { state, bill, amount } = req.body || {};
-    if (!state || !bill) return res.status(400).json({ error: "state and bill are required." });
+    const { bill, amount } = req.body || {};
+    if (!bill) return res.status(400).json({ error: "bill is required." });
     const out = spendCapital(state, bill, Number(amount));
     if (out.rejected) return res.status(400).json({ error: out.note });
     res.json({ ...out, whip: whipCount(out.state, bill) });
@@ -462,6 +546,9 @@ app.post("/api/house/whip", (req, res) => {
     res.status(500).json({ error: "The floor could not be worked." });
   }
 });
+
+app.post("/api/house/whip", whipRoute);
+app.post("/api/senate/whip", whipRoute);
 
 // --- The Senate ------------------------------------------------------------
 
@@ -500,16 +587,22 @@ app.post("/api/senate/floor", (req, res) => {
     res.json({
       bills,
       committee: committeeById(state.committee),
-      rank: rankById(state.rank),
+      rank: rankById(state.rank, "senate"),
       capital: state.capital ?? 0,
       cloture: CLOTURE,
       grudges: liveGrudges(state).slice(0, 5),
       term: state.term || 1,
       monthsLeft: SENATE_TERM - state.month + 1,
-      canSponsor: true,
+      // Asked properly. Hardcoding this to true offered the filing card every
+      // month and then refused the filing on the cooldown.
+      canSponsor: canFileAgain(state),
       forecast: senateReelection(state),
       articles: articlesReady(state)
         ? { ...state.jeopardy, stance: articlesStance(state), president: state.president }
+        : null,
+      // Somebody is waiting on the chamber, and the seat stays empty until it answers.
+      nomination: nominationPending(state)
+        ? { ...state.nomination, stance: nominationStance(state), president: state.president }
         : null,
     });
   } catch (err) {
@@ -542,6 +635,25 @@ app.post("/api/senate/filibuster", (req, res) => {
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "The floor could not be held." });
+  }
+});
+
+/**
+ * Advice and consent — the vote only the Senate gets to cast, and the only one
+ * whose consequences outlive everybody casting it.
+ */
+app.post("/api/senate/confirm", (req, res) => {
+  try {
+    const { state, vote } = req.body || {};
+    if (!state || state.office !== "senate") {
+      return res.status(400).json({ error: "A Senate career is required." });
+    }
+    const out = confirmVote(state, String(vote));
+    if (out.rejected) return res.status(400).json({ error: out.note });
+    res.json(out);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "The vote could not be recorded." });
   }
 });
 

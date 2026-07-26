@@ -1,12 +1,16 @@
 "use strict";
 
 import { escapeHtml, toggleHtml, segmentHtml } from "./util.js";
-import { SETTINGS, DIFFICULTIES, NO_HINTS } from "./data/settings.js";
+import { SETTINGS, DIFFICULTIES, NO_HINTS, settingsFor, RACK_NOTE } from "./data/settings.js";
 
 /**
  * The RULES OF PLAY rack. Each card is one rule; segmented controls show the
  * note for whichever mode is currently selected, so the card always explains
  * the state you are actually in.
+ *
+ * The rack is filtered by office. Difficulty and No Hints are presidential too:
+ * difficulty scales the approval swing on a policy turn, and No Hints empties a
+ * policy composer that a legislator never opens.
  */
 
 function settingCard(s, draft) {
@@ -32,11 +36,15 @@ function segmentedCard(s, draft) {
     <p class="hint setting__foot" data-note="${s.key}">${escapeHtml(current.note)}</p>`;
 }
 
-export function settingsHtml(draft) {
-  return `
-    ${SETTINGS.map((s) => settingCard(s, draft)).join("")}
+export function settingsHtml(draft, office = "president") {
+  const rules = settingsFor(office);
+  const president = office === "president";
 
-    <div class="card setting">
+  return `
+    ${RACK_NOTE[office] ? `<p class="hint" style="margin:0 0 16px">${escapeHtml(RACK_NOTE[office])}</p>` : ""}
+    ${rules.map((s) => settingCard(s, draft)).join("")}
+
+    ${president ? `<div class="card setting">
       <span class="toggle__title">⚔️ Difficulty</span>
       <p class="toggle__desc">How far approval swings each month, and how much the country forgives at the ballot box.</p>
       <div class="setting__body">${segmentHtml("difficulty", DIFFICULTIES, draft.difficulty)}</div>
@@ -45,7 +53,7 @@ export function settingsHtml(draft) {
 
     <div class="card setting setting--stark">
       ${toggleHtml(NO_HINTS.key, NO_HINTS.title, NO_HINTS.desc, Boolean(draft[NO_HINTS.key]))}
-    </div>`;
+    </div>` : ""}`;
 }
 
 /** Update the note under a segmented control after the mode changes. */
