@@ -113,3 +113,35 @@ test("a race is deterministic — the same career runs the same race twice", () 
   const c = veteran();
   assert.deepEqual(run(c), run(c));
 });
+
+test("money's first job is introducing you, not persuading anybody", () => {
+  // The design claim: 95% of the state has never heard of you, and closing that
+  // gap is what the war chest is for.
+  const broke = run(veteran());
+  const funded = run(veteran(), { spend: { OH: 12 } });
+  // A serious statewide campaign should close a real share of the gap between
+  // what the state knows of you and what it knows of the other candidate.
+  const gap = funded.theirs - broke.mine;
+  assert.ok(funded.mine - broke.mine > gap * 0.3,
+    `a statewide campaign should make you known: ${broke.mine} → ${funded.mine} against a gap of ${gap}`);
+  assert.ok(funded.mine < funded.theirs,
+    "but no amount of money makes a newcomer a household name overnight");
+  assert.ok(funded.recognition > broke.recognition, "and the gap closing shows in the margin");
+});
+
+test("the ladder is climbable — there is a route that actually wins", () => {
+  // If this ever fails, advancement has become impossible and the mode is dead.
+  const friendly = { name: "State Sen. Reyes", party: "Republican", recognition: 38 };
+  const out = runLadderRace({ ...veteran(), standing: 70 }, base, {
+    target: "senate", where: "IL", opponent: friendly, runOn: "record", spend: { IL: 10 },
+  });
+  assert.equal(out.won, true,
+    `a serious candidate on friendly ground against a weak opponent must be able to win: ${out.margin}`);
+});
+
+test("hostile ground against a household name is meant to be lost", () => {
+  // The mirror of the test above: the ladder is climbable, not a formality.
+  const out = run({ ...veteran(), standing: 82 }, { spend: { OH: 12 } });
+  assert.equal(out.won, false);
+  assert.ok(out.margin > -6, "but close enough to be worth having run");
+});

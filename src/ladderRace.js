@@ -22,6 +22,15 @@ const ESTABLISHMENT_WEIGHT = 0.08;
 const RECORD_WEIGHT = 0.9;
 const GROUND_WEIGHT = 0.42;      // matches runReelection, so the bars are comparable
 const PRIMARY_THRESHOLD = 35;
+
+/**
+ * How hard money has to work to introduce you. The unit is millions per
+ * electoral vote, so a serious statewide campaign — about a million per EV —
+ * gets a stranger most of the way to being a known quantity, and no amount of
+ * money gets anybody all the way.
+ */
+const INTRODUCTION_SCALE = 1.2;
+const MAX_INTRODUCTION = 0.85;
 const LEAN_SCALE = 90;           // the spectrum bills and districts already share
 
 const partySign = (party) => (party === "Republican" ? 1 : party === "Democrat" ? -1 : 0);
@@ -76,13 +85,27 @@ export function runLadderRace(career, state, { target, where, opponent, runOn = 
   const constituency = office?.constituency || "state";
   const ev = constituency === "state" ? (STATES[where]?.ev ?? 3) : 538;
 
-  const mine = recognitionFor(career, constituency, where);
+  /**
+   * Money's first job is introduction, not persuasion.
+   *
+   * This is the whole reason a war chest exists on the ladder: a House member
+   * running statewide is unknown to fourteen districts out of fifteen, and a
+   * campaign is how that stops being true. Spending closes the gap between what
+   * this electorate knows of you and what it knows of your opponent, with hard
+   * diminishing returns — the tenth million introduces far fewer people than
+   * the first. What is left over persuades, which is the smaller effect.
+   */
+  const known = recognitionFor(career, constituency, where);
   const theirs = Number(opponent?.recognition) || 50;
+  const dollars = Math.max(0, Number(spend?.[where] ?? spend?.national ?? 0));
+  const intensity = dollars / Math.max(1, ev);          // millions per electoral vote
+  const reach = clamp(1 - Math.exp(-intensity / INTRODUCTION_SCALE), 0, MAX_INTRODUCTION);
+  const mine = round1(known + Math.max(0, theirs - known) * reach);
   const recognition = round1((mine - theirs) * RECOGNITION_WEIGHT);
 
   const ground = groundFor(constituency, where, career.party);
   const record = recordFactor(career, state, constituency, where, runOn);
-  const money = round1(spendEffect(spend?.[where] ?? 0, ev));
+  const money = round1(spendEffect(dollars, ev));
   const establishment = round1((career.standing - 50) * ESTABLISHMENT_WEIGHT);
 
   // The national weather, which belongs to the President and lands on their own
