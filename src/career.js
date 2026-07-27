@@ -476,3 +476,31 @@ export function nextChoices(career, state) {
   });
   return choices;
 }
+
+// --- Migration --------------------------------------------------------------
+
+/**
+ * Wrap a pre-ladder save in an envelope.
+ *
+ * Saves in the wild are a bare `state` with no career attached. Rather than
+ * start those players from nothing, the envelope is inferred from what the save
+ * already knows — the office, the seat, the terms served and the rank — so a
+ * career in progress begins climbing from where it actually stands rather than
+ * from zero.
+ */
+export function migrateSave(saved) {
+  if (!saved || saved.career) return saved;
+
+  const state = saved.state || saved;
+  if (!state.office) return saved;
+
+  const scenario = state.scenario || {};
+  const termYears = officeAt(state.office)?.termYears ?? 2;
+  const served = Math.max(0, (state.seat?.seniority || state.term || 1) - 1);
+
+  let career = newCareer(scenario);
+  career = { ...career, year: (scenario.startYear || career.year) + served * termYears };
+  career = earnRecognition(career, state);
+
+  return { ...saved, career, state };
+}

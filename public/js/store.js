@@ -22,6 +22,8 @@ export const G = {
   meta: null,
   careerId: null,
   state: null,
+  // The layer that survives between offices. See src/career.js.
+  career: null,
   event: null,        // the situation awaiting a decision
   pendingEvent: null, // next month's situation, revealed on continue
   draft: null,        // character sheet being built in setup
@@ -61,6 +63,7 @@ export function saveCareer() {
   const s = G.state;
   careers.unshift({
     id: G.careerId,
+    career: G.career,
     name: s.scenario.presidentName,
     party: s.scenario.party,
     scenarioName: s.scenario.scenarioName || "Custom",
@@ -88,6 +91,14 @@ export function loadCareer(id) {
   const career = listCareers().find((c) => c.id === id);
   if (!career) return null;
   G.careerId = career.id;
+  /**
+   * Saves written before the ladder existed have no envelope. One is not
+   * invented here: `src/career.js` is server-side (it needs the state table the
+   * browser never loads), so the server migrates on the first ladder call and
+   * sends the envelope back. Until then this is null, which every caller
+   * already treats as "no ladder" — the behaviour these saves had all along.
+   */
+  G.career = career.career || null;
   G.state = career.state;
   G.event = career.event || null;
   G.pendingEvent = career.pendingEvent || null;
