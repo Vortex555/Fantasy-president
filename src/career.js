@@ -310,3 +310,91 @@ export function recognitionFor(career, constituency, where = null) {
   }
   return round1(r.national + fromStates);
 }
+
+// --- The wilderness ---------------------------------------------------------
+
+/**
+ * Out of office.
+ *
+ * A fall is a chapter rather than an ending, which is the only version of a
+ * career game where reaching for something is worth the risk. Time moves a year
+ * at a time and everything decays — but what you do with those years decides
+ * which of the four assets you keep, and every option costs one of the others.
+ */
+export const WILDERNESS_CHOICES = [
+  {
+    id: "lobby", label: "Take the lobbying job",
+    note: "The money is real and so is the stain. Nobody who does this is ever quite clean again.",
+  },
+  {
+    id: "media", label: "Sign the cable news contract",
+    note: "You stay visible, and you harden into whatever your own side needs you to be.",
+  },
+  {
+    id: "nonprofit", label: "Run a foundation",
+    note: "The country forgets you at full speed. Your reputation survives it intact.",
+  },
+  {
+    id: "party", label: "Work the party circuit",
+    note: "Fundraisers in other people's districts. The establishment remembers who showed up.",
+  },
+  {
+    id: "nothing", label: "Wait",
+    note: "Everything decays and nothing is owed to you.",
+  },
+];
+
+/**
+ * What a year out of office does to each asset.
+ *
+ * `fame` and `money` are multipliers, `standing` is a flat move, and `income`
+ * is the only way money comes in when nobody is fundraising for you.
+ */
+const WILDERNESS_EFFECT = {
+  lobby: { fame: 0.80, money: 0.9, income: 2.5, standing: 6, tainted: true },
+  media: { fame: 0.97, money: 0.9, income: 0, standing: -2 },
+  nonprofit: { fame: 0.75, money: 0.85, income: 0, standing: 1 },
+  party: { fame: 0.88, money: 0.95, income: 0.4, standing: 9 },
+  nothing: { fame: 0.80, money: 0.75, income: 0, standing: 0 },
+};
+
+/** How fast a reputation drifts back to the middle when nothing is happening. */
+const STANDING_DRIFT = 0.15;
+
+export function enterWilderness(career, { lostTo, office }) {
+  return {
+    ...career,
+    status: "wilderness",
+    wilderness: {
+      lostTo: lostTo || "the other candidate",
+      office: office || null,
+      since: career.year,
+    },
+  };
+}
+
+const scaleRecognition = (recognition, factor) => ({
+  national: round1(recognition.national * factor),
+  states: Object.fromEntries(
+    Object.entries(recognition.states).map(([k, v]) => [k, round1(v * factor)])),
+  districts: Object.fromEntries(
+    Object.entries(recognition.districts).map(([k, v]) => [k, round1(v * factor)])),
+});
+
+export function wildernessYear(career, choiceId) {
+  const choice = WILDERNESS_CHOICES.find((c) => c.id === choiceId)
+    || WILDERNESS_CHOICES[WILDERNESS_CHOICES.length - 1];
+  const effect = WILDERNESS_EFFECT[choice.id] || WILDERNESS_EFFECT.nothing;
+
+  const next = {
+    ...career,
+    year: career.year + 1,
+    recognition: scaleRecognition(career.recognition, effect.fame),
+    warChest: round1(Math.max(0, career.warChest * effect.money + effect.income)),
+    standing: round1(clamp(
+      career.standing + (50 - career.standing) * STANDING_DRIFT + effect.standing)),
+  };
+  if (effect.tainted) next.tainted = true;
+
+  return { career: next, note: choice.note };
+}

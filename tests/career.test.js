@@ -6,6 +6,7 @@ import {
   ballotsCollide, eligibleFor, ageAt,
   newCareer, foldOffice, fullRecord,
   districtsInState, earnRecognition, recognitionFor,
+  WILDERNESS_CHOICES, enterWilderness, wildernessYear,
 } from "../src/career.js";
 
 /**
@@ -224,4 +225,69 @@ test("earning recognition never mutates the career it was handed", () => {
   const before = newCareer(scenario);
   earnRecognition(before, { office: "house", rank: "chair", seat: { district: "OH-6", state: "OH", seniority: 3 } });
   assert.deepEqual(before.recognition.districts, {});
+});
+
+// ---------------------------------------------------------------------------
+// The wilderness
+// ---------------------------------------------------------------------------
+
+const known = () => {
+  const c = earnRecognition(newCareer(scenario), {
+    office: "house", rank: "chair", seat: { district: "OH-6", state: "OH", seniority: 3 },
+  });
+  return { ...c, warChest: 4, standing: 60, recognition: { ...c.recognition, national: 40 } };
+};
+
+test("losing a reach puts you out of office, not out of the game", () => {
+  const out = enterWilderness(known(), { lostTo: "Gov. Whitfield", office: "senate" });
+  assert.equal(out.status, "wilderness");
+  assert.notEqual(out.over, true, "the career is not finished");
+  assert.match(out.wilderness.lostTo, /Whitfield/);
+  assert.equal(out.wilderness.office, "senate");
+});
+
+test("out of office, the country forgets you and the donors drift", () => {
+  const before = enterWilderness(known(), { lostTo: "X", office: "senate" });
+  const { career: after } = wildernessYear(before, "nothing");
+  assert.ok(after.recognition.national < before.recognition.national, "fame decays");
+  assert.ok(after.warChest < before.warChest, "money dries up");
+  assert.equal(after.year, before.year + 1, "a year at a time out here");
+});
+
+test("every choice out of office is a trade", () => {
+  assert.ok(WILDERNESS_CHOICES.length >= 4);
+  for (const c of WILDERNESS_CHOICES) assert.ok(c.id && c.label && c.note);
+
+  const start = enterWilderness(known(), { lostTo: "X", office: "senate" });
+  const lobby = wildernessYear(start, "lobby").career;
+  const clean = wildernessYear(start, "nonprofit").career;
+  assert.ok(lobby.warChest > clean.warChest, "lobbying pays");
+  assert.equal(lobby.tainted, true, "and it is on your record forever");
+  assert.notEqual(clean.tainted, true);
+
+  const news = wildernessYear(start, "media").career;
+  assert.ok(news.recognition.national > clean.recognition.national,
+    "television keeps you visible in a way a foundation does not");
+});
+
+test("a comeback is reachable — you do not decay to nothing before the next ballot", () => {
+  let c = enterWilderness(known(), { lostTo: "X", office: "senate" });
+  c = wildernessYear(c, "party").career;
+  c = wildernessYear(c, "party").career;
+  assert.ok(c.recognition.national > 15, "two years out is a setback, not an erasure");
+  assert.ok(c.standing > 60, "working the party circuit is how you get forgiven");
+});
+
+test("a year in the wilderness never mutates the career it was handed", () => {
+  const before = enterWilderness(known(), { lostTo: "X", office: "senate" });
+  const snapshot = JSON.parse(JSON.stringify(before));
+  wildernessYear(before, "lobby");
+  assert.deepEqual(before, snapshot);
+});
+
+test("an unknown choice is treated as doing nothing, not as a crash", () => {
+  const start = enterWilderness(known(), { lostTo: "X", office: "senate" });
+  const { career, note } = wildernessYear(start, "become-a-pirate");
+  assert.equal(career.year, start.year + 1);
+  assert.ok(note.length > 5);
 });
