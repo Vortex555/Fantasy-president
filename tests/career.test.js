@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 
 import {
   LADDER, officeAt, isPresidentialYear, isMidtermYear, nextElectionYear,
+  ballotsCollide, eligibleFor, ageAt,
 } from "../src/career.js";
 
 /**
@@ -50,4 +51,35 @@ test("the next election for an office is the next year it is actually on the bal
   assert.equal(nextElectionYear("senate", 2031, 1), 2036);
   assert.equal(nextElectionYear("senate", 2029, 2), 2032);
   assert.equal(nextElectionYear("senate", 2029, 3), 2034);
+});
+
+// ---------------------------------------------------------------------------
+// What reaching costs
+// ---------------------------------------------------------------------------
+
+test("you surrender your seat only when the ballots collide", () => {
+  // A House member running for the Senate: both on the same even year, always.
+  assert.equal(ballotsCollide({ holding: "house", targetOffice: "senate", year: 2030, seatClass: 1 }), true);
+  // A senator elected in 2030, two years into six, reaching for the presidency
+  // in 2032: their own seat is not up again until 2036, so nothing is at risk.
+  assert.equal(ballotsCollide({ holding: "senate", seatClass: 1, targetOffice: "president", year: 2032 }), false);
+  // A senator whose own class is up that same year: the famous hard choice.
+  assert.equal(ballotsCollide({ holding: "senate", seatClass: 2, targetOffice: "president", year: 2032 }), true);
+  // Holding nothing costs nothing.
+  assert.equal(ballotsCollide({ holding: null, targetOffice: "senate", year: 2030 }), false);
+});
+
+test("the Constitution has age floors and the game honours them", () => {
+  const young = { birthYear: 2004 };
+  assert.equal(ageAt(young, 2030), 26);
+  assert.equal(eligibleFor(young, "house", 2030).eligible, true);
+
+  const senate = eligibleFor(young, "senate", 2030);
+  assert.equal(senate.eligible, false);
+  assert.match(senate.reason, /30/);
+  assert.match(senate.reason, /26/, "and it says how old you actually are");
+
+  assert.equal(eligibleFor(young, "president", 2030).eligible, false);
+  assert.equal(eligibleFor({ birthYear: 1980 }, "president", 2030).eligible, true);
+  assert.equal(eligibleFor({ birthYear: 1980 }, "nonsense", 2030).eligible, false);
 });

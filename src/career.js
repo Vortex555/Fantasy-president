@@ -67,3 +67,45 @@ export function nextElectionYear(officeId, fromYear, seatClass = 1) {
   // The House, and every other rung: all of it, every even year.
   return start % 2 === 0 ? start : start + 1;
 }
+
+// --- What reaching costs ----------------------------------------------------
+
+/**
+ * Does reaching for this office cost you the seat you hold?
+ *
+ * Only when both are on the same ballot, which is exactly how it works: you
+ * cannot appear twice on one November. A House member is therefore always
+ * gambling — their term ends the same even year every Senate race is held — and
+ * a senator or governor reaching mid-term risks nothing but time. That
+ * asymmetry is the reason governors run for president so often, and it falls
+ * out of the calendar rather than being asserted anywhere.
+ */
+export function ballotsCollide({ holding, seatClass = 1, targetOffice, year }) {
+  if (!holding) return false;
+  const mine = nextElectionYear(holding, year, seatClass);
+  const theirs = nextElectionYear(targetOffice, year, seatClass);
+  return mine === theirs;
+}
+
+/** Your age in a given year. Careers here run for decades, so this moves. */
+export const ageAt = (career, year) => year - (career?.birthYear ?? year - 50);
+
+/**
+ * The constitutional floors, which are real and cheap to honour. A rung you are
+ * too young for is still offered — with the reason — because being told the
+ * Constitution says thirty is part of the game, and silently omitting the
+ * option would read as a bug.
+ */
+export function eligibleFor(career, officeId, year) {
+  const office = officeAt(officeId);
+  if (!office) return { eligible: false, reason: "No such office." };
+
+  const age = ageAt(career, year);
+  if (age < office.minAge) {
+    return {
+      eligible: false,
+      reason: `The Constitution sets ${office.minAge} as the minimum age for ${office.title}. You are ${age}.`,
+    };
+  }
+  return { eligible: true, reason: null };
+}
