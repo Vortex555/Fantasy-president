@@ -5,6 +5,7 @@ import {
   LADDER, officeAt, isPresidentialYear, isMidtermYear, nextElectionYear,
   ballotsCollide, eligibleFor, ageAt,
   newCareer, foldOffice, fullRecord,
+  districtsInState, earnRecognition, recognitionFor,
 } from "../src/career.js";
 
 /**
@@ -155,4 +156,72 @@ test("the record is whatever has been archived plus whatever is still being cast
   assert.equal(all.votes.at(-1).office, "senate", "the live ones are tagged too");
   assert.equal(fullRecord(folded, null).votes.length, 2);
   assert.equal(fullRecord(newCareer(scenario)).votes.length, 0);
+});
+
+// ---------------------------------------------------------------------------
+// Recognition — the reason skipping a rung is hard
+// ---------------------------------------------------------------------------
+
+test("a state's delegation is its electoral votes minus its two senators", () => {
+  assert.equal(districtsInState("OH"), 15);   // 17 EV
+  assert.equal(districtsInState("CA"), 52);   // 54 EV
+  assert.equal(districtsInState("WY"), 1);    // never below one
+});
+
+test("holding a seat makes you known in it, and rank makes you known beyond it", () => {
+  const c = newCareer(scenario);
+  const backbencher = earnRecognition(c, {
+    office: "house", rank: "member", seat: { district: "OH-6", state: "OH", seniority: 1 },
+  });
+  assert.equal(backbencher.recognition.districts["OH-6"], 55, "an incumbent is known at home");
+  assert.equal(backbencher.recognition.national, 0, "and nowhere else");
+
+  const speaker = earnRecognition(c, {
+    office: "house", rank: "speaker", seat: { district: "OH-6", state: "OH", seniority: 4 },
+  });
+  assert.ok(speaker.recognition.districts["OH-6"] > backbencher.recognition.districts["OH-6"]);
+  assert.ok(speaker.recognition.national > backbencher.recognition.national,
+    "a Speaker is known by people who cannot name their own member");
+  assert.ok(speaker.recognition.districts["OH-6"] <= 95, "nobody is universally known");
+});
+
+test("a district converts to its share of the state, which is why skipping hurts", () => {
+  let c = newCareer(scenario);
+  c = earnRecognition(c, {
+    office: "house", rank: "member", seat: { district: "OH-6", state: "OH", seniority: 3 },
+  });
+  const statewide = recognitionFor(c, "state", "OH");
+  // 67 in one of Ohio's fifteen districts, transferring at 0.8 → about 3.6.
+  assert.ok(statewide > 2 && statewide < 9,
+    `three terms in a fifteen-district state is not statewide fame: got ${statewide}`);
+  assert.ok(recognitionFor(c, "district", "OH-6") > 60, "at home, though, you are known");
+});
+
+test("a statewide office converts to national at its share of the college", () => {
+  let c = newCareer(scenario);
+  c = earnRecognition(c, {
+    office: "senate", rank: "member", seat: { state: "OH", stateName: "Ohio", seniority: 2 },
+  });
+  assert.ok(c.recognition.states.OH > 55);
+  const national = recognitionFor(c, "nation");
+  // Ohio is 17 of 538, so a well-known senator is barely a national figure.
+  assert.ok(national > 0.5 && national < 6, `got ${national}`);
+});
+
+test("fame flows upward only — being known nationally makes you known everywhere", () => {
+  const famous = { ...newCareer(scenario), recognition: { national: 70, states: {}, districts: {} } };
+  assert.equal(recognitionFor(famous, "state", "OH"), 70);
+  assert.equal(recognitionFor(famous, "district", "OH-6"), 70);
+});
+
+test("a stranger is a stranger", () => {
+  assert.equal(recognitionFor(newCareer(scenario), "state", "OH"), 0);
+  assert.equal(recognitionFor(newCareer(scenario), "nation"), 0);
+  assert.equal(recognitionFor(newCareer(scenario), "district", "OH-6"), 0);
+});
+
+test("earning recognition never mutates the career it was handed", () => {
+  const before = newCareer(scenario);
+  earnRecognition(before, { office: "house", rank: "chair", seat: { district: "OH-6", state: "OH", seniority: 3 } });
+  assert.deepEqual(before.recognition.districts, {});
 });

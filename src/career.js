@@ -1,4 +1,5 @@
 import { clamp, round1 } from "./rng.js";
+import { STATES } from "./states.js";
 
 /**
  * One political career, across every office it passes through.
@@ -215,4 +216,97 @@ export function fullRecord(career, state = null) {
     bills: [...career.record.bills, ...live.bills],
     confirmations: [...career.record.confirmations, ...live.confirmations],
   };
+}
+
+// --- Recognition ------------------------------------------------------------
+
+/**
+ * Fame, held geographically — the reason skipping a rung is hard without any
+ * difficulty setting existing anywhere.
+ *
+ * A member of the House is famous in one district and unknown in the other
+ * fourteen. Converting that into a statewide race is arithmetic rather than
+ * judgement: a district is worth roughly its share of the state, and that share
+ * is real, because a delegation is a state's electoral votes minus its two
+ * senators.
+ */
+export const districtsInState = (code) => Math.max(1, (STATES[code]?.ev ?? 3) - 2);
+
+const BASE_RECOGNITION = 55;    // an incumbent is known at home
+const PER_TERM = 6;
+const PER_RANK = 8;
+const RECOGNITION_CAP = 95;     // nobody is universally known
+const TRANSFER = 0.8;           // media spill into the neighbouring seats
+const EV_TOTAL = 538;
+
+/** Rungs of the committee ladder, in height order. See committees.js. */
+const RANKS_BY_HEIGHT = ["member", "subchair", "chair", "whip", "speaker"];
+
+/** The rungs from which a member is a national figure rather than a local one. */
+const NATIONAL_RANK = 3;
+
+export function earnRecognition(career, state) {
+  const seat = state.seat || {};
+  const terms = seat.seniority || state.term || 1;
+  const rankHeight = Math.max(0, RANKS_BY_HEIGHT.indexOf(state.rank || "member"));
+  const earned = round1(clamp(
+    BASE_RECOGNITION + (terms - 1) * PER_TERM + rankHeight * PER_RANK, 0, RECOGNITION_CAP));
+
+  const next = {
+    ...career,
+    recognition: {
+      ...career.recognition,
+      districts: { ...career.recognition.districts },
+      states: { ...career.recognition.states },
+    },
+  };
+
+  const office = state.office || "house";
+  const keep = (bag, key) => { bag[key] = Math.max(bag[key] || 0, earned); };
+
+  if (office === "house" && seat.district) keep(next.recognition.districts, seat.district);
+  else if (office === "senate" && seat.state) keep(next.recognition.states, seat.state);
+  else if (office === "president") next.recognition.national = Math.max(next.recognition.national, earned);
+
+  /**
+   * Rank is national on its own terms. A Speaker is known by people who could
+   * not name their own member, and so is anybody who presided over an
+   * impeachment — which is the shortcut a career can actually play for.
+   */
+  if (rankHeight >= NATIONAL_RANK) {
+    next.recognition.national = Math.max(next.recognition.national, round1(rankHeight * PER_RANK));
+  }
+  return next;
+}
+
+/**
+ * What this electorate has heard of you.
+ *
+ * Fame flows upward only: being known nationally makes you known in every
+ * state, and being known in one district does not.
+ */
+export function recognitionFor(career, constituency, where = null) {
+  const r = career.recognition;
+
+  if (constituency === "district") {
+    const stateCode = String(where || "").split("-")[0];
+    return round1(Math.max(r.districts[where] || 0, r.states[stateCode] || 0, r.national));
+  }
+
+  if (constituency === "state") {
+    // Every district you have held inside this state contributes its share.
+    let fromDistricts = 0;
+    for (const [district, value] of Object.entries(r.districts)) {
+      if (district.split("-")[0] !== where) continue;
+      fromDistricts += (value / districtsInState(where)) * TRANSFER;
+    }
+    return round1(Math.max(r.states[where] || 0, r.national) + fromDistricts);
+  }
+
+  // National: a statewide office converts at its share of the electoral college.
+  let fromStates = 0;
+  for (const [code, value] of Object.entries(r.states)) {
+    fromStates += value * ((STATES[code]?.ev ?? 3) / EV_TOTAL) * TRANSFER;
+  }
+  return round1(r.national + fromStates);
 }
