@@ -31,6 +31,8 @@ import {
 } from "./committees.js";
 import { articlesReady, articlesStance, voteArticles } from "./articles.js";
 import { nominationPending, nominationStance, confirmVote } from "./confirmations.js";
+import { migrateSave, nextChoices, WILDERNESS_CHOICES, wildernessYear } from "./career.js";
+import { runLadderRace } from "./ladderRace.js";
 import {
   SENATE_TERM, CLOTURE, stateOptions, floorBills as senateFloor,
   castVote as senateVote, filibuster, advanceSenateMonth,
@@ -111,6 +113,59 @@ app.get("/api/meta", async (_req, res) => {
     covertActions: COVERT_ACTIONS,
     firstLadyCauses: FIRST_LADY_CAUSES.map(({ id, label }) => ({ id, label })),
   });
+});
+
+// --- The ladder ------------------------------------------------------------
+
+/**
+ * Every ladder endpoint takes `{ career, state }` and every one of them accepts
+ * a save that predates the ladder — the envelope is inferred here rather than
+ * in the browser, which cannot import this module.
+ */
+function withCareer(body) {
+  const migrated = migrateSave({ career: body?.career, state: body?.state });
+  return { career: migrated?.career || null, state: migrated?.state || body?.state || null };
+}
+
+/** What a member may do at the end of a term. */
+app.post("/api/ladder/choices", (req, res) => {
+  try {
+    const { career, state } = withCareer(req.body);
+    if (!career || !state?.office) {
+      return res.status(400).json({ error: "A career in an office is required." });
+    }
+    res.json({ career, choices: nextChoices(career, state), wilderness: WILDERNESS_CHOICES });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "The ballot could not be read." });
+  }
+});
+
+/** Run for something you do not hold. */
+app.post("/api/ladder/race", (req, res) => {
+  try {
+    const { career, state } = withCareer(req.body);
+    const { target, where, opponent, runOn, spend } = req.body || {};
+    if (!career || !state || !target) {
+      return res.status(400).json({ error: "career, state and target are required." });
+    }
+    res.json({ career, result: runLadderRace(career, state, { target, where, opponent, runOn, spend }) });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "The race could not be run." });
+  }
+});
+
+/** A year out of office. */
+app.post("/api/ladder/wilderness", (req, res) => {
+  try {
+    const { career } = withCareer(req.body);
+    if (!career) return res.status(400).json({ error: "career is required." });
+    res.json(wildernessYear(career, String(req.body?.choice || "nothing")));
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "The year could not pass." });
+  }
 });
 
 /**
