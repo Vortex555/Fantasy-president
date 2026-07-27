@@ -9,6 +9,7 @@ import {
 } from "./house.js";
 import { assignCommittee, earnCapital, evaluateLadder, committeeById } from "./committees.js";
 import { emptyArticles, tickArticles } from "./articles.js";
+import { nextChoices } from "./career.js";
 import { emptyNomination, tickNomination } from "./confirmations.js";
 
 /**
@@ -448,5 +449,9 @@ export function advanceSenateMonth(state) {
   next.grudges = [];   // six years is a long time; the slate is genuinely clean
 
   const ladder = evaluateLadder(next);
-  return { state: ladder.state, reelection: result, ladder: ladder.change, cycle };
+  return {
+    state: ladder.state, reelection: result, ladder: ladder.change, cycle,
+    // A term ending is where a career decides whether to stay where it is.
+    choices: next.career ? nextChoices(next.career, ladder.state) : null,
+  };
 }

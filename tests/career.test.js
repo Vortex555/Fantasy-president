@@ -7,9 +7,10 @@ import {
   newCareer, foldOffice, fullRecord,
   districtsInState, earnRecognition, recognitionFor,
   WILDERNESS_CHOICES, enterWilderness, wildernessYear,
-  seedFromCareer,
+  seedFromCareer, nextChoices,
 } from "../src/career.js";
 import { createGame } from "../src/gameEngine.js";
+import { createHouseCareer, advanceHouseMonth, HOUSE_TERM } from "../src/house.js";
 
 /**
  * One career, across every office it passes through.
@@ -327,4 +328,62 @@ test("the presidency is still built the way it always was", () => {
   const p = createGame({ presidentName: "Ruth Ellery", party: "Democrat", startYear: 2025, startApproval: 51, ideologyAxis: -0.35 });
   assert.equal(p.office, "president");
   assert.ok(p.cabinet && p.institutions && p.warChest != null);
+});
+
+// ---------------------------------------------------------------------------
+// The end of a term
+// ---------------------------------------------------------------------------
+
+test("at the end of a term you may run again, reach, or retire", () => {
+  const career = { ...newCareer(scenario), year: 2030 };
+  const state = { office: "house", term: 3, seat: { district: "OH-6", state: "OH", seniority: 3 } };
+  const choices = nextChoices(career, state);
+  const ids = choices.map((c) => c.id);
+
+  assert.ok(ids.includes("re-elect"));
+  assert.ok(ids.includes("retire"));
+  assert.ok(ids.includes("reach:senate"));
+  assert.ok(ids.includes("reach:president"));
+  assert.ok(!ids.includes("reach:house"), "you cannot reach for the seat you hold");
+
+  const senate = choices.find((c) => c.id === "reach:senate");
+  assert.equal(senate.collides, true, "a House seat and a Senate seat share a ballot");
+  assert.match(senate.label, /Senator from Ohio/);
+  assert.equal(senate.where, "OH", "you run statewide from where you already are");
+});
+
+test("a reach you are too young for is offered with the reason, not hidden", () => {
+  // Twenty in 2025 is twenty-five in 2030: old enough for the House, not the Senate.
+  const young = { ...newCareer({ ...scenario, customAge: "20" }), year: 2030 };
+  const state = { office: "house", term: 1, seat: { district: "OH-6", state: "OH", seniority: 1 } };
+  const senate = nextChoices(young, state).find((c) => c.id === "reach:senate");
+  assert.equal(senate.eligible, false);
+  assert.match(senate.reason, /30/);
+});
+
+test("a senator reaching mid-term is told their seat is not at risk", () => {
+  const career = { ...newCareer(scenario), year: 2032 };
+  const state = { office: "senate", term: 1, seat: { state: "OH", stateName: "Ohio", seniority: 1, class: 1 } };
+  const president = nextChoices(career, state).find((c) => c.id === "reach:president");
+  assert.equal(president.collides, false, "class 1 is not up in 2032");
+});
+
+test("the House still ends a term the way it always did, and now offers the ladder too", () => {
+  const s = {
+    ...createHouseCareer({ ...scenario, office: "house", district: "OH-6" }),
+    month: HOUSE_TERM, approval: 74,
+    career: { ...newCareer(scenario), year: 2026 },
+  };
+  const out = advanceHouseMonth(s);
+  assert.ok(out.reelection, "the district still answers");
+  if (out.reelection.won) {
+    assert.ok(Array.isArray(out.choices), "and the ladder is offered at the boundary");
+    assert.ok(out.choices.some((c) => c.id.startsWith("reach:")));
+  }
+});
+
+test("a career-less state still advances exactly as before", () => {
+  const s = { ...createHouseCareer({ ...scenario, office: "house", district: "OH-6" }), month: HOUSE_TERM, approval: 74 };
+  const out = advanceHouseMonth(s);
+  assert.equal(out.choices, null, "no career, no ladder — and no crash");
 });

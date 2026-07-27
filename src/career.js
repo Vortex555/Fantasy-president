@@ -420,3 +420,59 @@ export function seedFromCareer(state, career) {
     leadership: round1(clamp((state.leadership ?? 50) * 0.4 + reputation * 0.6)),
   };
 }
+
+// --- The end of a term ------------------------------------------------------
+
+/**
+ * What a member may do when their term is up.
+ *
+ * Nothing is hidden. A rung you cannot reach is still listed, with the reason —
+ * being told the Constitution says thirty is part of the game, and silently
+ * omitting the option would read as a bug rather than a rule.
+ *
+ * This sub-project climbs only. Returning to a lower rung after a fall is the
+ * wilderness's business, and it is the first thing to add when the comeback
+ * race gets built.
+ */
+export function nextChoices(career, state) {
+  const holding = state.office;
+  const year = career.year;
+  const seatClass = state.seat?.class || 1;
+  const home = state.seat?.state || null;
+
+  const choices = [{
+    id: "re-elect",
+    office: holding,
+    where: state.seat?.district || home,
+    label: "Run for re-election",
+    collides: false,
+    eligible: true,
+    reason: null,
+  }];
+
+  for (const rung of LADDER) {
+    if (rung.id === holding || rungOf(rung.id) <= rungOf(holding)) continue;
+    const { eligible, reason } = eligibleFor(career, rung.id, year);
+    const where = rung.constituency === "state" ? home : null;
+    choices.push({
+      id: `reach:${rung.id}`,
+      office: rung.id,
+      where,
+      label: `Run for ${rung.title}${where ? ` from ${STATES[where]?.name || where}` : ""}`,
+      collides: ballotsCollide({ holding, seatClass, targetOffice: rung.id, year }),
+      eligible,
+      reason,
+    });
+  }
+
+  choices.push({
+    id: "retire",
+    office: null,
+    where: null,
+    label: "Retire, and let the record close",
+    collides: false,
+    eligible: true,
+    reason: null,
+  });
+  return choices;
+}

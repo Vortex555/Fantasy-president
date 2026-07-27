@@ -5,6 +5,7 @@ import { houseRaces, nationalEnvironment, runCongressionalCycle } from "./electi
 import { buildCongress } from "../public/js/data/government.js";
 import { assignCommittee, earnCapital, evaluateLadder, committeeById } from "./committees.js";
 import { emptyArticles, tickArticles } from "./articles.js";
+import { nextChoices } from "./career.js";
 
 /**
  * A seat in the House.
@@ -691,5 +692,9 @@ export function advanceHouseMonth(state) {
   // a caucus that has just lost the chamber discovers it has no gavels to hand
   // anybody.
   const ladder = evaluateLadder(next);
-  return { state: ladder.state, reelection: result, ladder: ladder.change, cycle };
+  return {
+    state: ladder.state, reelection: result, ladder: ladder.change, cycle,
+    // A term ending is where a career decides whether to stay where it is.
+    choices: next.career ? nextChoices(next.career, ladder.state) : null,
+  };
 }
