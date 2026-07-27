@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import {
   LADDER, officeAt, isPresidentialYear, isMidtermYear, nextElectionYear,
   ballotsCollide, eligibleFor, ageAt,
+  newCareer, foldOffice, fullRecord,
 } from "../src/career.js";
 
 /**
@@ -82,4 +83,76 @@ test("the Constitution has age floors and the game honours them", () => {
   assert.equal(eligibleFor(young, "president", 2030).eligible, false);
   assert.equal(eligibleFor({ birthYear: 1980 }, "president", 2030).eligible, true);
   assert.equal(eligibleFor({ birthYear: 1980 }, "nonsense", 2030).eligible, false);
+});
+
+// ---------------------------------------------------------------------------
+// The envelope
+// ---------------------------------------------------------------------------
+
+const scenario = {
+  presidentName: "Dale Fairweather", party: "Democrat", startYear: 2025,
+  ideologyAxis: -0.35, age: "40s",
+};
+
+const houseState = () => ({
+  office: "house", term: 3, month: 24, leadership: 78, rank: "chair",
+  seat: { district: "OH-6", state: "OH", stateName: "Ohio", seniority: 3 },
+  scenario,
+  voteLog: [
+    { id: "b1", title: "A Bill", axis: -0.4, vote: "yes", withParty: true, withDistrict: false, month: 4, term: 1 },
+    { id: "b2", title: "Another", axis: 0.3, vote: "no", withParty: false, withDistrict: true, month: 9, term: 2 },
+  ],
+  sponsored: [{ title: "The Lakes Act", passed: true, month: 11, term: 2 }],
+});
+
+test("a new career starts empty, and knows who it is", () => {
+  const c = newCareer(scenario);
+  assert.equal(c.name, "Dale Fairweather");
+  assert.equal(c.status, "in-office");
+  assert.equal(c.warChest, 0);
+  assert.equal(c.standing, 50);
+  assert.deepEqual(c.offices, []);
+  assert.deepEqual(c.record.votes, []);
+  assert.ok(c.birthYear < 2025, "an age becomes a birth year that ages with the calendar");
+});
+
+test("folding an office preserves every vote, tagged with where it was cast", () => {
+  const out = foldOffice(newCareer(scenario), houseState(), "sought-higher");
+  assert.equal(out.record.votes.length, 2);
+  for (const v of out.record.votes) assert.equal(v.office, "house");
+  assert.equal(out.record.bills.length, 1);
+  assert.equal(out.offices.length, 1);
+  assert.equal(out.offices[0].seat, "OH-6");
+  assert.equal(out.offices[0].terms, 3);
+  assert.equal(out.offices[0].ending, "sought-higher");
+});
+
+test("the caucus's view this term moves the party's view of a career without replacing it", () => {
+  // leadership 78 against a standing of 50: pulled 40% of the way, not all of it.
+  const out = foldOffice(newCareer(scenario), houseState(), "sought-higher");
+  assert.equal(out.standing, 61.2);
+});
+
+test("folding never mutates what it was handed", () => {
+  const before = newCareer(scenario);
+  const state = houseState();
+  foldOffice(before, state, "retired");
+  assert.deepEqual(before.offices, [], "the career it was given is untouched");
+  assert.equal(state.voteLog.length, 2, "and so is the state");
+  assert.equal(state.voteLog[0].office, undefined, "tagging happens on the copy");
+});
+
+test("the record is whatever has been archived plus whatever is still being cast", () => {
+  // A reach happens before the office ends, so half the record is still live.
+  const folded = foldOffice(newCareer(scenario), houseState(), "sought-higher");
+  const senate = {
+    office: "senate",
+    voteLog: [{ id: "s1", title: "A Treaty", vote: "yes", month: 3, term: 1 }],
+    sponsored: [],
+  };
+  const all = fullRecord(folded, senate);
+  assert.equal(all.votes.length, 3, "two archived, one still on the floor");
+  assert.equal(all.votes.at(-1).office, "senate", "the live ones are tagged too");
+  assert.equal(fullRecord(folded, null).votes.length, 2);
+  assert.equal(fullRecord(newCareer(scenario)).votes.length, 0);
 });

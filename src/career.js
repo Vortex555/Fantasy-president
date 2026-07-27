@@ -1,3 +1,5 @@
+import { clamp, round1 } from "./rng.js";
+
 /**
  * One political career, across every office it passes through.
  *
@@ -108,4 +110,109 @@ export function eligibleFor(career, officeId, year) {
     };
   }
   return { eligible: true, reason: null };
+}
+
+// --- The envelope -----------------------------------------------------------
+
+/**
+ * Turn the character profile's age band into a birth year, so that age is a
+ * live number rather than a label. A career here can run thirty years.
+ */
+const AGE_BANDS = { "30s": 35, "40s": 45, "50s": 55, "60s": 62, "70s": 71 };
+
+function birthYearFrom(scenario) {
+  const explicit = Number(scenario?.customAge);
+  const age = Number.isFinite(explicit) && explicit > 0
+    ? explicit
+    : AGE_BANDS[scenario?.age] || 50;
+  return (scenario?.startYear || 2025) - age;
+}
+
+export function newCareer(scenario) {
+  return {
+    id: `career-${scenario?.presidentName || "unnamed"}-${scenario?.startYear || 2025}`,
+    name: scenario?.presidentName || "Unnamed",
+    party: scenario?.party || "Independent",
+    gender: scenario?.gender || "unspecified",
+    ideologyAxis: Number(scenario?.ideologyAxis) || 0,
+    birthYear: birthYearFrom(scenario),
+    year: scenario?.startYear || 2025,
+    status: "in-office",
+    offices: [],
+    record: { votes: [], bills: [], confirmations: [] },
+    recognition: { national: 0, states: {}, districts: {} },
+    warChest: 0,
+    standing: 50,
+  };
+}
+
+/**
+ * How far one chamber's opinion of you moves the national party's.
+ *
+ * Not all the way, deliberately. `leadership` is what your caucus thinks this
+ * month and it swings on single votes; `standing` is a reputation, and a
+ * reputation should compound over a career rather than be rewritten by one bad
+ * term.
+ */
+const STANDING_PULL = 0.4;
+
+/**
+ * Close an office out into the career.
+ *
+ * The only place a record leaves `state` and enters the archive, which is what
+ * keeps exactly one source of truth while an office is still being played.
+ */
+export function foldOffice(career, state, ending) {
+  const office = state.office || "house";
+  const tag = (rows) => (rows || []).map((row) => ({ ...row, office }));
+  const seat = state.seat || {};
+  const termYears = officeAt(office)?.termYears ?? 2;
+  const terms = seat.seniority || state.term || 1;
+  const to = career.year;
+
+  return {
+    ...career,
+    offices: [...career.offices, {
+      office,
+      seat: seat.district || seat.state || "national",
+      stateName: seat.stateName || null,
+      terms,
+      from: to - terms * termYears,
+      to,
+      rank: state.rank || null,
+      ending,
+      verdict: state.verdict || null,
+    }],
+    record: {
+      votes: [...career.record.votes, ...tag(state.voteLog)],
+      bills: [...career.record.bills, ...tag(state.sponsored)],
+      confirmations: [...career.record.confirmations, ...tag(state.confirmations)],
+    },
+    standing: round1(clamp(
+      career.standing + ((state.leadership ?? 50) - career.standing) * STANDING_PULL)),
+  };
+}
+
+/**
+ * The whole record — archived plus whatever is still being cast.
+ *
+ * A reach happens while you still hold the seat, so the votes that will decide
+ * the race are split across two places. Every caller asks here, so that none of
+ * them can accidentally see half a career.
+ */
+export function fullRecord(career, state = null) {
+  const tag = (rows, office) => (rows || []).map((row) => ({ ...row, office }));
+  const live = state?.office
+    ? {
+        votes: tag(state.voteLog, state.office),
+        bills: tag(state.sponsored, state.office),
+        confirmations: tag(state.confirmations, state.office),
+      }
+    : { votes: [], bills: [], confirmations: [] };
+
+  return {
+    votes: [...career.record.votes, ...live.votes],
+    bills: [...career.record.bills, ...live.bills],
+    confirmations: [...career.record.confirmations, ...live.confirmations],
+  };
 }
