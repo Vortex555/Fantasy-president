@@ -7,7 +7,9 @@ import {
   newCareer, foldOffice, fullRecord,
   districtsInState, earnRecognition, recognitionFor,
   WILDERNESS_CHOICES, enterWilderness, wildernessYear,
+  seedFromCareer,
 } from "../src/career.js";
+import { createGame } from "../src/gameEngine.js";
 
 /**
  * One career, across every office it passes through.
@@ -290,4 +292,39 @@ test("an unknown choice is treated as doing nothing, not as a crash", () => {
   const { career, note } = wildernessYear(start, "become-a-pirate");
   assert.equal(career.year, start.year + 1);
   assert.ok(note.length > 5);
+});
+
+// ---------------------------------------------------------------------------
+// Arriving in a new office with a career behind you
+// ---------------------------------------------------------------------------
+
+test("a Senate seat reached from three House terms starts warmer than a stranger's", () => {
+  const veteran = { ...known(), standing: 78 };
+  const sc = { ...scenario, office: "senate", seatState: "OH" };
+
+  const stranger = createGame(sc);
+  const reached = createGame(sc, veteran);
+
+  assert.ok(reached.leadership > stranger.leadership,
+    "the caucus knows who you are before you arrive");
+  assert.equal(reached.careerId, veteran.id);
+  assert.equal(stranger.careerId, undefined);
+});
+
+test("arriving with a poor reputation is worse than arriving unknown", () => {
+  const disliked = { ...known(), standing: 12 };
+  const sc = { ...scenario, office: "senate", seatState: "OH" };
+  assert.ok(createGame(sc, disliked).leadership < createGame(sc).leadership);
+});
+
+test("seeding never invents a career where there is none", () => {
+  const sc = { ...scenario, office: "senate", seatState: "OH" };
+  assert.deepEqual(createGame(sc), createGame(sc, null));
+  assert.deepEqual(seedFromCareer({ leadership: 50 }, null), { leadership: 50 });
+});
+
+test("the presidency is still built the way it always was", () => {
+  const p = createGame({ presidentName: "Ruth Ellery", party: "Democrat", startYear: 2025, startApproval: 51, ideologyAxis: -0.35 });
+  assert.equal(p.office, "president");
+  assert.ok(p.cabinet && p.institutions && p.warChest != null);
 });

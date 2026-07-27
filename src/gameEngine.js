@@ -26,6 +26,7 @@ import { buildGovernors, tickGovernors, defianceDrag } from "./governors.js";
 import { courtRuling } from "./court.js";
 import { createHouseCareer } from "./house.js";
 import { createSenateCareer } from "./senate.js";
+import { seedFromCareer } from "./career.js";
 
 export const TERM_LENGTH = 48; // months
 export const MIDTERM_MONTH = 24;
@@ -146,9 +147,9 @@ const NATIONAL_PULL = 0.3;
  * somebody else — and shares only the country. Everything below this line is
  * the presidential game, unchanged.
  */
-export function createGame(scenario) {
-  if (scenario?.office === "house") return createHouseCareer(scenario);
-  if (scenario?.office === "senate") return createSenateCareer(scenario);
+export function createGame(scenario, career = null) {
+  if (scenario?.office === "house") return seedFromCareer(createHouseCareer(scenario), career);
+  if (scenario?.office === "senate") return seedFromCareer(createSenateCareer(scenario), career);
   const sign = partySign(scenario.party);
 
   // Seed state-by-state approval from where the president actually stands, not

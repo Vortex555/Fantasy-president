@@ -398,3 +398,25 @@ export function wildernessYear(career, choiceId) {
 
   return { career: next, note: choice.note };
 }
+
+// --- Arriving somewhere new -------------------------------------------------
+
+/**
+ * What arriving with a career behind you is worth.
+ *
+ * Deliberately small. It buys a caucus that already has an opinion of you and a
+ * seat that starts a little warmer — not a head start on the job itself. The
+ * real value of a career is spent at the ballot box, in `runLadderRace`, and
+ * paying it out twice would make every reached office trivially easy.
+ */
+const ARRIVAL_WEIGHT = 0.6;
+
+export function seedFromCareer(state, career) {
+  if (!career) return state;
+  const reputation = clamp(50 + (career.standing - 50) * ARRIVAL_WEIGHT);
+  return {
+    ...state,
+    careerId: career.id,
+    leadership: round1(clamp((state.leadership ?? 50) * 0.4 + reputation * 0.6)),
+  };
+}
