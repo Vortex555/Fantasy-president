@@ -85,6 +85,20 @@ export function nextElectionYear(officeId, fromYear, seatClass = 1) {
  */
 export function ballotsCollide({ holding, seatClass = 1, targetOffice, year }) {
   if (!holding) return false;
+
+  /**
+   * A House member always collides.
+   *
+   * Their term ends every even November, and every Senate and presidential race
+   * is also an even November — so whenever the race they want exists at all, it
+   * is on the same ballot as their own seat. There is no version of this where
+   * a representative gets a free run at something bigger, which is exactly why
+   * leaving the House is the most consequential decision in the mode.
+   */
+  if (holding === "house") return true;
+
+  // Above the House, the seat you hold has a class of its own, and whether it
+  // is up in the same year as the prize is the whole question.
   const mine = nextElectionYear(holding, year, seatClass);
   const theirs = nextElectionYear(targetOffice, year, seatClass);
   return mine === theirs;
@@ -477,6 +491,30 @@ export function nextChoices(career, state) {
   return choices;
 }
 
+/**
+ * What year it is, derived from the office rather than tracked separately.
+ *
+ * A career's calendar has to be right for collision, the age gates and the
+ * wilderness to mean anything, and an envelope that has to be incremented at
+ * every term boundary in three different modules is an envelope that will
+ * eventually be wrong. The state already knows how many terms have been served,
+ * so the year is computed from it and cannot drift.
+ *
+ * A term ending is an election year: the Nth term of a two-year office ends in
+ * `startYear + 2N − 1`.
+ */
+export function careerYearFor(career, state) {
+  if (!state?.office) return career.year;
+  const termYears = officeAt(state.office)?.termYears ?? 2;
+  const completed = Math.max(0, (state.seat?.seniority || state.term || 1) - 1);
+  const startYear = state.scenario?.startYear || career.year;
+  return startYear + completed * termYears;
+}
+
+/** The envelope, with its clock synced to the office being played. */
+export const syncCareerClock = (career, state) =>
+  (career ? { ...career, year: careerYearFor(career, state) } : career);
+
 // --- Migration --------------------------------------------------------------
 
 /**
@@ -495,11 +533,9 @@ export function migrateSave(saved) {
   if (!state.office) return saved;
 
   const scenario = state.scenario || {};
-  const termYears = officeAt(state.office)?.termYears ?? 2;
-  const served = Math.max(0, (state.seat?.seniority || state.term || 1) - 1);
 
   let career = newCareer(scenario);
-  career = { ...career, year: (scenario.startYear || career.year) + served * termYears };
+  career = { ...career, year: careerYearFor(career, state) };
   career = earnRecognition(career, state);
 
   return { ...saved, career, state };

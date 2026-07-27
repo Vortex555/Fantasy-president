@@ -15,7 +15,7 @@ import { G, saveCareer } from "../store.js";
 
 const ordinal = (n) => ["", "first", "second", "third", "fourth", "fifth", "sixth", "seventh"][n] || `${n}th`;
 
-export function renderHouseElection(hooks, result, ladder, cycle = null) {
+export function renderHouseElection(hooks, result, ladder, cycle = null, choices = null) {
   const state = G.state;
   const seat = state.seat;
   const won = result.won;
@@ -93,14 +93,16 @@ export function renderHouseElection(hooks, result, ladder, cycle = null) {
 
     <div class="next-step">
       <button class="btn btn--primary btn--block" id="afterElection" style="max-width:340px">
-        ${won ? `On to Term ${state.term} →` : "The Record Closes →"}
+        ${!won ? "The Record Closes →" : hooks.onNext ? "What Next? →" : `On to Term ${state.term} →`}
       </button>
     </div>`;
 
   $("afterElection").onclick = () => {
     saveCareer();
-    if (won) return hooks.onFloor();
-    hooks.onLegacy();
+    if (!won) return hooks.onLegacy();
+    // The ladder asks what a career does next; without one, straight back to work.
+    if (hooks.onNext) return hooks.onNext();
+    hooks.onFloor();
   };
   show("floor");
   window.scrollTo(0, 0);

@@ -64,8 +64,11 @@ test("the next election for an office is the next year it is actually on the bal
 // ---------------------------------------------------------------------------
 
 test("you surrender your seat only when the ballots collide", () => {
-  // A House member running for the Senate: both on the same even year, always.
-  assert.equal(ballotsCollide({ holding: "house", targetOffice: "senate", year: 2030, seatClass: 1 }), true);
+  // A House member always collides: their term ends every even November, and so
+  // does every race worth reaching for. There is no free run out of the House.
+  assert.equal(ballotsCollide({ holding: "house", targetOffice: "senate", year: 2030 }), true);
+  assert.equal(ballotsCollide({ holding: "house", targetOffice: "senate", year: 2031 }), true);
+  assert.equal(ballotsCollide({ holding: "house", targetOffice: "president", year: 2032 }), true);
   // A senator elected in 2030, two years into six, reaching for the presidency
   // in 2032: their own seat is not up again until 2036, so nothing is at risk.
   assert.equal(ballotsCollide({ holding: "senate", seatClass: 1, targetOffice: "president", year: 2032 }), false);

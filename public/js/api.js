@@ -22,7 +22,7 @@ export async function getMeta() {
   }
 }
 
-export const startGame = (scenario) => post("/api/start", { scenario });
+export const startGame = (scenario, career = null) => post("/api/start", { scenario, career });
 
 /** Is the model answering? `recheck` makes the server ask the machine again. */
 export const aiStatus = (recheck = false) => post("/api/ai/status", { recheck });
@@ -150,3 +150,13 @@ export const editFirstLady = (state, name, causeId) =>
 
 export const actOnBill = (state, billId, action) =>
   post("/api/bills/act", { state, billId, action });
+
+// --- The ladder ------------------------------------------------------------
+
+export const ladderChoices = (career, state) => post("/api/ladder/choices", { career, state });
+
+export const ladderRace = (career, state, opts) =>
+  post("/api/ladder/race", { career, state, ...opts });
+
+export const ladderWilderness = (career, choice) =>
+  post("/api/ladder/wilderness", { career, choice });

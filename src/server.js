@@ -31,7 +31,13 @@ import {
 } from "./committees.js";
 import { articlesReady, articlesStance, voteArticles } from "./articles.js";
 import { nominationPending, nominationStance, confirmVote } from "./confirmations.js";
-import { migrateSave, nextChoices, WILDERNESS_CHOICES, wildernessYear } from "./career.js";
+import {
+  migrateSave, newCareer, nextChoices, syncCareerClock, foldOffice, earnRecognition,
+  WILDERNESS_CHOICES, wildernessYear,
+} from "./career.js";
+
+/** Did the caller say this race cost them the seat they held? */
+const choiceCollided = (body) => body?.collides === true;
 import { runLadderRace } from "./ladderRace.js";
 import {
   SENATE_TERM, CLOTURE, stateOptions, floorBills as senateFloor,
@@ -124,7 +130,8 @@ app.get("/api/meta", async (_req, res) => {
  */
 function withCareer(body) {
   const migrated = migrateSave({ career: body?.career, state: body?.state });
-  return { career: migrated?.career || null, state: migrated?.state || body?.state || null };
+  const state = migrated?.state || body?.state || null;
+  return { career: syncCareerClock(migrated?.career || null, state), state };
 }
 
 /** What a member may do at the end of a term. */
@@ -149,7 +156,19 @@ app.post("/api/ladder/race", (req, res) => {
     if (!career || !state || !target) {
       return res.status(400).json({ error: "career, state and target are required." });
     }
-    res.json({ career, result: runLadderRace(career, state, { target, where, opponent, runOn, spend }) });
+    const result = runLadderRace(career, state, { target, where, opponent, runOn, spend });
+
+    /**
+     * Winning ends the office you were holding, so this is where it enters the
+     * archive — with its record tagged, its terms counted, and the caucus's
+     * final opinion folded into the party's. Losing a race you gave your seat
+     * up for ends it too; the client marks that one as the wilderness.
+     */
+    const carried = result.won || choiceCollided(req.body)
+      ? earnRecognition(foldOffice(career, state, result.won ? "sought-higher" : "unseated"), state)
+      : career;
+
+    res.json({ career: carried, result });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "The race could not be run." });
@@ -195,9 +214,17 @@ app.post("/api/ai/status", async (req, res) => {
 app.post("/api/start", async (req, res) => {
   try {
     const scenario = sanitizeScenario(req.body?.scenario);
-    const state = createGame(scenario);
+    // A career reaching a new office arrives warmer than a stranger. Anything
+    // sent here already carries an envelope this server produced.
+    const state = createGame(scenario, req.body?.career || null);
     const event = await nextSituation(state, scenario);
-    res.json({ state, event });
+    /**
+     * Every career carries an envelope from its first month, so the ladder is
+     * available at the first term boundary rather than only to careers that
+     * happen to have been saved and reloaded.
+     */
+    const career = req.body?.career || newCareer(scenario);
+    res.json({ state, event, career });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "Failed to start game." });

@@ -603,7 +603,11 @@ async function endMonth() {
     const data = await chamber().advance(G.state);
     G.state = data.state;
     saveCareer();
-    if (data.reelection) return handlers.onElection(data.reelection, data.ladder, data.cycle);
+    // A career on the ladder is asked what it wants next once the district has
+    // answered; one without an envelope keeps the behaviour it always had.
+    if (data.reelection) {
+      return handlers.onElection(data.reelection, data.ladder, data.cycle, data.choices);
+    }
     // A senator sits through two elections they are not in. They still need to
     // be told what happened in them — it may have just cost them a gavel.
     if (data.cycle) pendingCycle = { cycle: data.cycle, ladder: data.ladder };

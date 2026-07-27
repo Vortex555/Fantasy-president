@@ -6,6 +6,9 @@ import { getMeta, startGame, resignOffice } from "./api.js";
 import { renderCareers, renderModeBadge } from "./careers.js";
 import { renderScenarios, renderEras } from "./scenario.js";
 import { renderCharacter } from "./character.js";
+import { renderNextChoice } from "./ladder/next.js";
+import { renderLadderRace } from "./ladder/race.js";
+import { renderWilderness } from "./ladder/wilderness.js";
 import { renderBio } from "./bio.js";
 import { renderRunningMate } from "./runningmate.js";
 import { renderDashboardAsync } from "./dashboard.js";
@@ -53,10 +56,68 @@ const goOath = (formerName) => renderOath(electionHooks, null, formerName);
 const houseHooks = {
   onDashboard: () => goPlay(),
   onFloor: () => renderFloor(houseHooks),
-  onElection: (result, ladder, cycle) => renderHouseElection(houseHooks, result, ladder, cycle),
+  onElection: (result, ladder, cycle, choices) =>
+    renderHouseElection(houseHooks, result, ladder, cycle, choices),
   // A member's career closes on the House's own record, not the presidency's.
   onLegacy: () => renderHouseLegacy(goCareers),
+  // A term ending is where a career decides whether to stay where it is.
+  onNext: () => renderNextChoice(ladderHooks),
 };
+
+/**
+ * The ladder.
+ *
+ * Three screens and one rule: reaching is never blocked, only priced. A win
+ * builds the next office from the career that reached it; a loss either drops
+ * you back into the seat you kept, or — if you gave it up to run — into the
+ * wilderness, which is a chapter rather than an ending.
+ */
+const ladderHooks = {
+  onFloor: () => renderFloor(houseHooks),
+  onLegacy: () => goLegacy(),
+  onBack: () => renderNextChoice(ladderHooks),
+
+  onChoice: (choice) => {
+    if (choice.id === "retire") return goLegacy();
+    if (choice.id === "re-elect") return renderFloor(houseHooks);
+    renderLadderRace(ladderHooks, choice);
+  },
+
+  onResult: async (result, choice) => {
+    if (result.won) return takeNewOffice(choice);
+    // Beaten. Whether that is a setback or an unemployment depends entirely on
+    // whether the ballots collided — which the player was told before running.
+    if (!choice.collides) return renderFloor(houseHooks);
+    G.career = { ...G.career, status: "wilderness",
+      wilderness: { lostTo: result.opponent?.name || "the other candidate",
+        office: choice.office, since: G.career.year } };
+    saveCareer();
+    renderWilderness(ladderHooks);
+  },
+};
+
+/** Won it. Build the office from the career that reached it, and swear in. */
+async function takeNewOffice(choice) {
+  loader(true, "Swearing you in…");
+  try {
+    const data = await startGame({
+      ...G.state.scenario,
+      office: choice.office,
+      seatState: choice.where || G.state.seat?.state,
+    }, G.career);
+    G.state = data.state;
+    G.career = data.career || G.career;
+    G.event = data.event;
+    G.pendingEvent = null;
+    G.chats = {};
+    saveCareer();
+    goPlay();
+  } catch (err) {
+    alert("The oath could not be administered: " + err.message);
+  } finally {
+    loader(false);
+  }
+}
 
 /** Entering the month. A resumed career may belong somewhere else entirely. */
 function goPlay() {
@@ -145,6 +206,7 @@ async function launch(scenario) {
   try {
     const data = await startGame(scenario);
     G.state = data.state;
+    G.career = data.career || null;
     G.event = data.event;
     G.pendingEvent = null;
     G.chats = {};
