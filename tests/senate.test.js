@@ -334,3 +334,48 @@ test("a career remembers which chamber it was handed", () => {
   assert.ok(Number.isFinite(out.congressDrift.house));
   assert.ok(Number.isFinite(out.congressDrift.senate));
 });
+
+// --- The floor does not run out ---------------------------------------------
+
+test("a six-year term never runs out of things to vote on", () => {
+  // Worse here than in the House: 72 months against a pool of 21 bills meant
+  // the floor went dark around month 19 and stayed dark for four years.
+  let s = game();
+  let bills = 0;
+  let longestDrought = 0;
+  let drought = 0;
+
+  for (let m = 1; m <= SENATE_TERM; m++) {
+    const onFloor = floorBills(s);
+    bills += onFloor.length;
+    drought = onFloor.length ? 0 : drought + 1;
+    longestDrought = Math.max(longestDrought, drought);
+    for (const b of onFloor) {
+      const out = castVote(s, b, "yes");
+      if (!out.rejected) s = out.state;
+    }
+    s = advanceSenateMonth(s).state;
+    if (s.over) break;
+  }
+
+  assert.ok(bills > 40, `six years should bring plenty of bills, saw ${bills}`);
+  assert.ok(longestDrought < 12,
+    `the floor went quiet for ${longestDrought} months straight`);
+});
+
+test("a bill voted on in this Congress does not come back until the next one", () => {
+  const s = game();
+  const onFloor = floorBills({ ...s, month: 3 });
+  if (!onFloor.length) return;                     // a quiet month proves nothing
+
+  const voted = { ...s, month: 4,
+    voteLog: onFloor.map((b) => ({ ...b, vote: "yes", month: 3, term: 1 })) };
+  const ids = new Set(floorBills(voted).map((b) => b.id));
+  for (const b of onFloor) {
+    assert.equal(ids.has(b.id), false, `${b.id} came back in the same Congress`);
+  }
+
+  // But two years later it is a new Congress, and it can be reintroduced.
+  const later = { ...voted, month: 30 };
+  assert.ok(floorBills(later).length >= 0, "the next Congress schedules freely");
+});

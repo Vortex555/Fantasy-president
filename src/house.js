@@ -268,9 +268,7 @@ export function floorBills(state) {
     : (r.chance(0.22) ? 0 : r.chance(0.62) ? 1 : r.chance(0.7) ? 2 : 3);
   if (!count) return [];
 
-  const voted = new Set((state.voteLog || []).map((v) => v.id));
-  const radical = state.scenario?.radicals === true;
-  const pool = BILL_POOL.filter((b) => (radical || !b.fringe) && !voted.has(b.id));
+  const pool = floorPool(state, BILL_POOL);
   if (!pool.length) return [];
 
   // The majority schedules what the majority likes.
@@ -379,8 +377,8 @@ export function castVote(state, bill, vote) {
   if (!["yes", "no", "abstain"].includes(vote)) {
     return { state, rejected: true, note: "Vote yes, vote no, or abstain." };
   }
-  if ((state.voteLog || []).some((v) => v.id === bill.id)) {
-    return { state, rejected: true, note: "You have already voted on that." };
+  if (votedThisCongress(state, bill.id)) {
+    return { state, rejected: true, note: "You have already voted on that this Congress." };
   }
 
   const next = structuredClone(state);
@@ -550,6 +548,56 @@ export function electionIndex(state) {
 
 /** Is a congressional election held at the end of this month? Every 24 of them. */
 export const isElectionMonth = (state) => (state.month || 0) % 24 === 0;
+
+/**
+ * Which Congress a given month belongs to.
+ *
+ * A Congress is two years, whatever office you hold — so a House term is one
+ * and a Senate term is three. This is the same 24-month grid `electionIndex`
+ * counts elections on, because a new Congress is exactly what an election
+ * produces.
+ */
+export function congressIndex(state, month = state.month, term = state.term) {
+  const perTerm = CYCLES_PER_TERM[state.office === "senate" ? "senate" : "house"];
+  return ((term || 1) - 1) * perTerm + Math.ceil((month || 1) / 24);
+}
+
+/**
+ * The bills this chamber can put on the floor this month.
+ *
+ * Two rules, and the second one is the safety net.
+ *
+ * A bill you have already voted on does not come back — *within the same
+ * Congress*. Across one, it does: legislation that dies at the end of a
+ * Congress is reintroduced in the next, which is both how it actually works and
+ * the reason a career can run for twenty years against a pool of twenty-one
+ * bills. Excluding everything ever voted on emptied the floor inside the first
+ * term and left every month afterwards blank.
+ *
+ * And if that still leaves nothing — a long Congress, a small pool — the whole
+ * pool comes back rather than the floor going dark. A chamber with nothing to
+ * vote on is a bug in every situation; a chamber revisiting something is a
+ * Tuesday.
+ */
+export function votedThisCongress(state, billId) {
+  const now = congressIndex(state);
+  return (state.voteLog || [])
+    .some((v) => v.id === billId && congressIndex(state, v.month, v.term) === now);
+}
+
+export function floorPool(state, pool) {
+  const radical = state.scenario?.radicals === true;
+  const eligible = pool.filter((b) => radical || !b.fringe);
+  if (!eligible.length) return [];
+
+  const thisCongress = congressIndex(state);
+  const voted = new Set((state.voteLog || [])
+    .filter((v) => congressIndex(state, v.month, v.term) === thisCongress)
+    .map((v) => v.id));
+
+  const fresh = eligible.filter((b) => !voted.has(b.id));
+  return fresh.length ? fresh : eligible;
+}
 
 /**
  * Fold a night's result into the career. The baseline and the running deviation

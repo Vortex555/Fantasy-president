@@ -5,7 +5,7 @@ import { senateCycle, senateRaces, nationalEnvironment, runCongressionalCycle } 
 import { buildCongress } from "../public/js/data/government.js";
 import {
   partyLine, districtView, caucusOf, districtAxis, seedCongress,
-  driftPresident, electionIndex, isElectionMonth, applyCycle,
+  driftPresident, electionIndex, isElectionMonth, applyCycle, floorPool, votedThisCongress,
 } from "./house.js";
 import { assignCommittee, earnCapital, evaluateLadder, committeeById } from "./committees.js";
 import { emptyArticles, tickArticles } from "./articles.js";
@@ -164,9 +164,7 @@ export function floorBills(state) {
   const count = r.chance(0.28) ? 0 : r.chance(0.68) ? 1 : 2;
   if (!count) return [];
 
-  const voted = new Set((state.voteLog || []).map((v) => v.id));
-  const radical = state.scenario?.radicals === true;
-  const pool = BILL_POOL.filter((b) => (radical || !b.fringe) && !voted.has(b.id));
+  const pool = floorPool(state, BILL_POOL);
   if (!pool.length) return [];
 
   const majority = state.congress.senateR > state.congress.senateD ? "Republican" : "Democrat";
@@ -210,8 +208,8 @@ export function castVote(state, bill, vote) {
   if (!["yes", "no", "abstain"].includes(vote)) {
     return { state, rejected: true, note: "Vote yes, vote no, or abstain." };
   }
-  if ((state.voteLog || []).some((v) => v.id === bill.id)) {
-    return { state, rejected: true, note: "You have already voted on that." };
+  if (votedThisCongress(state, bill.id)) {
+    return { state, rejected: true, note: "You have already voted on that this Congress." };
   }
 
   const next = structuredClone(state);
@@ -293,7 +291,7 @@ export function filibuster(state, bill) {
   if ((state.filibusters || []).some((f) => f.id === bill.id)) {
     return { state, rejected: true, note: "You are already holding the floor on that." };
   }
-  if ((state.voteLog || []).some((v) => v.id === bill.id)) {
+  if (votedThisCongress(state, bill.id)) {
     return { state, rejected: true, note: "That vote has already happened." };
   }
 

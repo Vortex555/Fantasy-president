@@ -323,3 +323,60 @@ test("who runs the chamber is not decided once and then frozen for twenty years"
   }
   assert.ok(seen.size > 1, "the composition of Congress never moved across five terms");
 });
+
+// --- The floor does not run out ---------------------------------------------
+
+test("the floor keeps scheduling bills into a second term and beyond", () => {
+  // The bug: `voted` excluded every bill ever cast across a whole career, and
+  // the pool is 21 bills against roughly 1.2 a month — so it emptied inside the
+  // first term and every month afterwards was blank, forever.
+  let s = game({ scenario: { district: "MD-1" } });
+  const perTerm = [];
+
+  for (let term = 1; term <= 3 && !s.over; term++) {
+    let seen = 0;
+    for (let m = 1; m <= HOUSE_TERM; m++) {
+      const bills = floorBills(s);
+      seen += bills.length;
+      for (const b of bills) {
+        const out = castVote(s, b, "yes");
+        if (!out.rejected) s = out.state;
+      }
+      const adv = advanceHouseMonth(s);
+      s = adv.state;
+      if (s.over) break;
+    }
+    perTerm.push(seen);
+  }
+
+  for (const [i, count] of perTerm.entries()) {
+    assert.ok(count > 8, `term ${i + 1} only saw ${count} bills: ${perTerm.join(", ")}`);
+  }
+});
+
+test("a new Congress reintroduces what died in the last one", () => {
+  // Two years is a whole Congress. Bills that never got a vote come back, which
+  // is both how it works and why the floor cannot run dry.
+  const everything = game();
+  const early = { ...everything, term: 1, month: 3 };
+  const later = { ...everything, term: 2, month: 3,
+    voteLog: floorBills(early).map((b) => ({ ...b, vote: "yes", month: 3, term: 1 })) };
+  assert.ok(floorBills(later).length > 0,
+    "a bill voted on in the last Congress must not block the new one");
+});
+
+test("the floor and the vote agree on what counts as already decided", () => {
+  // If the floor offers a reintroduced bill the vote then refuses, the month
+  // deadlocks — the card is there and nothing you click does anything.
+  const s = game();
+  const b = { id: "tax_cuts", title: "A Bill", axis: 0.4, domain: "economy" };
+  const log = [{ id: "tax_cuts", title: "A Bill", vote: "yes", month: 5, term: 1 }];
+
+  const sameCongress = { ...s, term: 1, month: 8, voteLog: log };
+  assert.equal(castVote(sameCongress, b, "yes").rejected, true,
+    "within one Congress, once is once");
+
+  const newCongress = { ...s, term: 2, month: 3, voteLog: log };
+  assert.equal(castVote(newCongress, b, "yes").rejected, undefined,
+    "a new Congress may vote on it again — the floor offers it, so the vote must take it");
+});
