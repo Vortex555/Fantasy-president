@@ -6,11 +6,17 @@ import { buildCongress } from "../public/js/data/government.js";
 import {
   partyLine, districtView, caucusOf, districtAxis, seedCongress,
   driftPresident, electionIndex, isElectionMonth, applyCycle, floorPool, votedThisCongress,
+  seatFringe, closeTheMonth,
 } from "./house.js";
 import { assignCommittee, earnCapital, evaluateLadder, committeeById } from "./committees.js";
 import { emptyArticles, tickArticles } from "./articles.js";
 import { nextChoices } from "./career.js";
 import { emptyNomination, tickNomination } from "./confirmations.js";
+import { seedNation, advanceNation } from "./nation.js";
+import { activeArcs } from "./arcs.js";
+import { buildSociety } from "./society.js";
+import { applyConsequence } from "./consequence.js";
+import { noteEvent, EVENT } from "./chronicle.js";
 
 /**
  * A seat in the Senate.
@@ -142,6 +148,11 @@ export function createSenateCareer(scenario) {
     approval: clamp(Math.round(48 + fit * 16 + r.between(-4, 4))),
     leadership: clamp(Math.round(52 + r.between(-8, 8))),
     economy: { gdpGrowth: 2.4, unemployment: 4.1, inflation: 3.0, debt: 34.2 },
+    // The eight national statistics at the era's real baseline, and what they
+    // were on the day of the oath. Six years is long enough to move them.
+    society: buildSociety(scenario),
+    baseline: buildSociety(scenario),
+    chronicle: [],
     congress: seedCongress(scenario),
     stateApproval: {},
     voteLog: [],
@@ -153,15 +164,27 @@ export function createSenateCareer(scenario) {
     ending: null,
   };
   career.committee = assignCommittee(career);
-  return career;
+  // The country a senator is sworn into, and the first problem already on it.
+  return seedNation(career);
 }
 
 // --- The floor --------------------------------------------------------------
 
+/**
+ * How much reaches the Senate floor. Less than the House, because a chamber
+ * that debates for a week at a time gets through less of it. Exported for the
+ * same reason as the House's: a written calendar is paced by the engine, not by
+ * the model that writes the bills on it.
+ */
+export function docketSize(state) {
+  const r = seeded(`${state.rosterSeed}|senatefloor|${state.term || 1}|${state.month}`);
+  return r.chance(0.28) ? 0 : r.chance(0.68) ? 1 : 2;
+}
+
 export function floorBills(state) {
   const r = seeded(`${state.rosterSeed}|senatefloor|${state.term || 1}|${state.month}`);
   const gavel = ["subchair", "chair", "speaker"].includes(state.rank);
-  const count = r.chance(0.28) ? 0 : r.chance(0.68) ? 1 : 2;
+  const count = docketSize(state);
   if (!count) return [];
 
   const pool = floorPool(state, BILL_POOL);
@@ -170,9 +193,18 @@ export function floorBills(state) {
   const majority = state.congress.senateR > state.congress.senateD ? "Republican" : "Democrat";
   const anchor = majority === "Republican" ? 0.45 : -0.35;
   const mine = gavel ? new Set(committeeById(state.committee)?.domains || []) : null;
+
+  // A crisis drags the calendar toward itself here too. See floorBills in
+  // house.js — without it the country's problems are unaddressable offline.
+  const urgency = new Map();
+  for (const arc of activeArcs(state)) {
+    urgency.set(arc.domain, Math.max(urgency.get(arc.domain) || 0, arc.severity));
+  }
+
   const weights = pool.map((b) => {
     const nearness = 1 / (0.18 + Math.abs(b.axis - anchor));
-    return mine?.has(b.domain) ? nearness * 4.5 : nearness;
+    const crisis = 1 + (urgency.get(b.domain) || 0) * 0.8;
+    return (mine?.has(b.domain) ? nearness * 4.5 : nearness) * crisis;
   });
 
   const out = [];
@@ -188,7 +220,7 @@ export function floorBills(state) {
       axis: chosen.axis, domain: chosen.domain, fringe: Boolean(chosen.fringe),
     });
   }
-  return out;
+  return seatFringe(state, out);
 }
 
 export { partyLine, districtView };
@@ -249,12 +281,24 @@ export function castVote(state, bill, vote) {
 
   next.voteLog = [...(next.voteLog || []), {
     id: bill.id, title: bill.title, axis: bill.axis, vote,
+    // What the country will notice about this having passed. See nation.js.
+    domain: bill.domain || null,
+    addresses: bill.addresses || null,
     month: next.month, term: next.term || 1,
     withDistrict: withHome, withParty, passed,
   }];
 
+  // A bill that carried changes the country, exactly as in the House. See
+  // consequence.js — this is where a vote becomes something you can point at on
+  // a chart six years later.
+  const moved = passed ? applyConsequence(next, bill) : {};
+  next.pending = [...(next.pending || []), noteEvent(passed ? EVENT.PASSED : EVENT.FAILED, {
+    title: bill.title, domain: bill.domain, moved, vote,
+    tally: `${yes}-${tally.total - yes}`,
+  })];
+
   const result = {
-    bill, yourVote: vote, passed, decisive, filibustered, bar,
+    bill, yourVote: vote, passed, decisive, filibustered, bar, moved,
     tally: { ...tally, yes, no: tally.total - yes },
     district: { ...home, delta: homeDelta },
     party: { ...party, delta: leadershipDelta },
@@ -384,6 +428,12 @@ export function advanceSenateMonth(state) {
   const decayed = decayGrudges(next);
   next = decayed.state;
   next.leadership = clamp(round1(next.leadership + (52 - next.leadership) * 0.04));
+
+  // The country first: what this chamber passed this month eases the problems
+  // it was about, and what it ignored gets worse. See nation.js.
+  advanceNation(next);
+  next.docket = null;
+  closeTheMonth(next);
 
   next.president = driftPresident(next);
 

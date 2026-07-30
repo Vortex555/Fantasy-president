@@ -61,13 +61,23 @@ export const SETTINGS = [
     warn: "Adds a second model call per month, so turns take longer.",
   },
   {
-    key: "events", kind: "segmented", offices: ["president"], tone: "amber", default: "hybrid",
+    /**
+     * The one rule of play that means something in every office.
+     *
+     * For a president it decides where the month's crisis comes from. For a
+     * legislator it decides that *and* where the floor schedule comes from —
+     * on Hybrid or Dynamic the bills are written each month out of the national
+     * situation, so a member votes on the country rather than on a fixed pool
+     * of twenty-seven. Classic is the hand-written pool in both offices and
+     * needs no key at all.
+     */
+    key: "events", kind: "segmented", tone: "amber", default: "hybrid",
     title: "⚡ Event Generation",
-    desc: "Where each month's situation comes from.",
+    desc: "Where each month's situation comes from — and, in Congress, the bills written in response to it.",
     options: [
-      { value: "classic", label: "Classic", note: "Hand-written events only. Works with no API key." },
+      { value: "classic", label: "Classic", note: "Hand-written events and a fixed bill pool. Works with no API key." },
       { value: "hybrid", label: "Hybrid", note: "Hand-written events mixed into AI-written months." },
-      { value: "dynamic", label: "Dynamic", note: "Every month written fresh by the model." },
+      { value: "dynamic", label: "Dynamic", note: "Every month — and every bill — written fresh by the model." },
     ],
   },
   {

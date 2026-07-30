@@ -19,6 +19,7 @@ import { renderTwentyFifth, renderOath } from "./succession.js";
 import { renderPrimary } from "./primary.js";
 import { renderOffice, renderDistricts, renderStates } from "./house/setup.js";
 import { renderFloor } from "./house/floor.js";
+import { renderCountry } from "./house/country.js";
 import { renderHouseElection } from "./house/election.js";
 import { renderHouseLegacy } from "./house/legacy.js";
 import { renderLegacy } from "./legacy.js";
@@ -56,6 +57,8 @@ const goOath = (formerName) => renderOath(electionHooks, null, formerName);
 const houseHooks = {
   onDashboard: () => goPlay(),
   onFloor: () => renderFloor(houseHooks),
+  // What the career has done to the country, month by month.
+  onCountry: () => renderCountry(houseHooks),
   onElection: (result, ladder, cycle, choices) =>
     renderHouseElection(houseHooks, result, ladder, cycle, choices),
   // A member's career closes on the House's own record, not the presidency's.

@@ -8,6 +8,9 @@ import {
   senateFloor, senateVote, senateFilibuster, senateAdvance,
   senateSponsor, senateCommittee, senateWhip, senateArticles, senateConfirm,
 } from "../api.js";
+import {
+  nationCard, falloutBlock, staffCard, wireStaff, resetStaffLogIfNewMonth,
+} from "./nation.js";
 
 /**
  * Both chambers run through this screen.
@@ -59,12 +62,24 @@ export async function renderFloor(hooks) {
   loader(true, "The Rules Committee is reporting…");
   try {
     board = await chamber().floor(state);
+    /**
+     * The calendar is settled once a month and stored on the career, so the
+     * reply carries the save forward. Without keeping it, every repaint would
+     * ask for the schedule again — and with a model configured, be written a
+     * different one and billed for it.
+     */
+    if (board.state) {
+      G.state = board.state;
+      saveCareer();
+    }
   } catch (err) {
     alert("The floor schedule could not be read: " + err.message);
     return handlers.onDashboard();
   } finally {
     loader(false);
   }
+
+  resetStaffLogIfNewMonth(G.state);
   paint();
 }
 
@@ -120,6 +135,8 @@ function paint() {
       </div>
     </div>` : ""}
 
+    ${nationCard(board.nation, board.written)}
+
     ${pendingCycle ? chamberCard(pendingCycle.cycle) : ""}
     ${pendingCycle?.ladder && (pendingCycle.ladder.promoted || pendingCycle.ladder.demoted)
       ? `<div class="card ${pendingCycle.ladder.promoted ? "card--accent" : "card--alarm"}">
@@ -152,6 +169,17 @@ function paint() {
         <p class="hint" style="margin:8px 0 0">You have filed recently. The next one can go in a few months.</p>
       </div>`}
 
+    ${staffCard(board.staff)}
+
+    <div class="card">
+      <span class="eyebrow">📜 The record</span>
+      <p class="hint" style="margin:8px 0 12px">
+        What this chamber has actually done to the country since you were sworn in — every
+        indicator, and which bills bent which lines.
+      </p>
+      <button class="btn btn--sm" id="seeCountry">See the country change →</button>
+    </div>
+
     <div class="next-step">
       <button class="btn btn--primary btn--block" id="endMonth" style="max-width:340px">
         ${state.month >= chamber().term ? "To the Election →" : "End the Month →"}
@@ -162,6 +190,9 @@ function paint() {
   if (board.nomination) wireNomination();
   for (const b of pending) wireBill(b);
   if (board.canSponsor) wireSponsor();
+  wireStaff();
+  const country = $("seeCountry");
+  if (country) country.onclick = () => handlers.onCountry();
   $("endMonth").onclick = endMonth;
   // Read once. It is news, not a standing feature of the floor.
   pendingCycle = null;
@@ -358,13 +389,23 @@ const stanceClass = (p) => (p === "yes" ? "stance--yes" : "stance--no");
 
 function billCard(bill) {
   const split = bill.party.position !== bill.district.position;
-  return `<div class="card${split ? " card--alarm" : ""}" data-bill="${escapeHtml(bill.id)}">
+  return `<div class="card${bill.fringe || split ? " card--alarm" : ""}" data-bill="${escapeHtml(bill.id)}">
     <div class="card__head">
-      <span class="eyebrow">${split ? "⚔️ They disagree" : "🤝 They agree"}</span>
+      <span class="eyebrow">${bill.fringe
+        ? `🔥 ${bill.axis < 0 ? "The far left" : "The far right"} has the floor`
+        : split ? "⚔️ They disagree" : "🤝 They agree"}</span>
       <span class="hint">${escapeHtml(bill.domain)}</span>
     </div>
+    ${bill.fringe ? `<p class="hint" style="margin:6px 0 0">
+      This is not an ordinary bill. It would not adjust the settlement, it would replace it —
+      and there is no way to vote on it that nobody remembers.
+    </p>` : ""}
     <h3 class="display display--sm" style="margin:4px 0 6px">${escapeHtml(bill.title)}</h3>
-    <p class="brief__body" style="margin:0 0 14px">${escapeHtml(bill.brief || "")}</p>
+    <p class="brief__body" style="margin:0 0 ${bill.because || bill.sponsor ? "10px" : "14px"}">${escapeHtml(bill.brief || "")}</p>
+    ${bill.because || bill.sponsor ? `<p class="hint" style="margin:0 0 14px">
+      ${bill.sponsor ? `Filed by ${escapeHtml(bill.sponsor)}.` : ""}
+      ${bill.because ? `<b>Why it is on the floor:</b> ${escapeHtml(bill.because)}.` : ""}
+    </p>` : ""}
 
     <div class="stances">
       <div class="stance ${stanceClass(bill.party.position)}">
@@ -382,18 +423,7 @@ function billCard(bill) {
     </div>
     <p class="hint" style="margin:12px 0 0">${escapeHtml(bill.district.pressureNote || "")}</p>
 
-    ${bill.whip?.visible ? `<div class="whipbox">
-      <div class="whipbox__head">
-        <span class="eyebrow">🔢 The count</span>
-        <b class="${bill.whip.passing ? "up" : "down"}">${bill.whip.yes}–${bill.whip.no}</b>
-      </div>
-      <p class="hint" style="margin:6px 0 0">${escapeHtml(bill.whip.note)}</p>
-      ${!bill.whip.passing ? `<div class="whipbox__act">
-        <input type="range" min="0" max="${Math.round(G.state.capital || 0)}" value="0" data-whip-range />
-        <span class="hint" data-whip-label>Spend 0 favours</span>
-        <button class="btn btn--sm" data-whip-go>Work the floor</button>
-      </div>` : ""}
-    </div>` : ""}
+    ${whipBox(bill)}
 
     ${bill.yours && GAVEL.has(G.state.rank) ? `<div class="gavel">
       <span class="eyebrow">⚖️ Your committee's jurisdiction</span>
@@ -425,6 +455,60 @@ function billCard(bill) {
   </div>`;
 }
 
+/**
+ * Calling in what you are owed.
+ *
+ * Two separate things that used to be one, and that was the whole problem.
+ *
+ * *The count* is a whip's private knowledge — everybody else votes on a guess,
+ * and that is most of what the job is worth. It stays gated.
+ *
+ * *Spending* is now anybody's, because a member who has banked favours on every
+ * party-line vote for two years and cannot call in one of them is holding a
+ * number rather than a currency. A backbencher spends blind and moves two or
+ * three votes; a whip spends knowing the number and moves a bloc. That is the
+ * honest difference between the ranks, and it reads better than the old one,
+ * which was that the backbencher had no hand at all.
+ */
+function whipBox(bill) {
+  const capital = Math.round(G.state.capital || 0);
+  const count = bill.whip?.visible ? bill.whip : null;
+  // Nothing to say: no count to show and nothing banked to spend.
+  if (!count && capital < 1) return "";
+  // A whip who already has it does not need to buy anything.
+  if (count?.passing) return countBlock(count, "");
+
+  const spend = `<div class="whipbox__act">
+    <input type="range" min="0" max="${capital}" value="0" data-whip-range />
+    <span class="hint" data-whip-label>Call in 0 favours</span>
+    <button class="btn btn--sm" data-whip-go>Work the floor</button>
+  </div>`;
+
+  if (count) return countBlock(count, spend);
+
+  // No count, but favours to spend. Say plainly that this is a gamble.
+  return `<div class="whipbox">
+    <div class="whipbox__head">
+      <span class="eyebrow">🤝 Favours you are owed</span>
+      <b>${capital}</b>
+    </div>
+    <p class="hint" style="margin:6px 0 0">
+      You cannot see the count — only a Whip walks in knowing it. Call in what you are owed
+      and you will move a vote or two without knowing whether it was the vote that mattered.
+    </p>
+    ${spend}
+  </div>`;
+}
+
+const countBlock = (count, spend) => `<div class="whipbox">
+  <div class="whipbox__head">
+    <span class="eyebrow">🔢 The count</span>
+    <b class="${count.passing ? "up" : "down"}">${count.yes}–${count.no}</b>
+  </div>
+  <p class="hint" style="margin:6px 0 0">${escapeHtml(count.note)}</p>
+  ${spend}
+</div>`;
+
 function wireBill(bill) {
   const card = document.querySelector(`[data-bill="${bill.id}"]`);
   if (!card) return;
@@ -433,7 +517,7 @@ function wireBill(bill) {
   const range = card.querySelector("[data-whip-range]");
   if (range) {
     const label = card.querySelector("[data-whip-label]");
-    range.oninput = () => { label.textContent = `Spend ${range.value} favour${range.value === "1" ? "" : "s"}`; };
+    range.oninput = () => { label.textContent = `Call in ${range.value} favour${range.value === "1" ? "" : "s"}`; };
     card.querySelector("[data-whip-go]").onclick = async () => {
       loader(true, "You are making calls…");
       try {
@@ -442,7 +526,9 @@ function wireBill(bill) {
         saveCareer();
         renderFloor(handlers);
       } catch (err) {
-        alert("The floor could not be worked: " + err.message);
+        // A spend too small to move anybody is refused rather than wasted, and
+        // the message names the price — worth showing, not swallowing.
+        alert(err.message);
       } finally { loader(false); }
     };
   }
@@ -514,7 +600,8 @@ function paintVoteResult(card, result) {
     <div class="vote-result__deltas">
       <span>District ${delta(result.district.delta)}</span>
       <span>Leadership ${delta(result.party.delta)}</span>
-    </div>`;
+    </div>
+    ${falloutBlock(result.fallout)}`;
   // The two headline numbers moved; keep the tiles honest.
   refreshMeters();
 }
@@ -554,6 +641,21 @@ function sponsorCard() {
       </label>
       <button class="btn btn--primary" id="sponsorGo">File It</button>
     </div>
+    ${Math.round(G.state.capital || 0) >= 1 ? `
+      <div class="whipbox" style="margin-top:14px">
+        <div class="whipbox__head">
+          <span class="eyebrow">🤝 Call in favours to get it heard</span>
+          <b>${Math.round(G.state.capital)} owed</b>
+        </div>
+        <p class="hint" style="margin:6px 0 0">
+          This is what the party-line votes were for. Almost every bill dies in committee;
+          favours are how yours gets a hearing instead.
+        </p>
+        <div class="whipbox__act">
+          <input type="range" min="0" max="${Math.round(G.state.capital)}" value="0" id="sponsorFavours" />
+          <span class="hint" id="sponsorFavoursLabel">Call in 0 favours</span>
+        </div>
+      </div>` : ""}
     <div class="vote-result hidden" id="sponsorResult"></div>
   </div>`;
 }
@@ -568,11 +670,28 @@ function wireSponsor() {
   axis.oninput = label;
   label();
 
+  // What the favours are buying, priced live so the trade is legible before it
+  // is made rather than explained after it.
+  const favours = $("sponsorFavours");
+  if (favours) {
+    const flabel = $("sponsorFavoursLabel");
+    const price = () => {
+      const n = Number(favours.value);
+      const push = n ? Math.min(30, Math.floor(Math.sqrt(n) * 3.2)) : 0;
+      flabel.textContent = n
+        ? `Call in ${n} favour${n === 1 ? "" : "s"} — about +${push} to the odds of a hearing`
+        : "Call in 0 favours";
+    };
+    favours.oninput = price;
+    price();
+  }
+
   $("sponsorGo").onclick = async () => {
     const title = $("sponsorTitle").value.trim() || "An Act";
     loader(true, "It has been referred to committee…");
     try {
-      const data = await chamber().sponsor(G.state, title, Number(axis.value) / 100, $("sponsorDomain").value);
+      const data = await chamber().sponsor(G.state, title, Number(axis.value) / 100,
+        $("sponsorDomain").value, favours ? Number(favours.value) : 0);
       G.state = data.state;
       saveCareer();
       const box = $("sponsorResult");
@@ -581,7 +700,8 @@ function wireSponsor() {
         <div class="vote-result__head">
           <span class="badge ${data.result.passed ? "badge--live" : data.result.reachedFloor ? "badge--amber" : "badge--red"}">
             ${data.result.passed ? `Passed the ${chamber().chamberName}` : data.result.reachedFloor ? "Got a vote" : "Died in committee"}</span>
-          <span class="hint">${data.result.odds}% chance of a hearing</span>
+          <span class="hint">${data.result.odds}% chance of a hearing${
+            data.result.push ? ` · +${data.result.push} from ${data.result.favours} favours` : ""}</span>
         </div>
         <p style="margin:10px 0 0">${escapeHtml(data.result.note)}</p>`;
       $("sponsorGo").disabled = true;

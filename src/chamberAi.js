@@ -1,0 +1,458 @@
+import { complete, aiAvailable } from "./ai/provider.js";
+import { parseModelJson } from "./ai/json.js";
+import { seeded } from "./rng.js";
+import { normalizeDomain, activeArcs, ARC_DOMAIN_IDS } from "./arcs.js";
+import { FRINGE_AXIS } from "./bills.js";
+import { nationSummary, absoluteMonth, steerDomain, recentNewsSubjects } from "./nation.js";
+import { committeeById, rankById, chamberOf } from "./committees.js";
+
+/**
+ * The model, from a seat in Congress.
+ *
+ * The presidency's calls in claude.js ask one question — what did this policy
+ * do to the country — because a president acts and everyone else reacts. A
+ * member is on the other side of that: they are handed a schedule and asked
+ * which way they are going. So the calls here are shaped the other way round.
+ * The model writes what the country is putting in front of this member, and
+ * what the building made of them afterwards; it never decides what any of it
+ * costs.
+ *
+ * That division is the load-bearing part. Every number in this mode — the roll
+ * call, both stances, the whip count, the damage to your district and to your
+ * standing with leadership — is computed by the engine from the bill's position
+ * on the ideological axis, exactly as it was before any of this existed. The
+ * model supplies a title, a brief and an honest axis for that bill, and prose
+ * about what happened. If it is unreachable, unconfigured or returns nonsense,
+ * every caller falls through to the hand-written pool and the mode plays as it
+ * always did.
+ */
+
+export const chamberAiAvailable = aiAvailable;
+
+const DOMAINS = ARC_DOMAIN_IDS.join("|");
+
+function logUsage(label, model, usage) {
+  if (!usage) return;
+  const parts = [`in ${usage.in}`];
+  if (usage.cached) parts.push(`cached ${usage.cached}`);
+  parts.push(`out ${usage.out}`);
+  console.log(`[usage] ${label} (${model}): ${parts.join(", ")}`);
+}
+
+const GAVEL_RANKS = new Set(["subchair", "chair", "speaker"]);
+
+/**
+ * Who is being written for.
+ *
+ * A member's politics, their seat and their standing all change what leadership
+ * would put in front of them. The committee is deliberately mentioned only when
+ * they hold a gavel over it: naming a plain backbencher's committee turned out
+ * to be an instruction as far as a small model was concerned, and a senator who
+ * merely sat on Agriculture was handed an "Agricultural Cybersecurity
+ * Protection Act", an "Agricultural Resilience and Digital Defense Act" and an
+ * "Agricultural Resiliency and Cybersecurity Act" in consecutive months of a
+ * banking crisis. A committee seat is not a subject; a gavel is.
+ */
+function memberSummary(state) {
+  const seat = state.seat || {};
+  const senate = state.office === "senate";
+  const committee = committeeById(state.committee);
+  const rank = rankById(state.rank, chamberOf(state));
+  const gavel = GAVEL_RANKS.has(state.rank);
+  const where = senate ? seat.stateName : `${seat.district} (${seat.stateName})`;
+  const lean = Number(seat.lean) || 0;
+  const leanWord = Math.abs(lean) < 8 ? "a genuine marginal"
+    : `${Math.abs(lean).toFixed(0)} points ${lean < 0 ? "Democratic" : "Republican"}`;
+
+  return `THE MEMBER YOU ARE WRITING FOR:
+${state.scenario.presidentName}, ${state.scenario.party}${
+  state.independent ? ` (caucuses with the ${state.caucus}s)` : ""
+}, ${state.scenario.ideology || "no stated ideology"}, representing ${where}, which is ${leanWord}.
+They are a ${rank.title}${gavel && committee ? `, holding the gavel on ${committee.name} — ${committee.remit}` : ""}.
+Term ${state.term || 1}, month ${state.month}. Standing at home ${state.approval}%, with their caucus ${state.leadership}%.
+
+THIS MEMBER'S GENDER IS NOT STATED ANYWHERE AND YOU MUST NOT GUESS IT. Refer to them by surname, by title, or as "they/them" — never as he/him or she/her, and never inconsistently.`;
+}
+
+// ---------------------------------------------------------------------------
+// The floor schedule
+// ---------------------------------------------------------------------------
+
+const DOCKET_SYSTEM = `You write the legislative calendar for "Fantasy President," a serious, non-partisan political strategy game in which the player holds a single seat in the United States Congress. Each month you decide what the majority leadership actually brings to the floor.
+
+Your bills are the whole game. The player cannot write policy, cannot direct an agency and cannot command anyone — the only decision they ever make is which way to vote on what you schedule. A generic bill is therefore a wasted month.
+
+You MUST respond with ONLY a single JSON object (no prose, no markdown fences) with exactly this shape:
+{
+  "bills": [
+    {
+      "title": "the name it will be known by — an Act, a Resolution, an Amendment",
+      "brief": "ONE sentence, maximum 30 words, saying concretely what the bill does. Mechanisms and numbers, not aspirations.",
+      "axis": number,        // where it sits ideologically, -1 (hard left) to +1 (hard right)
+      "domain": "one of: ${DOMAINS}",
+      "sponsor": "Rep./Sen. Invented Name (D-XX) — never a real politician",
+      "because": "6-12 words on which national problem or news story produced this bill",
+      "addresses": "the exact id (e.g. arc_2) of the UNRESOLVED NATIONAL PROBLEM this bill answers, or null if it answers none of them",
+      "extremist": false
+    }
+  ]
+}
+
+Rules — read them, they are the difference between a floor and a list:
+- EVERY bill must be traceable to the national situation you are given. The month's dominating story and the unresolved problems are your material. A bill that could have been scheduled in any month of any decade is a failure.
+- Congress responds to a crisis LATE, PARTIALLY and IN ITS OWN INTEREST. The honest legislative answer to a disaster is usually a narrow funding bill, a commission, a reauthorisation with a rider attached, or a messaging vote designed to make the other side vote no. Sweeping, well-designed solutions to the actual problem are the rare case, not the default.
+- "axis" is load-bearing and the engine computes the entire roll call from it. Be honest: a bipartisan disaster-relief appropriation is near 0.0; a targeted tax cut is around +0.45; nationalising an industry is -0.9. Do not push everything to the extremes to seem dramatic — a chamber where every bill is at ±0.8 has no politics in it, only noise.
+- "addresses" is what lets the country notice. If a bill genuinely answers one of the listed problems, quote that problem's id EXACTLY as given. If it does not, use null — a bill that names a problem it does not actually address is worse than one that names none.
+- The MAJORITY sets the calendar and schedules what the majority likes. Most bills should sit near that party's centre of gravity (Democrats about -0.35, Republicans about +0.45). One bill in three or four may be a bipartisan measure near the centre, or a deliberately unwinnable vote staged to put the other side on the record.
+- Where the member SITS is not a subject. Only if they are named as holding a gavel should one bill fall in that committee's remit, and even then it must be a real bill about that remit — never the month's crisis with the committee's subject bolted onto the title. "Agricultural Cybersecurity Protection Act" during a banking crisis is exactly the failure. If the remit does not fit the month, write bills that do and ignore the committee.
+- Not every bill has to be about the crisis. A real calendar in a bad month still carries a post office naming, a lapsed reauthorisation and a judicial confirmation. At least one bill in three should be ordinary business the country is not watching.
+- Vary the scale. A twelve-billion-dollar authorisation, a technical fix to a statute nobody has read, and a constitutional amendment that will never be ratified are all legitimate floor business, and a calendar of nothing but landmark legislation is not a calendar.
+- Titles are how a bill is sold, and Congress names things dishonestly. A bill gutting an agency is called a Reform and Accountability Act.
+- NEVER reuse a title or a subject listed as already voted on this Congress.
+- Invent every name. No real politicians, no real organisations, no real publications.
+- Return exactly the number of bills you are asked for. No commentary outside the JSON.`;
+
+/**
+ * What leadership schedules, written to the month.
+ *
+ * The count comes from the engine rather than the model, so a Speaker still
+ * runs a fuller calendar than a freshman and a quiet month is still possible —
+ * the pacing of the mode is not something the model gets a vote on.
+ */
+export async function docketFromModel(state, count, { fringe = null } = {}) {
+  const seen = votedSubjects(state);
+  const user = `${nationSummary(state)}
+
+${memberSummary(state)}
+
+${seen.length ? `ALREADY VOTED ON THIS CONGRESS — do not schedule these again:\n${seen.map((s) => `- ${s}`).join("\n")}` : "Nothing has come to the floor yet this Congress."}
+${fringe ? fringeInstruction(fringe, count) : `
+NONE of this month's bills is an extremist bill. Write ordinary legislation — it may be strongly partisan, but nothing that abolishes an institution, rewrites the constitutional settlement or overturns the economic system.`}
+
+Schedule exactly ${count} bill${count === 1 ? "" : "s"} for this month's floor in the ${state.office === "senate" ? "Senate" : "House"}. Return the JSON object.`;
+
+  const resp = await complete({
+    system: DOCKET_SYSTEM,
+    messages: [{ role: "user", content: user }],
+    tier: "judge",
+    maxTokens: 900,
+    json: true,
+    // Identical every month and comfortably over the 4096-token minimum once
+    // the worked rules are counted, so repeat months bill the prefix at ~10%.
+    cache: true,
+  });
+
+  logUsage("docket", resp.model, resp.usage);
+  return validateDocket(parseModelJson(resp.text), state, count, { fringe });
+}
+
+/**
+ * The month the fringe gets a slot.
+ *
+ * Worth spelling out at length for a small model, because "extremist" on its
+ * own reliably produces a merely strident version of an ordinary bill — a
+ * bigger tax cut, a more generous benefit. What is wanted is a different
+ * category: a bill that changes the regime rather than the policy, of the kind
+ * that would be the constitutional crisis of a decade if it passed. The
+ * examples are the six the hand-written pool carries, so both routes to the
+ * floor mean the same thing by the word.
+ */
+function fringeInstruction(side, count) {
+  const examples = side === "left"
+    ? `bringing energy, pharmaceuticals and heavy industry under public ownership with workers' councils; capping any person's total compensation at a fixed multiple of the minimum wage; a declining statutory cap on national energy and material throughput`
+    : `winding up the central bank and returning monetary authority to the states; establishing scriptural instruction in federally funded schools and a national day of observance; repealing the federal income tax outright and funding the government from tariffs`;
+
+  return `
+EXACTLY ONE of this month's ${count} bill${count === 1 ? "" : "s"} MUST be a genuinely EXTREMIST bill of the ${side.toUpperCase()} — and the ${
+  count === 1 ? "only bill on the calendar is that bill" : "others must be ordinary legislation"}.
+
+This does not mean a strongly partisan bill. It means one that overturns the settlement rather than adjusting it — the sort of thing that would be the constitutional crisis of the decade if it passed. In this vein: ${examples}.
+- Give it an axis of ${side === "left" ? "-0.85 or lower (toward -1)" : "0.85 or higher (toward +1)"}.
+- Write it straight. Its sponsors believe in it, its title is respectable, and its brief states the mechanism plainly. It is not a joke and must never read as one.
+- It does not have to answer any listed problem — use "addresses": null unless it genuinely does. The fringe brings its own agenda; that is what makes it the fringe.
+- Set "extremist": true on that bill and on no other.`;
+}
+
+/** Subjects the chamber has already disposed of, so the model stops repeating. */
+function votedSubjects(state) {
+  const now = state.term || 1;
+  return (state.voteLog || [])
+    .filter((v) => (v.term || 1) === now)
+    .slice(-12)
+    .map((v) => v.title)
+    .filter(Boolean);
+}
+
+/**
+ * The engine does not trust a word of this.
+ *
+ * A bill reaches the roll call only with an id, a title and a number between
+ * -1 and 1, because those are the three things every downstream calculation
+ * reads. Anything malformed is dropped rather than repaired into a bill nobody
+ * meant to write, and if that leaves nothing the caller falls back to the pool.
+ */
+export function validateDocket(raw, state, count, { fringe = null } = {}) {
+  const list = Array.isArray(raw?.bills) ? raw.bills : [];
+  const out = [];
+  const titles = new Set();
+  // A bill may only claim to answer a problem that actually exists. An invented
+  // id would sit in the vote log forever matching nothing, which is a quieter
+  // version of the bug this field was added to fix.
+  const live = new Set(activeArcs(state).map((a) => a.id));
+
+  for (const item of list) {
+    if (out.length >= count) break;
+    const title = String(item?.title || "").trim().slice(0, 90);
+    if (!title || titles.has(title.toLowerCase())) continue;
+
+    /**
+     * The axis must be stated, not merely coercible. `Number(null)` and
+     * `Number("")` are both 0, so a model that left the field out entirely
+     * would otherwise be handed a dead-centre bill it never wrote — a bipartisan
+     * compromise nobody chose, with a roll call computed off it.
+     */
+    if (item?.axis === null || item?.axis === undefined || item?.axis === "") continue;
+    const axis = Number(item.axis);
+    if (!Number.isFinite(axis)) continue;
+
+    titles.add(title.toLowerCase());
+    const clamped = Math.max(-1, Math.min(1, Math.round(axis * 100) / 100));
+    out.push({
+      // Stable within the month and unique across the career, which is all the
+      // vote log, the committee log and the whip ledger need from an id.
+      id: `ai_${state.term || 1}_${state.month}_${out.length + 1}`,
+      title,
+      brief: String(item?.brief || "").trim().slice(0, 240),
+      axis: clamped,
+      domain: normalizeDomain(item?.domain),
+      sponsor: String(item?.sponsor || "").trim().slice(0, 80) || null,
+      because: String(item?.because || "").trim().slice(0, 120) || null,
+      // Which outstanding problem this answers, if the model named a real one.
+      addresses: live.has(String(item?.addresses || "").trim())
+        ? String(item.addresses).trim() : null,
+      /**
+       * A bill is only the fringe one if this was a fringe month, the model
+       * said so, and the position it gave backs the claim. All three, because
+       * the flag drives how the floor presents it and a model that labels an
+       * ordinary tax bill "extremist" would cry wolf every month.
+       */
+      fringe: Boolean(
+        fringe && item?.extremist === true
+        && Math.abs(clamped) >= FRINGE_AXIS
+        && (fringe === "left" ? clamped < 0 : clamped > 0),
+      ),
+      // Where it came from, so the floor can say so and a bug is visible.
+      written: true,
+    });
+  }
+  return out;
+}
+
+// ---------------------------------------------------------------------------
+// Next month's news
+// ---------------------------------------------------------------------------
+
+const SITUATION_SYSTEM = `You write the national news for "Fantasy President," a political strategy game. The player is a single member of the United States Congress, so they cannot act on any of this directly — they can only vote on what leadership schedules in response to it.
+
+Write the one story dominating the country next month. Respond with ONLY JSON:
+{"title": "headline, under 60 characters", "brief": "2-4 sentences on the situation, with an actor, a clock and a decision Congress will be dragged into", "domain": "one of: ${DOMAINS}"}
+
+Rules:
+- YOU WILL BE GIVEN A REQUIRED DOMAIN. The story must be in that domain. This is not a suggestion and it overrides every other instinct you have — if the domain is "health" you write a health story even though last month was about banks.
+- YOU WILL BE GIVEN A LIST OF SUBJECTS ALREADY USED. The country has just been through those. Do not write another instalment of any of them, do not write a sequel, and do not write the same event from a new angle. A new subject means new actors, a new industry and a new committee.
+- The ONE exception: if a listed problem is at severity 4 or 5, you may write the disaster it was always going to produce — the thing that happens because Congress did nothing. That is the payoff for months of neglect and it is the only time repeating a subject is right.
+- It must be something CONGRESS gets asked about: a funding cliff, a scandal with a subpoena, a disaster needing an appropriation, a court ruling that voids a statute, a treaty needing ratification. A story with no legislative hook is weather.
+- Name actors, deadlines and numbers. No "tensions continue to rise".
+- Invent every name. No real politicians, organisations or publications.
+- Roughly one month in five should be genuinely quiet — a procedural story, an economic datapoint, an appropriations deadline. Not every month is a catastrophe.
+- Never mention that this is a game. No markdown, no prose outside the JSON.`;
+
+export async function situationFromModel(state) {
+  /**
+   * The domain is chosen by the engine, not the model.
+   *
+   * Asked to write "what happens next", a small model writes the same thing
+   * again — six months of one subject, each headline a slightly later stage of
+   * the last. Naming the domain replaces an open question it answers badly with
+   * a closed one it answers well. See `steerDomain` in nation.js.
+   */
+  const domain = steerDomain(state);
+  const used = recentNewsSubjects(state);
+
+  const resp = await complete({
+    system: SITUATION_SYSTEM,
+    messages: [{
+      role: "user",
+      content: `${nationSummary(state)}
+
+REQUIRED DOMAIN FOR NEXT MONTH'S STORY: ${domain}
+${used.length ? `SUBJECTS ALREADY USED — write about none of these:\n${used.map((t) => `- ${t}`).join("\n")}` : ""}
+
+It is month ${absoluteMonth(state)} of this career. Write next month's story, in the ${domain} domain.`,
+    }],
+    tier: "chat",
+    maxTokens: 400,
+    json: true,
+  });
+  logUsage("situation", resp.model, resp.usage);
+
+  const out = parseModelJson(resp.text);
+  const title = String(out?.title || "").trim().slice(0, 90);
+  if (!title) throw new Error("The model returned a situation with no headline.");
+  // A model that ignored the domain it was given does not get to keep the one
+  // it preferred — the steer is the whole point, and honouring its answer here
+  // would quietly undo it.
+  const claimed = normalizeDomain(out?.domain);
+  return {
+    id: `ai_sit_${state.term || 1}_${state.month}`,
+    title,
+    brief: String(out?.brief || "").trim().slice(0, 600),
+    domain: out?.domain && claimed === normalizeDomain(domain) ? claimed : domain,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// What the building made of your vote
+// ---------------------------------------------------------------------------
+
+const FALLOUT_SYSTEM = `You write the aftermath of a single congressional vote for "Fantasy President," a serious, non-partisan political strategy game.
+
+The player holds one seat. The roll call has already happened, the bill has already passed or failed, and the cost to the player's standing at home and with their caucus has ALREADY been calculated and applied. You are not deciding any of that and you must never contradict the numbers you are given. You are writing what it meant.
+
+Respond with ONLY JSON:
+{
+  "analysis": "2-3 sentences on what this vote actually does to the country and to this member. Concrete.",
+  "press": [
+    { "outlet": "invented paper serving the member's own district or state", "lean": "left|center|right", "headline": "how it played at home" },
+    { "outlet": "invented national outlet", "lean": "left|center|right", "headline": "how it played nationally" }
+  ],
+  "voices": [
+    { "name": "invented constituent name", "who": "their job and town, 3-6 words", "quote": "one or two sentences in their own voice" }
+  ]
+}
+
+Rules:
+- THE ANALYSIS MUST NOT RESTATE THE NUMBERS. The player is already looking at the tally and at both standing changes on the same screen. "Their vote bolstered their standing with the caucus and with constituents" is worthless — it is the numbers read back as a sentence. Say what happens in the WORLD now: what the money buys, who administers it, what does not get fixed by it, who is already drafting the follow-up, what this member will be asked about at the next town hall. Write the sentence the player could not have worked out from the dashboard.
+- ALWAYS return two or three voices, from the member's OWN district or state. Never return an empty voices array. They are talking about this vote, not about politics in general — naming the concrete thing is what makes a quote land, and they should not all agree.
+- Their reaction must match the direction of the standing change you are given. If the seat lost ground, the constituents are not pleased.
+- A vote on the losing side of a lopsided roll call is a position, not an outcome. Say so. A decisive vote on a close one is the opposite, and follows the member for years.
+- Voting against your caucus and voting against your district are completely different sins with completely different consequences. Name which one this was.
+- Do not congratulate the member. You are not on their staff. A bill passing is not the same as a bill working, and most of these will not work.
+- Be compact. Headlines are headline-length; the analysis is three sentences and never four.
+- Invent every name. No real people, organisations or publications. Never mention that this is a game.`;
+
+export async function falloutFromModel(state, result) {
+  const bill = result.bill || {};
+  const t = result.tally || {};
+  const seat = state.seat || {};
+  const home = state.office === "senate" ? seat.stateName : seat.district;
+  const sign = (n) => `${n > 0 ? "+" : ""}${n}`;
+
+  const user = `${nationSummary(state)}
+
+${memberSummary(state)}
+
+THE BILL: ${bill.title} — ${bill.brief || "no summary"} (${bill.domain || "general"})
+${bill.because ? `Why it was scheduled: ${bill.because}\n` : ""}
+THE ROLL CALL: ${result.passed ? "PASSED" : "FAILED"} ${t.yes}–${t.no}${
+    result.filibustered ? ` against a filibuster, needing ${result.bar}` : ""
+  }.${result.decisive ? " THIS MEMBER'S VOTE WAS THE DECIDING ONE." : ""}
+THEY VOTED: ${String(result.yourVote).toUpperCase()}.
+Their caucus was ${result.party?.position?.toUpperCase()} (pressure ${result.party?.intensity}/100); they voted ${result.party?.delta >= 0 ? "WITH" : "AGAINST"} it, and their standing with leadership moved ${sign(result.party?.delta ?? 0)}.
+${home} was ${result.district?.position?.toUpperCase()} (pressure ${result.district?.intensity}/100); their standing at home moved ${sign(result.district?.delta ?? 0)}.
+
+Write the aftermath and return the JSON object.`;
+
+  const resp = await complete({
+    system: FALLOUT_SYSTEM,
+    messages: [{ role: "user", content: user }],
+    tier: "chat",
+    maxTokens: 700,
+    json: true,
+  });
+  logUsage("fallout", resp.model, resp.usage);
+
+  const out = parseModelJson(resp.text);
+  const lean = (v) => (["left", "center", "right"].includes(v) ? v : "center");
+  return {
+    analysis: String(out?.analysis || "").trim().slice(0, 600),
+    press: (Array.isArray(out?.press) ? out.press : []).slice(0, 3)
+      .filter((p) => p?.headline)
+      .map((p) => ({
+        outlet: String(p.outlet || "").slice(0, 60),
+        lean: lean(p.lean),
+        headline: String(p.headline).slice(0, 140),
+      })),
+    voices: (Array.isArray(out?.voices) ? out.voices : []).slice(0, 4)
+      .filter((v) => v?.quote)
+      .map((v) => ({
+        name: String(v.name || "A constituent").slice(0, 50),
+        who: String(v.who || "").slice(0, 60),
+        quote: String(v.quote).slice(0, 320),
+      })),
+  };
+}
+
+// ---------------------------------------------------------------------------
+// The person who tells you what it will cost
+// ---------------------------------------------------------------------------
+
+/**
+ * A member's cabinet is one room with four people in it, and the one who
+ * matters runs the office. The presidency's advisor chat asks a Secretary what
+ * the country should do; this asks a chief of staff what a vote will do to you,
+ * which is the only question a member actually has.
+ */
+export async function staffReply(state, history, message) {
+  const seat = state.seat || {};
+  const home = state.office === "senate" ? seat.stateName : seat.district;
+  const committee = committeeById(state.committee);
+  const chief = staffOf(state);
+
+  const sys = `You are ${chief.name}, Chief of Staff to ${state.scenario.presidentName}, ${
+    state.scenario.party} ${state.office === "senate" ? "Senator" : "Representative"} for ${home}. You have run this office for years and you are ${chief.manner}.
+
+You are not a policy advisor and you do not talk about what is good for the country unless it is also good for the boss. Your job is counting: who is watching this vote, what it costs at home, what leadership will remember, and what it does to the next election. Be specific and be blunt. Speak in the first person, directly to them, in 2-4 sentences. Never use JSON, never mention that this is a game, and never invent a real politician.
+
+${nationSummary(state)}
+
+${memberSummary(state)}
+${committee ? `You staff them on ${committee.name}.` : ""}
+Their re-election is ${monthsToElection(state)} months away.`;
+
+  const messages = [];
+  for (const m of (history || []).slice(-8)) {
+    messages.push({ role: m.role === "staff" ? "assistant" : "user", content: String(m.text || "") });
+  }
+  messages.push({ role: "user", content: message });
+
+  const resp = await complete({ system: sys, messages, tier: "chat", maxTokens: 350 });
+  return resp.text.trim();
+}
+
+const CHIEF_FIRST = ["Rosalind", "Dov", "Marisol", "Terrence", "Nell", "Amos", "Priya", "Whit"];
+const CHIEF_LAST = ["Boyle", "Ferris", "Okonjo", "Vance", "Radcliffe", "Nakamura", "Salas"];
+const MANNERS = [
+  "profanely direct and almost always right",
+  "unflappable, and worrying when you are not",
+  "a former whip staffer who counts votes in their sleep",
+  "protective of you to a fault and openly contemptuous of leadership",
+];
+
+/**
+ * The same person every month of a career, derived from the career seed rather
+ * than stored — so an old save that predates any of this still has a chief of
+ * staff the moment it is loaded.
+ */
+export function staffOf(state) {
+  const r = seeded(`${state?.rosterSeed || "chief"}|chief`);
+  return {
+    name: `${r.pick(CHIEF_FIRST)} ${r.pick(CHIEF_LAST)}`,
+    manner: r.pick(MANNERS),
+  };
+}
+
+function monthsToElection(state) {
+  const termLength = state.office === "senate" ? 72 : 24;
+  return Math.max(0, termLength - (state.month || 1) + 1);
+}

@@ -1,11 +1,16 @@
 import { seeded, hashString, clamp, round1 } from "./rng.js";
 import { STATES } from "./states.js";
-import { BILL_POOL, billById, rollCall } from "./bills.js";
+import { BILL_POOL, billById, rollCall, FRINGE_BILLS, fringeChance } from "./bills.js";
 import { houseRaces, nationalEnvironment, runCongressionalCycle } from "./elections.js";
 import { buildCongress } from "../public/js/data/government.js";
 import { assignCommittee, earnCapital, evaluateLadder, committeeById } from "./committees.js";
 import { emptyArticles, tickArticles } from "./articles.js";
 import { nextChoices } from "./career.js";
+import { seedNation, advanceNation } from "./nation.js";
+import { activeArcs } from "./arcs.js";
+import { buildSociety } from "./society.js";
+import { applyConsequence, applyDetonationDamage, driftSociety } from "./consequence.js";
+import { recordMonth, noteEvent, EVENT } from "./chronicle.js";
 
 /**
  * A seat in the House.
@@ -28,6 +33,9 @@ import { nextChoices } from "./career.js";
 
 export const HOUSE_TERM = 24;          // months — two years, every time
 export const SPONSOR_COOLDOWN = 4;     // months between bills you can file
+
+/** The most a hoard of favours can add to a bill's chance of a hearing. */
+export const FAVOUR_PUSH_CAP = 30;
 
 /**
  * The Senate files less often, because a senator has fewer chances and takes
@@ -170,7 +178,9 @@ export function createHouseCareer(scenario) {
   const career = buildCareer(scenario);
   // Committees are handed out by leadership, so this needs the finished career.
   career.committee = assignCommittee(career);
-  return career;
+  // Nobody is sworn in to an empty country: one story in the news and one
+  // problem already outstanding, both of which the floor will be about.
+  return seedNation(career);
 }
 
 function buildCareer(scenario) {
@@ -208,6 +218,19 @@ function buildCareer(scenario) {
     leadership: clamp(Math.round(52 + r.between(-8, 8))),
     // The country, carried over wholesale from the presidential game.
     economy: { gdpGrowth: 2.4, unemployment: 4.1, inflation: 3.0, debt: 34.2 },
+    /**
+     * The eight national statistics, at the era's real baseline.
+     *
+     * Always on for a legislator, unlike the presidency where they are a rule
+     * of play you switch on. For a member they are not a flourish — they are
+     * the only lasting evidence that any of the voting mattered, and the thing
+     * a career is finally read against.
+     */
+    society: buildSociety(scenario),
+    // What the country looked like on the day they were sworn in, kept so it
+    // can drift back toward it and be compared against for thirty years.
+    baseline: buildSociety(scenario),
+    chronicle: [],
     congress: seedCongress(scenario),
     stateApproval: {},
     voteLog: [],
@@ -253,19 +276,83 @@ export function seedCongress(scenario) {
 // --- The floor --------------------------------------------------------------
 
 /**
+ * How much reaches the floor this month.
+ *
+ * The pacing of the mode lives here and nowhere else. A Speaker sets the
+ * schedule, so more reaches the floor and they choose from it; everybody else
+ * takes what they are given, and some months that is nothing. Exported because
+ * a written docket has to be paced by the same rule as a drawn one — the model
+ * writes the bills, it does not get to decide how busy the chamber is.
+ */
+export function docketSize(state) {
+  const r = seeded(`${state.rosterSeed}|floor|${state.term || 1}|${state.month}`);
+  return state.rank === "speaker"
+    ? (r.chance(0.5) ? 3 : 4)
+    : (r.chance(0.22) ? 0 : r.chance(0.62) ? 1 : r.chance(0.7) ? 2 : 3);
+}
+
+/**
+ * Is this a month the fringe gets a slot?
+ *
+ * One roll a month, at the rate the rules of play set: about one month in
+ * twenty normally, one in two under a radicalised government. Decided here
+ * rather than by whoever is writing the bills, for the same reason the size of
+ * the calendar is — how strange the chamber gets is a property of the game, not
+ * something a model is asked to judge, and it has to come out the same whether
+ * the bills are drawn from the pool or written fresh.
+ */
+export function fringeMonth(state) {
+  return seeded(`${state.rosterSeed}|fringe|${state.term || 1}|${state.month}`)
+    .chance(fringeChance(state));
+}
+
+/**
+ * Which end of the spectrum it comes from.
+ *
+ * Weighted toward the majority's own extreme, because the majority schedules
+ * the floor and a fringe bill is usually its own flank being paid off. The
+ * other third of the time it is the minority's, put up precisely because it
+ * cannot pass — which is a real and much-used manoeuvre.
+ */
+export function fringeSide(state) {
+  const r = seeded(`${state.rosterSeed}|fringeside|${state.term || 1}|${state.month}`);
+  const senate = state.office === "senate";
+  const majority = senate
+    ? (state.congress.senateR > state.congress.senateD ? "Republican" : "Democrat")
+    : (state.congress.houseR > state.congress.houseD ? "Republican" : "Democrat");
+  const theirs = majority === "Republican" ? "right" : "left";
+  return r.chance(0.68) ? theirs : (theirs === "right" ? "left" : "right");
+}
+
+/** The extremist bill this month would put up, drawn from the written six. */
+export function fringeBillFor(state) {
+  const side = fringeSide(state);
+  const wanted = FRINGE_BILLS.filter((b) => (side === "left" ? b.axis < 0 : b.axis > 0));
+  if (!wanted.length) return null;
+
+  // Prefer one this Congress has not already disposed of.
+  const fresh = wanted.filter((b) => !votedThisCongress(state, b.id));
+  const from = fresh.length ? fresh : wanted;
+  const r = seeded(`${state.rosterSeed}|fringepick|${state.term || 1}|${state.month}`);
+  const chosen = from[Math.floor(r.next() * from.length)] || from[0];
+  return {
+    id: chosen.id, title: chosen.title, brief: chosen.brief,
+    axis: chosen.axis, domain: chosen.domain, fringe: true,
+  };
+}
+
+/**
  * What leadership actually schedules this month.
  *
  * Drawn from the same pool the presidential game uses, so a member is voting on
- * the identical legislation a president would be signing or vetoing.
+ * the identical legislation a president would be signing or vetoing. This is
+ * the offline calendar: when a model is configured it writes the month's bills
+ * out of the national situation instead, and this remains the fallback for a
+ * key that is missing, a machine that is asleep and a Classic career.
  */
 export function floorBills(state) {
   const r = seeded(`${state.rosterSeed}|floor|${state.term || 1}|${state.month}`);
-  // A Speaker sets the schedule, so more reaches the floor and they choose from
-  // it. Everybody else takes what they are given.
-  const speaker = state.rank === "speaker";
-  const count = speaker
-    ? (r.chance(0.5) ? 3 : 4)
-    : (r.chance(0.22) ? 0 : r.chance(0.62) ? 1 : r.chance(0.7) ? 2 : 3);
+  const count = docketSize(state);
   if (!count) return [];
 
   const pool = floorPool(state, BILL_POOL);
@@ -286,9 +373,29 @@ export function floorBills(state) {
   const gavel = ["subchair", "chair", "speaker"].includes(state.rank);
   const mine = gavel ? new Set(committeeById(state.committee)?.domains || []) : null;
 
+  /**
+   * A crisis eventually drags the calendar toward itself.
+   *
+   * Without this the offline floor is drawn purely on party lines and takes no
+   * notice of what is happening to the country — so the problems the nation is
+   * carrying are, quite literally, unaddressable: no bill about them is ever
+   * scheduled, every one of them escalates to the ceiling and breaks open, and
+   * a Classic career watches six disasters it was never offered a chance to
+   * prevent. A model-written calendar has answered the situation since it was
+   * built; this is the pool doing the same with the material it has.
+   *
+   * Weighted by severity, so a simmering problem barely tilts the floor and an
+   * acute one dominates it — which is how a legislature actually reprioritises.
+   */
+  const urgency = new Map();
+  for (const arc of activeArcs(state)) {
+    urgency.set(arc.domain, Math.max(urgency.get(arc.domain) || 0, arc.severity));
+  }
+
   const weights = pool.map((b) => {
     const nearness = 1 / (0.18 + Math.abs(b.axis - anchor));
-    return mine?.has(b.domain) ? nearness * 4.5 : nearness;
+    const crisis = 1 + (urgency.get(b.domain) || 0) * 0.8;
+    return (mine?.has(b.domain) ? nearness * 4.5 : nearness) * crisis;
   });
 
   const out = [];
@@ -304,7 +411,25 @@ export function floorBills(state) {
       axis: chosen.axis, domain: chosen.domain, fringe: Boolean(chosen.fringe),
     });
   }
-  return out;
+  return seatFringe(state, out);
+}
+
+/**
+ * Give the fringe its slot, if this is one of its months.
+ *
+ * It takes a place on the calendar rather than being added to it, so the
+ * chamber's workload is unchanged and a fringe month is a month something
+ * ordinary got bumped for — which is exactly what it costs in practice. On a
+ * one-bill month that means the extremist bill *is* the month, which is the
+ * right amount of alarming.
+ */
+export function seatFringe(state, bills) {
+  if (!bills.length || !fringeMonth(state)) return bills;
+  const fringe = fringeBillFor(state);
+  if (!fringe) return bills;
+  // Never twice on one calendar.
+  if (bills.some((b) => b.id === fringe.id)) return bills;
+  return [...bills.slice(0, -1), fringe];
 }
 
 /** Where your leadership stands, and how hard they are leaning on you. */
@@ -402,20 +527,56 @@ export function castVote(state, bill, vote) {
   // The rest of the chamber, and then you.
   const roster = buildCongress(next, STATES);
   const tally = rollCall(roster.house, bill.axis);
+  /**
+   * The votes a whip actually moved.
+   *
+   * `spendCapital` has always banked these and `whipCount` has always shown
+   * them, but the House roll call never read them — so a whip spent favours,
+   * watched the count on screen go from four short to one up, and then lost the
+   * vote anyway by exactly the margin they had just paid to close. The Senate
+   * has read this since the day it was written; the House simply never did.
+   *
+   * It is the single most consequential thing a member can do to an outcome,
+   * which makes it the thing that most needed to be real.
+   */
+  const swung = (next.swung || {})[bill.id] || 0;
   const yourYes = vote === "yes" ? 1 : 0;
-  const passed = tally.yes + yourYes >= tally.threshold;
+  const passed = tally.yes + swung + yourYes >= tally.threshold;
 
   next.voteLog = [...(next.voteLog || []), {
     id: bill.id, title: bill.title, axis: bill.axis, vote,
+    // What lets the country notice. A bill that passes eases the national
+    // problem it was about; without this the chamber's whole output is
+    // invisible to everything outside it. `addresses` names that problem
+    // outright where a written bill claimed one, because matching on the domain
+    // alone let a bank rescue tagged "security" ease nothing at all. See
+    // nation.js.
+    domain: bill.domain || null,
+    addresses: bill.addresses || null,
     month: next.month, term: next.term || 1,
     withDistrict, withParty, passed,
   }];
 
-  const decisive = Math.abs(tally.yes + yourYes - tally.threshold) === 0 && vote === "yes";
+  const decisive = tally.yes + swung + yourYes === tally.threshold && vote === "yes";
+
+  /**
+   * A bill that carried changes the country.
+   *
+   * The single largest gap in the mode until now: every bill in the pool has
+   * carried effects since the day it was written, and a chamber career read
+   * none of them. This is where a vote stops being a number on your own
+   * dashboard and becomes something a player can point at on a chart in their
+   * third term.
+   */
+  const moved = passed ? applyConsequence(next, bill) : {};
+  next.pending = [...(next.pending || []), noteEvent(passed ? EVENT.PASSED : EVENT.FAILED, {
+    title: bill.title, domain: bill.domain, moved, vote,
+    tally: `${tally.yes + swung + yourYes}-${tally.total - tally.yes - swung - yourYes}`,
+  })];
 
   const result = {
-    bill, yourVote: vote, passed, decisive,
-    tally: { ...tally, yes: tally.yes + yourYes, no: tally.total - tally.yes - yourYes },
+    bill, yourVote: vote, passed, decisive, moved,
+    tally: { ...tally, yes: tally.yes + swung + yourYes, no: tally.total - tally.yes - swung - yourYes },
     district: { ...district, delta: districtDelta },
     party: { ...party, delta: leadershipDelta },
     note: describeVote({ withDistrict, withParty, vote, passed, decisive, district, party }),
@@ -453,13 +614,31 @@ function describeVote({ withDistrict, withParty, vote, passed, decisive, distric
  * senator's bill used to be counted by 435 people who had never seen it — and
  * it decides how often you get to try.
  */
-export function sponsorBill(state, { title, axis, domain }) {
+export function sponsorBill(state, { title, axis, domain, favours = 0 }) {
   const cooldown = sponsorCooldown(state);
   const last = (state.sponsored || []).slice(-1)[0];
   if (last && state.month - last.month < cooldown && (last.term || 1) === (state.term || 1)) {
     return { state, rejected: true, note: `You can file again in ${cooldown - (state.month - last.month)} months.` };
   }
   const billAxis = Math.max(-1, Math.min(1, Number(axis) || 0));
+
+  /**
+   * Favours, spent on getting your own bill heard.
+   *
+   * This is the join the two systems were missing. Voting the caucus line is
+   * what banks favours and it is also what costs you at home — so the reason to
+   * do it has to be something you can point at, and "a hearing for the bill with
+   * my name on it" is the reason a real member gives. Before this, the currency
+   * you paid for in district approval could only ever be spent by a Whip, on
+   * somebody else's legislation.
+   */
+  const called = Math.max(0, Math.round(Number(favours) || 0));
+  if (called > (state.capital ?? 0)) {
+    return {
+      state, rejected: true,
+      note: `You have ${Math.round(state.capital ?? 0)} favours to call in, not ${called}.`,
+    };
+  }
 
   const next = structuredClone(state);
   const senate = next.office === "senate";
@@ -476,9 +655,17 @@ export function sponsorBill(state, { title, axis, domain }) {
    */
   const committee = committeeById(next.committee);
   const ownsIt = committee?.domains.includes(domain || "economy");
+  /**
+   * What the favours bought. Diminishing like everything else you call in — the
+   * first few calls are to people glad to help and the rest are not — and capped
+   * so no hoard makes a hearing a certainty. Getting heard is never a formality.
+   */
+  const push = called ? Math.min(FAVOUR_PUSH_CAP, Math.floor(Math.sqrt(called) * 3.2)) : 0;
+  next.capital = Math.max(0, round1((next.capital ?? 0) - called));
+
   const odds = clamp(Math.round(
     8 + (next.leadership - 50) * 0.55 + Math.min(seniority, 8) * 5.5
-    + (tally.passed ? 14 : 0) + (ownsIt ? 18 : 0)
+    + (tally.passed ? 14 : 0) + (ownsIt ? 18 : 0) + push
   ), 2, 92);
 
   const r = seeded(`${next.rosterSeed}|sponsor|${next.term || 1}|${next.month}`);
@@ -491,12 +678,32 @@ export function sponsorBill(state, { title, axis, domain }) {
     axis: billAxis, domain: domain || "economy",
     month: next.month, term: next.term || 1,
     reachedFloor, passed, cosponsors, ownCommittee: Boolean(ownsIt),
+    favours: called,
   }];
 
-  // Filing costs nothing; passing something is the making of a career.
+  /**
+   * Your own law, on the country.
+   *
+   * This is where a member has more agency than anywhere else in the mode, and
+   * it was the one place nothing was connected. One vote in four hundred and
+   * thirty-five almost never decides a roll call — which is honest, and which
+   * means that if voting were all a career had, two members who voted opposite
+   * ways on everything for twenty years would leave behind identical countries.
+   * They did, before this: the same statistics to the decimal.
+   *
+   * A bill with your name on it is the answer to that. It is yours, it is rare,
+   * getting one heard is the whole reason to spend a vote on your caucus, and
+   * now it leaves a mark on the nation that outlives you.
+   */
+  let moved = {};
   if (passed) {
     next.approval = clamp(round1(next.approval + 4));
     next.leadership = clamp(round1(next.leadership + 6));
+    moved = applyConsequence(next, { id: null, title, axis: billAxis, domain: domain || "economy" });
+    next.pending = [...(next.pending || []), noteEvent(EVENT.PASSED, {
+      title: `${title} (yours)`, domain: domain || "economy", moved, vote: "sponsor",
+      tally: `${tally.yes}-${tally.no}`,
+    })];
   } else if (reachedFloor) {
     next.approval = clamp(round1(next.approval + 1));
     next.leadership = clamp(round1(next.leadership - 1));
@@ -505,7 +712,8 @@ export function sponsorBill(state, { title, axis, domain }) {
   return {
     state: next,
     result: {
-      title, axis: billAxis, odds, reachedFloor, passed, cosponsors, tally, chamberName,
+      title, axis: billAxis, odds, reachedFloor, passed, cosponsors, tally, chamberName, moved,
+      favours: called, push, capital: next.capital,
       note: passed
         ? `It passed the ${chamberName} ${tally.yes}–${tally.no}. Your name is on a law.`
         : reachedFloor
@@ -586,8 +794,15 @@ export function votedThisCongress(state, billId) {
 }
 
 export function floorPool(state, pool) {
-  const radical = state.scenario?.radicals === true;
-  const eligible = pool.filter((b) => radical || !b.fringe);
+  /**
+   * The ordinary draw is always ordinary bills.
+   *
+   * The fringe reaches the floor through `seatFringe` and nowhere else, at one
+   * governed probability a month. Letting a radicalised chamber also draw them
+   * here — which is what used to happen — would stack the two routes and put
+   * the real rate well above the one the rules of play promise.
+   */
+  const eligible = pool.filter((b) => !b.fringe);
   if (!eligible.length) return [];
 
   const thisCongress = congressIndex(state);
@@ -677,6 +892,41 @@ export function runReelection(state) {
 }
 
 /**
+ * Everything that happens to the country after the votes and before the entry.
+ *
+ * Shared by both chambers, because the country does not care which room the
+ * member sits in. Order matters: the damage from anything that broke open lands
+ * first, then the slow pull back toward the era's baseline, then the month is
+ * written down as it finished.
+ */
+export function closeTheMonth(next) {
+  const events = next.pending || [];
+  next.pending = [];
+
+  if (next.detonation) {
+    const arc = next.detonation.arc;
+    const moved = applyDetonationDamage(next, arc.domain);
+    events.push(noteEvent(EVENT.DETONATED, {
+      title: arc.title, domain: arc.domain, moved,
+    }));
+  }
+  for (const settled of newlyResolved(next)) {
+    events.push(noteEvent(EVENT.RESOLVED, { title: settled.title, domain: settled.domain }));
+  }
+
+  driftSociety(next, next.baseline);
+  recordMonth(next, events);
+  next.resolvedSeen = (next.resolved || []).length;
+  return next;
+}
+
+/** Problems settled since the last entry, which the record has not yet noted. */
+function newlyResolved(next) {
+  const all = next.resolved || [];
+  return all.slice(next.resolvedSeen || 0);
+}
+
+/**
  * Roll the month forward. At the end of a term the district votes, and either
  * the career continues with another two years on the clock or it stops.
  */
@@ -687,6 +937,19 @@ export function advanceHouseMonth(state) {
   // slowly forgotten by their district and by their leadership alike.
   next.approval = clamp(round1(next.approval + (50 - next.approval) * 0.04));
   next.leadership = clamp(round1(next.leadership + (52 - next.leadership) * 0.05));
+
+  /**
+   * The country moves before the calendar does.
+   *
+   * This reads the votes just cast — so a bill that passed eases the problem it
+   * was about, and one nobody scheduled lets that problem get worse — and then
+   * walks the economy and leans on the President's approval accordingly. All of
+   * it is deterministic; the model only ever writes the words on top.
+   */
+  advanceNation(next);
+  // Next month is a new calendar. Whatever was scheduled for this one is spent.
+  next.docket = null;
+  closeTheMonth(next);
 
   // The presidency moves whether or not it is yours, and the wave you run in is
   // made of it.

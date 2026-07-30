@@ -149,6 +149,39 @@ export const BILL_POOL = [
 
 export const billById = (id) => BILL_POOL.find((b) => b.id === id);
 
+/**
+ * How often the fringe gets floor time.
+ *
+ * "Fringe" here is editorial rather than arithmetic, and it has to be: the
+ * hard-left `nationalise_rail` sits at -0.92 and is ordinary politics somewhere
+ * in the world, while `max_income` at -0.88 is a different kind of proposal
+ * entirely. What marks these six is that they change the regime rather than the
+ * policy — abolish the central bank, establish a national religion, repeal the
+ * income tax, take the commanding heights, cap what a person may earn, legislate
+ * degrowth. You cannot infer that from a number, so the pool states it.
+ *
+ * Before this, the toggle was the whole mechanism: off meant such a bill could
+ * never once reach the floor in a twenty-year career, and on meant they sat in
+ * the pool competing on ordinary weighting. Neither is how a fringe behaves. A
+ * normal legislature gives it the occasional slot — a messaging vote, a
+ * concession to a caucus that has the numbers to demand one — and a radicalised
+ * one is *made of* it.
+ */
+export const FRINGE_CHANCE = { normal: 0.05, radical: 0.5 };
+
+export const fringeChance = (state) =>
+  (state?.scenario?.radicals === true ? FRINGE_CHANCE.radical : FRINGE_CHANCE.normal);
+
+/** The six, split by which end of the spectrum they come from. */
+export const FRINGE_BILLS = BILL_POOL.filter((b) => b.fringe);
+
+/**
+ * A bill written to overturn the settlement rather than adjust it. Used to mark
+ * a model-written bill as one of these, since the model has no `fringe` column
+ * to set for itself.
+ */
+export const FRINGE_AXIS = 0.75;
+
 /** How willing a member is to vote for something at `axis`. */
 const agreement = (memberAxis, billAxis) => 1 - Math.abs(memberAxis - billAxis) / 2;
 

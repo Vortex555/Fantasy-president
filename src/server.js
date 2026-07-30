@@ -24,6 +24,7 @@ import { historicalVerdict } from "./verdict.js";
 import {
   districtOptions, seatFor, floorBills, partyLine, districtView,
   castVote, sponsorBill, advanceHouseMonth, runReelection, HOUSE_TERM, canFileAgain,
+  docketSize, fringeMonth, fringeSide, fringeBillFor,
 } from "./house.js";
 import {
   COMMITTEES, RANKS, committeeById, rankById, inYourDomain,
@@ -44,6 +45,7 @@ import {
   castVote as senateVote, filibuster, advanceSenateMonth,
   runReelection as senateReelection, liveGrudges,
   partyLine as senatePartyLine, districtView as senateStateView,
+  docketSize as senateDocketSize,
 } from "./senate.js";
 import { historicalHouseVerdict } from "./houseVerdict.js";
 import { STATES } from "./states.js";
@@ -58,8 +60,16 @@ import { drawEvent, shouldUsePool } from "./eventPool.js";
 import { actOnBill } from "./bills.js";
 import { claudeAvailable, claudeTurn, claudeVoices, claudeOpening, claudeAdvisor, claudeDebate } from "./claude.js";
 import {
+  docketFromModel, situationFromModel, falloutFromModel, staffReply, staffOf,
+} from "./chamberAi.js";
+import {
+  nationCard, setSituation, situationFromPool, wantsWrittenSituation,
+} from "./nation.js";
+import { detonationEvent } from "./arcs.js";
+import { thenAndNow, turningPoints, series } from "./chronicle.js";
+import {
   providerInfo, providerId, providerHealth, probeProvider,
-  recordModelFailure, resetProviderHealth,
+  recordModelFailure, resetProviderHealth, providerMisconfigured,
 } from "./ai/provider.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -68,6 +78,35 @@ app.use(express.json({ limit: "1mb" }));
 app.use(express.static(path.join(__dirname, "..", "public")));
 
 const USING_AI = claudeAvailable();
+
+/**
+ * A provider setting nobody can act on is worth interrupting for.
+ *
+ * The rest of this block reports which brain is running. This one reports that
+ * the answer is not the one that was asked for — which is a different and more
+ * urgent thing to say, because the failure is silent and it can be expensive:
+ * an unparsed `FP_PROVIDER` falls back to whatever key is in the shell, so a
+ * player who configured a free model on their own machine can be billed for
+ * months of API calls without one line anywhere admitting it.
+ */
+const MISCONFIGURED = providerMisconfigured();
+if (MISCONFIGURED) {
+  console.warn(
+    `[Fantasy President] ⚠️  FP_PROVIDER is set to something unrecognised, so it was ignored.\n` +
+    `                       Got: ${JSON.stringify(MISCONFIGURED.value)}\n` +
+    `                       Expected exactly one of: anthropic, local, off\n` +
+    (MISCONFIGURED.looksLikeShellLine
+      ? `                       That looks like a whole shell command. An .env file is one\n` +
+        `                       KEY=value per line, not a command you would type:\n` +
+        `                           FP_PROVIDER=local\n` +
+        `                           FP_LOCAL_URL=http://192.168.1.198:11434/v1\n`
+      : "") +
+    `                       Falling back to "${MISCONFIGURED.resolvedTo}"` +
+    (MISCONFIGURED.resolvedTo === "anthropic"
+      ? " — which is the PAID API, using the key in your environment."
+      : ".")
+  );
+}
 
 // Say which brain is running the game, and how to change it. A player who
 // cannot tell whether their local model is actually being used will assume it
@@ -217,7 +256,7 @@ app.post("/api/start", async (req, res) => {
     // A career reaching a new office arrives warmer than a stranger. Anything
     // sent here already carries an envelope this server produced.
     const state = createGame(scenario, req.body?.career || null);
-    const event = await nextSituation(state, scenario);
+    const event = await openingSituation(state, scenario);
     /**
      * Every career carries an envelope from its first month, so the ladder is
      * available at the first term boundary rather than only to careers that
@@ -232,11 +271,21 @@ app.post("/api/start", async (req, res) => {
 });
 
 /**
- * Where a situation comes from. Classic always draws the hand-written pool,
- * Dynamic always asks the model, Hybrid mixes them — and any mode falls back
- * to the pool if the model is unavailable or errors.
+ * The situation a career opens on.
+ *
+ * A president opens on a crisis they must answer, so theirs is generated and
+ * handed to the turn screen. A member opens on a country they were elected
+ * into: `seedNation` has already put a story in the news and a problem on the
+ * table, and what this does is give the model a chance to write a better one
+ * over the top of it before the first calendar is drawn out of it.
+ *
+ * Both fall back to the hand-written pool — for a legislator that fallback is
+ * already sitting on the state, which is why nothing here can leave them
+ * without an opening at all.
  */
-async function nextSituation(state, scenario) {
+async function openingSituation(state, scenario) {
+  if (["house", "senate"].includes(state.office)) return openingForMember(state);
+
   const mode = scenario.events || "hybrid";
   if (!USING_AI || shouldUsePool(state, mode)) return drawEvent(state);
   try {
@@ -244,6 +293,31 @@ async function nextSituation(state, scenario) {
   } catch (err) {
     console.error("Opening generation failed, drawing from the pool:", err.message);
     return drawEvent(state);
+  }
+}
+
+/**
+ * A member's opening story, written in place.
+ *
+ * This used to be the one model call a congressional career made, and it was
+ * spent on a presidential crisis brief that the floor screen never rendered —
+ * generated, paid for, and dropped. Now it writes the country the chamber is
+ * about to legislate in, which is the thing a member's first month is actually
+ * made of.
+ */
+async function openingForMember(state) {
+  if (!wantsWrittenSituation(state, USING_AI)) return state.situation;
+  try {
+    const written = await situationFromModel(state);
+    // The drawn story and the problem it seeded are both replaced rather than
+    // added to, or a career would open owing two crises when only one is news.
+    state.arcs = [];
+    setSituation(state, written);
+    return written;
+  } catch (err) {
+    console.error("The opening story failed, keeping the drawn one:", err.message);
+    recordModelFailure(err.message);
+    return state.situation;
   }
 }
 
@@ -462,14 +536,73 @@ app.post("/api/house/districts", (req, res) => {
   }
 });
 
+/**
+ * The month's calendar, written once and then remembered.
+ *
+ * The floor screen re-reads itself after every whip call and every committee
+ * action, so generating the schedule on each request would rewrite the bills
+ * underneath a member who was halfway through working them — and, with a model
+ * configured, bill for it every time. So the calendar is settled once per month
+ * and stored on the career, and every later read this month gets that same
+ * calendar back.
+ *
+ * Which is why this returns the state as well: the client is the only thing
+ * holding the save, and it has to keep the docket that was just written.
+ */
+async function ensureDocket(state, { size, offline }) {
+  const term = state.term || 1;
+  const kept = state.docket;
+  if (kept && kept.term === term && kept.month === state.month) {
+    return { state, bills: kept.bills || [], written: Boolean(kept.written) };
+  }
+
+  const count = size(state);
+  let bills = [];
+  let written = false;
+
+  if (count) {
+    // Whether the fringe gets a slot is the engine's roll, not the model's, so
+    // the rate is the same whoever writes the bills. See fringeMonth().
+    const fringe = fringeMonth(state) ? fringeSide(state) : null;
+
+    // Classic careers, an absent key and a sleeping local model all land on the
+    // hand-written pool, which is what the mode ran on before any of this.
+    if (wantsWrittenSituation(state, USING_AI)) {
+      try {
+        bills = await docketFromModel(state, count, { fringe });
+        written = bills.length > 0;
+      } catch (err) {
+        console.error("The written calendar failed, drawing from the pool:", err.message);
+        recordModelFailure(err.message);
+      }
+    }
+    if (!bills.length) bills = offline(state);
+    /**
+     * A model that was asked for an extremist bill and did not produce one does
+     * not get to quietly skip the month. The written six are there precisely so
+     * the promised rate holds whatever the model does with the instruction.
+     */
+    else if (fringe && !bills.some((b) => b.fringe)) {
+      const written6 = fringeBillFor(state);
+      if (written6) bills = [...bills.slice(0, -1), written6];
+    }
+  }
+
+  const next = { ...state, docket: { term, month: state.month, bills, written } };
+  return { state: next, bills, written };
+}
+
 /** What leadership has scheduled, and where everyone stands on it. */
-app.post("/api/house/floor", (req, res) => {
+app.post("/api/house/floor", async (req, res) => {
   try {
-    const { state } = req.body || {};
-    if (!state || state.office !== "house") return res.status(400).json({ error: "A House career is required." });
+    const { state: body } = req.body || {};
+    if (!body || body.office !== "house") return res.status(400).json({ error: "A House career is required." });
+    const { state, bills: docket, written } = await ensureDocket(body, {
+      size: docketSize, offline: floorBills,
+    });
     const buried = new Set((state.committeeLog || [])
       .filter((e) => e.action === "buried").map((e) => e.id));
-    const bills = floorBills(state)
+    const bills = docket
       .filter((bill) => !buried.has(bill.id))
       .map((bill) => ({
         ...bill,
@@ -482,6 +615,12 @@ app.post("/api/house/floor", (req, res) => {
     const committee = committeeById(state.committee);
     res.json({
       bills,
+      // The country the calendar was written out of, so the floor can show it.
+      nation: nationCard(state),
+      written,
+      staff: staffOf(state),
+      // The docket was just settled; the client holds the only copy of the save.
+      state,
       // The one vote that is not a bill.
       articles: articlesReady(state)
         ? { ...state.jeopardy, stance: articlesStance(state), president: state.president }
@@ -500,13 +639,34 @@ app.post("/api/house/floor", (req, res) => {
   }
 });
 
-app.post("/api/house/vote", (req, res) => {
+/**
+ * What a roll call is worth is arithmetic, and what it meant is prose.
+ *
+ * The engine has already decided everything that counts — whether the bill
+ * carried, what it cost this member at home and with their caucus — before this
+ * runs. All the model is asked for is the aftermath: how it played in the local
+ * paper, what the people who elected them make of it. If it cannot answer, the
+ * vote still stands with the note the engine wrote, which is what every vote in
+ * this mode had before there was a model in it at all.
+ */
+async function attachFallout(state, result) {
+  if (!USING_AI) return result;
+  try {
+    return { ...result, fallout: await falloutFromModel(state, result) };
+  } catch (err) {
+    console.error("The fallout could not be written:", err.message);
+    recordModelFailure(err.message);
+    return result;
+  }
+}
+
+app.post("/api/house/vote", async (req, res) => {
   try {
     const { state, bill, vote } = req.body || {};
     if (!state || !bill) return res.status(400).json({ error: "state and bill are required." });
     const out = castVote(state, bill, String(vote));
     if (out.rejected) return res.status(400).json({ error: out.note });
-    res.json(out);
+    res.json({ ...out, result: await attachFallout(out.state, out.result) });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "The vote could not be recorded." });
@@ -532,11 +692,14 @@ const memberOnly = (handler) => (req, res) => {
 
 const sponsorRoute = memberOnly((req, res, state) => {
   try {
-    const { title, axis, domain } = req.body || {};
+    const { title, axis, domain, favours } = req.body || {};
     const out = sponsorBill(state, {
       title: str(title, "An Act", 90),
       axis: Math.max(-1, Math.min(1, Number(axis) || 0)),
       domain: str(domain, "economy", 20),
+      // Favours called in to get it heard. Bounded by what they actually hold,
+      // which sponsorBill checks for itself.
+      favours: num(favours, 0, 0, 100000),
     });
     if (out.rejected) return res.status(400).json({ error: out.note });
     res.json(out);
@@ -549,12 +712,54 @@ const sponsorRoute = memberOnly((req, res, state) => {
 app.post("/api/house/sponsor", sponsorRoute);
 app.post("/api/senate/sponsor", sponsorRoute);
 
+/**
+ * Next month's news.
+ *
+ * Run after the chamber's own advance, on the state as it will be, so the story
+ * grows out of the month that just happened — including the problems this
+ * chamber declined to legislate about, which is where the interesting ones come
+ * from. Classic careers and an unreachable model both fall through to the
+ * hand-written pool, so the country still moves either way.
+ */
+async function nextNationalStory(out) {
+  const state = out?.state;
+  // A career that has just ended is not owed a headline.
+  if (!state || state.over) return out;
+
+  /**
+   * A problem that finally broke open writes its own headline and nothing gets
+   * to write over it. It is the only thing anyone is talking about, it took
+   * months of the chamber doing nothing to produce, and asking a model for
+   * something more interesting would be throwing away the one story the game
+   * actually earned.
+   */
+  if (state.detonation) {
+    const blown = detonationEvent(state.detonation);
+    return {
+      ...out,
+      state: setSituation({ ...state, detonation: null }, { ...blown, domain: state.detonation.arc.domain }),
+      detonation: blown,
+    };
+  }
+
+  let situation = null;
+  if (wantsWrittenSituation(state, USING_AI)) {
+    try {
+      situation = await situationFromModel(state);
+    } catch (err) {
+      console.error("Next month's story failed, drawing from the pool:", err.message);
+      recordModelFailure(err.message);
+    }
+  }
+  return { ...out, state: setSituation(state, situation || situationFromPool(state)) };
+}
+
 /** End the month. At the end of a term, the district answers. */
-app.post("/api/house/advance", (req, res) => {
+app.post("/api/house/advance", async (req, res) => {
   try {
     const { state } = req.body || {};
     if (!state || state.office !== "house") return res.status(400).json({ error: "A House career is required." });
-    res.json(advanceHouseMonth(state));
+    res.json(await nextNationalStory(advanceHouseMonth(state)));
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "The month could not be closed out." });
@@ -605,12 +810,29 @@ const committeeRoute = memberOnly((req, res, state) => {
     }
     const out = chairAction(state, bill, action);
     if (out.rejected) return res.status(400).json({ error: out.note });
-    res.json(out);
+    // An amendment has to survive the repaint that follows it. The calendar is
+    // stored on the career now, so the amended text can be written back into it
+    // — before, the marked-up bill lived only in the reply and the floor screen
+    // reloaded the original underneath it a moment later.
+    res.json({ ...out, state: reviseDocket(out.state, out.result.bill) });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "The committee could not act." });
   }
 });
+
+/** Replace one bill on this month's calendar, leaving the rest of it alone. */
+function reviseDocket(state, bill) {
+  const docket = state?.docket;
+  if (!docket?.bills || !bill?.id) return state;
+  return {
+    ...state,
+    docket: {
+      ...docket,
+      bills: docket.bills.map((b) => (b.id === bill.id ? { ...b, ...bill } : b)),
+    },
+  };
+}
 
 app.post("/api/house/committee", committeeRoute);
 app.post("/api/senate/committee", committeeRoute);
@@ -632,6 +854,99 @@ const whipRoute = memberOnly((req, res, state) => {
 app.post("/api/house/whip", whipRoute);
 app.post("/api/senate/whip", whipRoute);
 
+/**
+ * The country you found, and the country you leave.
+ *
+ * Everything a career has done to the nation, read back out of the monthly
+ * record: every indicator from the day of the oath to today, and the handful of
+ * bills and disasters that actually bent the lines — with whether this member
+ * voted for them.
+ */
+app.post("/api/chamber/country", memberOnly((req, res, state) => {
+  try {
+    res.json({
+      compare: thenAndNow(state),
+      turningPoints: turningPoints(state, 10),
+      months: (state.chronicle || []).length,
+      // The two numbers that are the member's own, drawn on the same timeline
+      // as the country's, so a career can be read against what it cost.
+      you: {
+        seat: series(state, "approval"),
+        caucus: series(state, "leadership"),
+        president: series(state, "president"),
+      },
+      problems: (state.arcs || []).map((a) => ({
+        id: a.id, title: a.title, domain: a.domain, severity: a.severity,
+      })),
+      scars: state.scars || [],
+      resolved: state.resolved || [],
+      seatWord: state.office === "senate" ? state.seat?.stateName : state.seat?.district,
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "The record could not be read." });
+  }
+}));
+
+/**
+ * The chief of staff.
+ *
+ * A president has a cabinet to argue with before they decide. A member has one
+ * room with four people in it, and the one who matters is whoever runs the
+ * office — so this is the same conversation asked the only question a member
+ * actually has, which is what a vote is going to cost them.
+ */
+app.post("/api/chamber/staff", memberOnly(async (req, res, state) => {
+  try {
+    const { history, message } = req.body || {};
+    const text = str(message, "", 600).trim();
+    if (!text) return res.status(400).json({ error: "A message is required." });
+
+    const chief = staffOf(state);
+    if (!USING_AI) return res.json({ reply: offlineStaffReply(state, text), staff: chief });
+    try {
+      return res.json({ reply: await staffReply(state, history, text), staff: chief });
+    } catch (err) {
+      console.error("The chief of staff could not answer:", err.message);
+      recordModelFailure(err.message);
+      return res.json({ reply: offlineStaffReply(state, text), staff: chief });
+    }
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Your office could not be reached." });
+  }
+}));
+
+/**
+ * What the office says with no model behind it. Not an imitation of the model —
+ * it reads the same two numbers the player can already see and says the one
+ * true thing about them, which is better than a generated-sounding sentence.
+ */
+function offlineStaffReply(state, message) {
+  const home = state.office === "senate" ? state.seat?.stateName : state.seat?.district;
+  const weak = state.approval < 45;
+  const cold = state.leadership < 45;
+  const asked = message.length > 90 ? "There is a lot in that" : "Short answer";
+
+  if (weak && cold) {
+    return `${asked}: you are at ${state.approval} in ${home} and ${state.leadership} with the caucus, ` +
+      `which means you have no cover in either direction. Whatever you do next, do it for one of them ` +
+      `and not for both, because trying to please everybody is how you got to two numbers this bad.`;
+  }
+  if (weak) {
+    return `${asked}: ${home} has you at ${state.approval}. Leadership will forgive a defection long ` +
+      `before your voters forgive a vote they can put on a mailer. Go home on this one.`;
+  }
+  if (cold) {
+    return `${asked}: you are at ${state.leadership} with the caucus, and that is what gets bills heard ` +
+      `and gavels handed out. You can afford to take one for the team here — ${home} is at ${state.approval} ` +
+      `and not paying close attention.`;
+  }
+  return `${asked}: you are in decent shape both ways — ${state.approval} at home, ${state.leadership} ` +
+    `with the caucus. That is exactly the position to spend, not to sit on. Pick the vote you actually ` +
+    `believe in and take it while you can still absorb the cost.`;
+}
+
 // --- The Senate ------------------------------------------------------------
 
 app.post("/api/senate/states", (req, res) => {
@@ -649,14 +964,17 @@ app.post("/api/senate/states", (req, res) => {
   }
 });
 
-app.post("/api/senate/floor", (req, res) => {
+app.post("/api/senate/floor", async (req, res) => {
   try {
-    const { state } = req.body || {};
-    if (!state || state.office !== "senate") return res.status(400).json({ error: "A Senate career is required." });
+    const { state: body } = req.body || {};
+    if (!body || body.office !== "senate") return res.status(400).json({ error: "A Senate career is required." });
+    const { state, bills: docket, written } = await ensureDocket(body, {
+      size: senateDocketSize, offline: senateFloor,
+    });
     const buried = new Set((state.committeeLog || [])
       .filter((e) => e.action === "buried").map((e) => e.id));
     const held = new Set((state.filibusters || []).map((f) => f.id));
-    const bills = senateFloor(state)
+    const bills = docket
       .filter((b) => !buried.has(b.id))
       .map((bill) => ({
         ...bill,
@@ -668,6 +986,10 @@ app.post("/api/senate/floor", (req, res) => {
       }));
     res.json({
       bills,
+      nation: nationCard(state),
+      written,
+      staff: staffOf(state),
+      state,
       committee: committeeById(state.committee),
       rank: rankById(state.rank, "senate"),
       capital: state.capital ?? 0,
@@ -693,13 +1015,13 @@ app.post("/api/senate/floor", (req, res) => {
   }
 });
 
-app.post("/api/senate/vote", (req, res) => {
+app.post("/api/senate/vote", async (req, res) => {
   try {
     const { state, bill, vote } = req.body || {};
     if (!state || !bill) return res.status(400).json({ error: "state and bill are required." });
     const out = senateVote(state, bill, String(vote));
     if (out.rejected) return res.status(400).json({ error: out.note });
-    res.json(out);
+    res.json({ ...out, result: await attachFallout(out.state, out.result) });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "The vote could not be recorded." });
@@ -739,11 +1061,11 @@ app.post("/api/senate/confirm", (req, res) => {
   }
 });
 
-app.post("/api/senate/advance", (req, res) => {
+app.post("/api/senate/advance", async (req, res) => {
   try {
     const { state } = req.body || {};
     if (!state || state.office !== "senate") return res.status(400).json({ error: "A Senate career is required." });
-    res.json(advanceSenateMonth(state));
+    res.json(await nextNationalStory(advanceSenateMonth(state)));
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "The month could not be closed out." });

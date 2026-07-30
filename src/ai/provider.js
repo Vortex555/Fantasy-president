@@ -23,6 +23,8 @@ export const TIERS = ["judge", "chat"];
 
 const env = (key, fallback = "") => (process.env[key] || "").trim() || fallback;
 
+export const PROVIDERS = ["anthropic", "local", "off"];
+
 /**
  * Which provider is configured.
  *
@@ -32,8 +34,35 @@ const env = (key, fallback = "") => (process.env[key] || "").trim() || fallback;
  */
 export function providerId() {
   const explicit = env("FP_PROVIDER").toLowerCase();
-  if (["anthropic", "local", "off"].includes(explicit)) return explicit;
+  if (PROVIDERS.includes(explicit)) return explicit;
   return process.env.ANTHROPIC_API_KEY ? "anthropic" : "off";
+}
+
+/**
+ * `FP_PROVIDER` was set to something this does not recognise.
+ *
+ * Worth its own function because of how the failure actually presents. Node's
+ * `--env-file` parses `KEY=value` per line, so an `.env` holding a whole shell
+ * command —
+ *
+ *     FP_PROVIDER=local FP_LOCAL_URL=http://…/v1 npm start
+ *
+ * — sets FP_PROVIDER to the entire rest of the line and FP_LOCAL_URL to nothing.
+ * The value then matches no provider, the fallback finds an API key sitting in
+ * the shell, and the game quietly runs on the paid API while the player believes
+ * it is running free on their own machine. Nothing anywhere said otherwise.
+ *
+ * Falling back is still right; doing it without a word is not.
+ */
+export function providerMisconfigured() {
+  const raw = env("FP_PROVIDER");
+  if (!raw || PROVIDERS.includes(raw.toLowerCase())) return null;
+  return {
+    value: raw,
+    // The overwhelmingly common cause, and the one worth naming outright.
+    looksLikeShellLine: /\s\w+=/.test(raw) || raw.includes(" "),
+    resolvedTo: providerId(),
+  };
 }
 
 /**

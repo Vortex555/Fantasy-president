@@ -194,8 +194,33 @@ test("capital buys votes, and you cannot spend what you have not got", () => {
   assert.equal(broke.rejected, true);
 });
 
-test("a backbencher has no favours to call in", () => {
-  assert.equal(spendCapital({ ...game(), rank: "member", capital: 40 }, bill(-0.4), 10).rejected, true);
+/**
+ * A backbencher can call in favours now, and could not before.
+ *
+ * The old rule was that only a Whip or a Speaker could spend them at all, which
+ * meant every other member banked a currency on every party-line vote and was
+ * told "nobody owes you anything yet" if they ever tried to use it. Rank decides
+ * how far your debts reach, not whether you have any.
+ */
+test("a backbencher can lean on the colleagues who owe them personally", () => {
+  const out = spendCapital({ ...game(), rank: "member", capital: 40 }, bill(-0.4), 30);
+  assert.equal(out.rejected, undefined);
+  assert.ok(out.result.moved >= 1, "a couple of votes, which is what a backbencher has");
+  assert.ok(out.result.moved <= 3, "and no more than that");
+});
+
+test("a whip's debts reach very much further than a backbencher's", () => {
+  const asMember = spendCapital({ ...game(), rank: "member", capital: 200 }, bill(-0.4), 200);
+  const asWhip = spendCapital({ ...game(), rank: "whip", capital: 200 }, bill(-0.4), 200);
+  assert.ok(asWhip.result.moved > asMember.result.moved * 3,
+    `whip ${asWhip.result.moved} vs member ${asMember.result.moved}`);
+});
+
+test("a spend too small to move anybody is refused, with the price", () => {
+  const out = spendCapital({ ...game(), rank: "member", capital: 40 }, bill(-0.4), 1);
+  assert.equal(out.rejected, true);
+  assert.match(out.note, /would need about \d+/);
+  assert.equal(out.state.capital, 40, "and it costs nothing to be told so");
 });
 
 test("voting with your caucus earns the capital you later spend", () => {

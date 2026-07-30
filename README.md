@@ -136,12 +136,31 @@ only thing that is genuinely yours is which way you vote and what it costs you.
   further out than your leadership does. A *marginal* one decided by a point or
   two. Or a *hostile* one the other party wins at the top of the ticket, which
   you hold only by being personally liked and voting against your own caucus.
+- **The floor is about something.** The country runs underneath a congressional
+  career the way it does under a presidency: an economy that moves on its own, a
+  story dominating the news each month, and a handful of unresolved national
+  problems with a severity apiece. On **Hybrid** or **Dynamic** the month's
+  bills are *written out of that* — leadership schedules a narrow relief
+  appropriation because of the storm, a messaging vote designed to make the
+  other side vote no, an oversight commission after the auditor's report — and
+  each one tells you which problem put it on the calendar. Pass something in a
+  problem's domain and it eases; leave it alone and it gets worse every second
+  month, drags growth and unemployment with it if it is economic, and bleeds the
+  President's approval into the wave you run in. On **Classic**, or with no key
+  at all, the same country runs on the hand-written pool instead.
 - **Every bill is a bind.** Each one arrives with both of the people you answer
   to already on the record, and how often they disagree depends entirely on the
   seat you took — about one bill in twenty in a comfortable district, nineteen
   in twenty in a hostile one. Vote your district and leadership notices; vote
   the party line and your district hears about it; abstain and both read it as
-  an answer.
+  an answer. With a model configured you also get the aftermath: what the vote
+  did, how the local paper and the national one framed it, and two or three
+  people from your own seat saying what they make of you now.
+- **Somebody whose job is what it costs you.** A president argues with a cabinet
+  about the country. A member has a chief of staff, and one question worth
+  asking them — take this one home, or hold the line for the caucus. They have
+  read the whip count and they know the district, and they answer either way,
+  with a model or without one.
 - **File your own legislation.** Almost every bill dies in committee and a
   freshman's die fastest. Getting one heard is exactly what seniority and
   leadership goodwill buy — which is the reason to spend a vote on the caucus.
@@ -255,9 +274,9 @@ Open the URL, set up your president, and take the oath.
 
 | Mode | When | What you get |
 |------|------|--------------|
-| **Hosted AI** | `ANTHROPIC_API_KEY` is set | Every situation, consequence, headline and voter quote written fresh by Claude, reacting to exactly what you typed. Best quality, ~2s a turn, ~80¢ a full term. |
+| **Hosted AI** | `ANTHROPIC_API_KEY` is set | Every situation, consequence, headline and voter quote written fresh by Claude, reacting to exactly what you typed. In Congress, the floor schedule itself is written each month out of the state of the country. Best quality, ~2s a turn, ~80¢ a full term. |
 | **A model on your own machine** | `FP_PROVIDER=local` | The same game, free and private — nothing leaves your computer. Slower and shallower, but it is genuinely the whole loop. |
-| **No model at all** | neither | A built-in keyword engine. Fully playable offline; reactions are the shallowest of the three. |
+| **No model at all** | neither | A built-in keyword engine, and a hand-written pool of events and bills. Fully playable offline; every mechanic still runs — the country still moves and Congress still legislates — the writing is just the shallowest of the three. |
 
 The title screen shows which one is running, by name — and, importantly, when it
 *isn't*. A configured model that cannot be reached does not stop the game: the

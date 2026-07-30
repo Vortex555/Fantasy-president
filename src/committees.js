@@ -392,7 +392,46 @@ export function whipCount(state, bill) {
 }
 
 /** Roughly how many votes a favour moves. Diminishing, because they always are. */
-const votesFor = (capital) => Math.floor(Math.sqrt(capital) * 1.35);
+/**
+ * How far a member's debts actually reach.
+ *
+ * Favours were banked by every member on every party-line vote and could only
+ * ever be spent by two ranks, so for most of a career the counter on the floor
+ * was a number that went up and did nothing else — not promotion, not a hearing
+ * for your own bill, not one line in your record. A committee chair could sit on
+ * eighty of them and be told "nobody owes you anything yet".
+ *
+ * They are all spendable now, and rank decides reach rather than permission.
+ * A backbencher can lean on the two or three colleagues who owe them personally
+ * — which is genuinely what a member does, and enough to matter on a knife-edge
+ * roll call and useless on a lopsided one. A whip is owed by the whole caucus
+ * and can move a bloc. That difference is what the job *is*, and it survives
+ * intact without pretending the backbencher has no hand to play at all.
+ */
+const REACH = {
+  member: { pull: 0.35, cap: 3 },
+  subchair: { pull: 0.5, cap: 4 },
+  chair: { pull: 0.7, cap: 6 },
+  whip: { pull: 1, cap: 24 },
+  speaker: { pull: 1.15, cap: 28 },
+};
+
+export const reachOf = (rank) => REACH[rank] || REACH.member;
+
+/**
+ * Diminishing, so a hoard is worth less per favour than a handful — you are
+ * calling in the willing first and the reluctant afterwards.
+ */
+export const votesFor = (capital, rank = "member") => {
+  const { pull, cap } = reachOf(rank);
+  return Math.min(cap, Math.floor(Math.sqrt(Math.max(0, capital)) * 1.35 * pull));
+};
+
+/** The cheapest spend that would actually move a vote at this rank. */
+export function priceOfAVote(rank = "member") {
+  for (let c = 1; c <= 400; c++) if (votesFor(c, rank) >= 1) return c;
+  return 400;
+}
 
 /**
  * Call in favours. Only a whip or a Speaker has any to call, and the currency
@@ -400,25 +439,38 @@ const votesFor = (capital) => Math.floor(Math.sqrt(capital) * 1.35);
  * spends the thing that keeps you in the room.
  */
 export function spendCapital(state, bill, amount) {
-  if (!COUNT_RANKS.has(state.rank || "member")) {
-    return { state, rejected: true, note: "Nobody owes you anything yet." };
-  }
+  const rank = state.rank || "member";
   const spend = Math.max(0, Math.round(Number(amount) || 0));
   if (spend <= 0) return { state, rejected: true, note: "Spend something or do not." };
   if ((state.capital ?? 0) < spend) {
     return { state, rejected: true, note: `You have ${Math.round(state.capital ?? 0)} favours to call in, not ${spend}.` };
   }
 
+  const moved = votesFor(spend, rank);
+  // Refuse a spend that buys nothing rather than taking it and shrugging. At a
+  // backbencher's reach a couple of favours genuinely will not move anybody, and
+  // they should be told the price instead of losing them.
+  if (moved < 1) {
+    const need = priceOfAVote(rank);
+    return {
+      state, rejected: true,
+      note: `${spend} favour${spend === 1 ? "" : "s"} will not move anybody at your rank. ` +
+        `You would need about ${need}.`,
+    };
+  }
+
   const next = structuredClone(state);
   next.capital = round1((next.capital ?? 0) - spend);
-  const moved = votesFor(spend);
   next.swung = { ...(next.swung || {}), [bill.id]: ((next.swung || {})[bill.id] || 0) + moved };
 
+  const { cap } = reachOf(rank);
   return {
     state: next,
     result: {
-      moved, spent: spend,
-      note: `You worked the floor and moved ${moved} vote${moved === 1 ? "" : "s"}. It cost ${spend} favours you will not have next time.`,
+      moved, spent: spend, cap,
+      note: `You worked the floor and moved ${moved} vote${moved === 1 ? "" : "s"}. ` +
+        `It cost ${spend} favours you will not have next time.` +
+        (moved >= cap ? ` That is as far as ${rank === "member" ? "a backbencher's" : "your"} debts reach.` : ""),
     },
   };
 }

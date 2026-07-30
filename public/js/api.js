@@ -59,8 +59,8 @@ export const houseFloor = (state) => post("/api/house/floor", { state });
 
 export const houseVote = (state, bill, vote) => post("/api/house/vote", { state, bill, vote });
 
-export const houseSponsor = (state, title, axis, domain) =>
-  post("/api/house/sponsor", { state, title, axis, domain });
+export const houseSponsor = (state, title, axis, domain, favours = 0) =>
+  post("/api/house/sponsor", { state, title, axis, domain, favours });
 
 export const houseAdvance = (state) => post("/api/house/advance", { state });
 
@@ -85,8 +85,8 @@ export const senateFilibuster = (state, bill) => post("/api/senate/filibuster", 
 
 export const senateAdvance = (state) => post("/api/senate/advance", { state });
 
-export const senateSponsor = (state, title, axis, domain) =>
-  post("/api/senate/sponsor", { state, title, axis, domain });
+export const senateSponsor = (state, title, axis, domain, favours = 0) =>
+  post("/api/senate/sponsor", { state, title, axis, domain, favours });
 
 export const senateCommittee = (state, bill, action) =>
   post("/api/senate/committee", { state, bill, action });
@@ -99,6 +99,16 @@ export const senateArticles = (state, vote) => post("/api/senate/articles", { st
 export const senateConfirm = (state, vote) => post("/api/senate/confirm", { state, vote });
 
 export const houseVerdict = (state) => post("/api/house/verdict", { state });
+
+/**
+ * Your own office, in both chambers. A member's equivalent of the cabinet chat:
+ * the only person in the building whose job is what a vote costs *you*.
+ */
+export const chamberStaff = (state, history, message) =>
+  post("/api/chamber/staff", { state, history, message });
+
+/** Everything a career has done to the country, read out of the monthly record. */
+export const chamberCountry = (state) => post("/api/chamber/country", { state });
 
 // --- The statehouses -------------------------------------------------------
 
