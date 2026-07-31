@@ -17,6 +17,37 @@ import { vpSupports } from "./succession.js";
  * have. The reason to veto is when the bill itself is worse than the beating.
  */
 
+/**
+ * How contested a bill is, which is not the same question as where it sits.
+ *
+ * The roll call had one dimension and it could not express the commonest fact
+ * about a real legislature: that some bills are not fought over. Because support
+ * was purely a function of ideological distance, and the two caucuses sit about
+ * 0.8 apart while the agreement window is only ±0.44 wide, *every* bill was a
+ * party-line vote with the cutline in a different place. The most bipartisan
+ * bill the engine could produce got 39 votes in a hundred-seat Senate and
+ * failed. Nothing could ever pass 85–15.
+ *
+ * So a bill now carries a second value: how much of the chamber feels it cannot
+ * be seen voting against. It widens the window rather than moving it, so a
+ * consensus bill keeps its politics — the sponsor is still whoever believes in
+ * it, the stances still lean — while picking up the people who would normally
+ * be out of reach. Disaster relief, defending the country after an attack,
+ * honouring the dead and naming a post office all live here.
+ */
+export const CONSENSUS = {
+  /** Nobody will be recorded against it. A post office, a memorial. */
+  unanimous: 0.95,
+  /** Disaster relief, homeland defence after an attack, veterans' care. */
+  bipartisan: 0.55,
+  /** A normal bill that picks up some of the other side. */
+  contested: 0.25,
+  /** A party-line vote. What the engine used to assume about everything. */
+  partyline: 0,
+};
+
+export const CONSENSUS_TIERS = Object.keys(CONSENSUS);
+
 // A bill's `axis` is its position on the same −1…+1 spectrum as an ideology.
 export const BILL_POOL = [
   // --- Left ---------------------------------------------------------------
@@ -43,19 +74,23 @@ export const BILL_POOL = [
     fx: { approval: 2.5, labor: 12, civil_rights: 8, big_business: -8, economy: { debt: 2.4 } },
     society: { uninsured: -6, lifeExpectancy: 0.4 } },
   { id: "union_rights", axis: -0.48, domain: "economy",
+    consensus: CONSENSUS.partyline,
     title: "Organising Rights Restoration Act",
     brief: "Bans captive-audience meetings, permits card-check recognition and penalises retaliatory dismissal.",
     fx: { approval: 0.5, labor: 18, big_business: -12, wall_street: -6 } },
   { id: "voting_rights", axis: -0.42, domain: "justice",
+    consensus: CONSENSUS.partyline,
     title: "Voting Access Act",
     brief: "Sets a federal floor for early voting, mail ballots and same-day registration.",
     fx: { approval: 1, civil_rights: 16, faith: -5, gun_owners: -4 } },
   { id: "childcare", axis: -0.35, domain: "social",
+    consensus: CONSENSUS.contested,
     title: "Universal Childcare Act",
     brief: "Caps childcare costs at seven per cent of household income, with federal top-up payments.",
     fx: { approval: 3, labor: 8, faith: 4, economy: { debt: 1.2 } },
     society: { poverty: -0.8 } },
   { id: "housing_supply", axis: -0.18, domain: "social",
+    consensus: CONSENSUS.contested,
     title: "Housing Supply Act",
     brief: "Ties federal transport money to local permitting reform and funds two million new units.",
     fx: { approval: 2, labor: 6, big_business: 6, greens: -5, economy: { debt: 0.9 } },
@@ -63,29 +98,40 @@ export const BILL_POOL = [
 
   // --- Centre -------------------------------------------------------------
   { id: "infrastructure", axis: -0.05, domain: "economy",
+    // Roads and bridges buy votes in every district.
+    consensus: CONSENSUS.bipartisan,
     title: "Bridges and Ports Act",
     brief: "A decade of federal spending on roads, bridges, ports and water systems, split by formula.",
     fx: { approval: 3.5, labor: 10, big_business: 8, economy: { gdpGrowth: 0.4, debt: 1.6, unemployment: -0.3 } } },
   { id: "chips_research", axis: 0.02, domain: "economy",
+    // Onshoring is one of the few things both sides want.
+    consensus: CONSENSUS.bipartisan,
     title: "Domestic Manufacturing Act",
     brief: "Subsidises advanced manufacturing onshore, with clawbacks for firms that offshore afterwards.",
     fx: { approval: 2.5, big_business: 10, labor: 8, economy: { gdpGrowth: 0.3, debt: 1.1 } } },
   { id: "veterans_care", axis: 0.08, domain: "security",
+    // Nobody is recorded against veterans' care.
+    consensus: CONSENSUS.unanimous,
     title: "Veterans Care Expansion",
     brief: "Expands service-connected coverage and funds the backlog of pending claims.",
     fx: { approval: 3, pentagon: 12, faith: 5, economy: { debt: 0.6 } } },
   { id: "opioid_response", axis: 0.12, domain: "health",
+    // Rural clinics are not a partisan question.
+    consensus: CONSENSUS.bipartisan,
     title: "Rural Health and Recovery Act",
     brief: "Funds treatment capacity and clinic staffing in counties with no obstetric or addiction services.",
     fx: { approval: 2.5, faith: 8, labor: 6, economy: { debt: 0.7 } },
     society: { lifeExpectancy: 0.3 } },
   { id: "budget_deal", axis: 0.18, domain: "economy",
+    // It is a compromise by construction.
+    consensus: CONSENSUS.bipartisan,
     title: "Bipartisan Budget Compromise",
     brief: "A two-year deal that keeps the government open and trims discretionary growth.",
     fx: { approval: 1.5, wall_street: 8, big_business: 6, labor: -6, economy: { debt: -1.2 } } },
 
   // --- Right --------------------------------------------------------------
   { id: "border_enforcement", axis: 0.38, domain: "security",
+    consensus: CONSENSUS.contested,
     title: "Border Enforcement Act",
     brief: "Funds physical barriers, detention capacity and eight thousand additional agents.",
     fx: { approval: 1, gun_owners: 10, faith: 8, civil_rights: -14, economy: { debt: 0.8 } },
@@ -99,6 +145,7 @@ export const BILL_POOL = [
     brief: "Requires two rules repealed for each new one and strips agencies of independent rulemaking.",
     fx: { approval: -0.5, big_business: 16, wall_street: 12, greens: -16, economy: { gdpGrowth: 0.3 } } },
   { id: "defence_buildup", axis: 0.55, domain: "security",
+    consensus: CONSENSUS.contested,
     title: "Defence Modernisation Act",
     brief: "A shipbuilding and munitions expansion with a five-year procurement floor.",
     fx: { approval: 1, pentagon: 18, big_business: 8, economy: { debt: 2.2, gdpGrowth: 0.2 } } },
@@ -108,6 +155,7 @@ export const BILL_POOL = [
     fx: { approval: 0, faith: 16, labor: -14, economy: {} },
     society: { literacy: -0.4 } },
   { id: "crime_bill", axis: 0.65, domain: "justice",
+    consensus: CONSENSUS.contested,
     title: "Public Order Act",
     brief: "Mandatory minimums for armed offences and a federal grant programme for police hiring.",
     fx: { approval: 1.5, gun_owners: 12, pentagon: 6, civil_rights: -18 },
@@ -185,6 +233,34 @@ export const FRINGE_AXIS = 0.75;
 /** How willing a member is to vote for something at `axis`. */
 const agreement = (memberAxis, billAxis) => 1 - Math.abs(memberAxis - billAxis) / 2;
 
+/**
+ * How far consensus can stretch the window.
+ *
+ * Tuned against target outcomes in a 46D/54R Senate rather than by feel: a
+ * party-line bill at +0.5 still gets 54, the same bill marked bipartisan gets
+ * 55 — because it is genuinely a partisan bill and calling it consensual does
+ * not make Democrats vote for it — while a centre-right bill at +0.15 marked
+ * bipartisan gets 87. The pleasing consequence is that a bill nobody wants to
+ * be recorded against still only reaches 76 if it is ideologically slanted. You
+ * cannot whip the whole chamber onto a right-wing bill by declaring consensus.
+ */
+const CONSENSUS_PULL = 0.22;
+
+/** A bill's consensus, wherever it came from, as a number this module can use. */
+export function consensusOf(bill) {
+  if (typeof bill?.consensus === "number") return Math.max(0, Math.min(1, bill.consensus));
+  if (typeof bill?.support === "string" && CONSENSUS[bill.support] != null) {
+    return CONSENSUS[bill.support];
+  }
+  const authored = BILL_POOL.find((b) => b.id === bill?.id);
+  if (authored && typeof authored.consensus === "number") return authored.consensus;
+  return 0;
+}
+
+/** The bar a member has to clear to vote yes, once consensus is counted. */
+const votesYes = (memberAxis, billAxis, consensus) =>
+  agreement(memberAxis, billAxis) + consensus * CONSENSUS_PULL >= YES_THRESHOLD;
+
 // Above this level of agreement a member votes yes. Tuned so a bill written at
 // the chamber's own median clears comfortably and one written at the far end
 // of the room does not.
@@ -197,10 +273,10 @@ const YES_THRESHOLD = 0.78;
  * a simple majority — an override needs its two thirds on its own, and the
  * Vice President has no vote in it.
  */
-export function rollCall(roster, billAxis, { tieBreak = false } = {}) {
+export function rollCall(roster, billAxis, { tieBreak = false, consensus = 0 } = {}) {
   let yes = 0, dYes = 0, rYes = 0;
   for (const m of roster) {
-    if (agreement(m.axis, billAxis) < YES_THRESHOLD) continue;
+    if (!votesYes(m.axis, billAxis, consensus)) continue;
     yes += 1;
     if (m.party === "Democrat") dYes += 1; else rYes += 1;
   }

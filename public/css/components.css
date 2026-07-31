@@ -366,3 +366,23 @@
   .turn__moved { grid-column: 1 / -1; justify-content: flex-start; }
   .ledger { grid-template-columns: 1fr; }
 }
+
+/* Three people to disappoint instead of two. The third is you. */
+.stances--three { grid-template-columns: repeat(3, 1fr); }
+.stance--you { border-left: 3px solid var(--navy); }
+@media (max-width: 760px) {
+  .stances--three { grid-template-columns: 1fr; }
+}
+
+/* The people a member represents, against the national figure. */
+.people { display: grid; grid-template-columns: repeat(auto-fit, minmax(8.5rem, 1fr)); gap: 8px; }
+.people__cell { padding: 8px 10px; border-radius: var(--r-sm); background: var(--surface-2); }
+.people__k { display: block; font-size: 11px; letter-spacing: .04em; text-transform: uppercase; color: var(--faint); }
+.people__cell b { display: block; font-size: 17px; font-weight: 700; color: var(--ink); font-variant-numeric: tabular-nums; }
+.people__cell i { font-size: 11px; color: var(--faint); font-style: normal; }
+
+/* Four voices on a bill: leadership, the seat, you, and the bloc you sit with. */
+.stances--four { grid-template-columns: repeat(4, 1fr); }
+.stance--bloc { border-left: 3px solid var(--amber); }
+@media (max-width: 1000px) { .stances--four { grid-template-columns: repeat(2, 1fr); } }
+@media (max-width: 620px)  { .stances--four { grid-template-columns: 1fr; } }

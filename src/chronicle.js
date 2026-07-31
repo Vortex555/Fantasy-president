@@ -1,6 +1,7 @@
 import { round1 } from "./rng.js";
 import { SOCIETY_METRICS } from "./society.js";
 import { absoluteMonth } from "./nation.js";
+import { nationalProfile } from "./demographics.js";
 
 /**
  * The country, month by month, for as long as the career lasts.
@@ -22,6 +23,12 @@ import { absoluteMonth } from "./nation.js";
 
 /** Long name to short key, for the compact record. */
 const ECON_KEYS = { gdpGrowth: "g", unemployment: "u", inflation: "i", debt: "d" };
+/** The country's composition, on the same compact keys as everything else. */
+const PEOPLE_KEYS = {
+  age: "pa", over65: "p65", college: "pc", income: "pi",
+  rural: "pr", urban: "pu", union: "pn", faith: "pf", manufacturing: "pm",
+};
+
 const SOC_KEYS = {
   population: "pop", poverty: "pov", crime: "cri", lifeExpectancy: "life",
   literacy: "lit", homeownership: "own", uninsured: "unins", unrest: "unr",
@@ -68,6 +75,10 @@ export const EVENT = {
  * has moved and the problems have been re-scored — so the entry is the month as
  * it finished rather than as it began.
  */
+/** The calendar year a career's month falls in. */
+const yearOf = (state) =>
+  (state?.scenario?.startYear || 2025) + Math.floor((absoluteMonth(state) - 1) / 12);
+
 export function recordMonth(state, events = []) {
   const entry = {
     m: absoluteMonth(state),
@@ -80,8 +91,17 @@ export function recordMonth(state, events = []) {
     a: round1(state.approval ?? 50),
     l: round1(state.leadership ?? 50),
     p: round1(state.president?.approval ?? 50),
+    /**
+     * And who the country was that month.
+     *
+     * The electorate moves slowly enough that no single month shows it and a
+     * twenty-year career cannot miss it, which is exactly what the record exists
+     * to make visible. See demographics.js.
+     */
+    d: pack(state.country || nationalProfile(yearOf(state)), PEOPLE_KEYS),
+    mg: state.migration ?? 1,
     // Where the country's problems stood when the month closed.
-    pr: (state.arcs || []).map((x) => ({ id: x.id, sv: x.severity })),
+    pb: (state.arcs || []).map((x) => ({ id: x.id, sv: x.severity })),
   };
   if (events.length) entry.ev = events;
 
@@ -131,13 +151,41 @@ export function thenAndNow(state) {
     rows.push(row(ECONOMY_METRICS[long], first.e[short], last.e[short], log.map((x) => x.e?.[short])));
   }
 
+  const people = [];
+  for (const [long, short] of Object.entries(PEOPLE_KEYS)) {
+    if (first.d?.[short] == null) continue;
+    people.push(row(PEOPLE_METRICS[long], first.d[short], last.d[short], log.map((x) => x.d?.[short])));
+  }
+
   return {
+    people,
     from: { term: first.t, month: first.mo, absolute: first.m },
     to: { term: last.t, month: last.mo, absolute: last.m },
     months: log.length,
     rows,
   };
 }
+
+/**
+ * The country's composition, described the same way.
+ *
+ * `better` is deliberately null on every one of these. A country becoming older
+ * or more secular or less unionised is not a success or a failure — it is a
+ * change, and which way a player feels about it is the entire point of having
+ * politics. The economy and the eight statistics get an arrow; these get a
+ * direction and no verdict.
+ */
+const PEOPLE_METRICS = {
+  age: { id: "age", name: "Median age", unit: "", decimals: 1, better: null },
+  over65: { id: "over65", name: "Over 65", unit: "%", decimals: 0, better: null },
+  college: { id: "college", name: "Graduates", unit: "%", decimals: 0, better: null },
+  income: { id: "income", name: "Median income", unit: "k", decimals: 0, better: null },
+  rural: { id: "rural", name: "Rural", unit: "%", decimals: 0, better: null },
+  urban: { id: "urban", name: "Urban", unit: "%", decimals: 0, better: null },
+  union: { id: "union", name: "Union households", unit: "%", decimals: 0, better: null },
+  faith: { id: "faith", name: "Weekly attendance", unit: "%", decimals: 0, better: null },
+  manufacturing: { id: "manufacturing", name: "Manufacturing jobs", unit: "%", decimals: 0, better: null },
+};
 
 /** The economy, described the same way the social statistics are. */
 const ECONOMY_METRICS = {
@@ -149,6 +197,13 @@ const ECONOMY_METRICS = {
 
 function row(metric, from, to, series) {
   const change = round1(to - from);
+  // A composition has no better or worse; it only has a direction.
+  if (metric.better === null) {
+    return {
+      id: metric.id, name: metric.name, unit: metric.unit,
+      from, to, change, direction: "neutral", series: series.filter((v) => v != null),
+    };
+  }
   const better = metric.better === "up" ? change > 0 : change < 0;
   return {
     id: metric.id,

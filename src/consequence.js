@@ -179,6 +179,128 @@ function boundSociety(key, value) {
 
 const round2 = (v) => Math.round(v * 100) / 100;
 
+// --- What immigration law does to the country -------------------------------
+
+/**
+ * Whether a bill is about who may come and stay.
+ *
+ * Immigration is the one policy lever that reaches national composition
+ * directly, and it is the most conspicuous causal link in the whole simulation:
+ * a member could pass restriction for twenty years and the country's demographic
+ * trajectory was identical to one who passed none.
+ *
+ * What is modelled is the *flow* — the rate at which people arrive — because
+ * that is the thing an immigration statute actually governs. It bends a trend;
+ * it does not move anybody, and it makes no claim about anyone. A restriction
+ * slows arrivals, which slows compositional change and, because arrivals are
+ * younger than the resident population, greys the country faster. An expansion
+ * runs both the other way.
+ */
+const IMMIGRATION = /\b(immigrat\w*|migrant|migration|border|asylum|refugee|visa|naturalis\w*|naturaliz\w*|deport\w*|citizenship|amnesty|guest ?worker)\b/i;
+
+/** How hard a bill leans on the flow, from its own politics. */
+export function migrationEffect(bill) {
+  if (!bill) return 0;
+  const text = `${bill.title || ""} ${bill.brief || ""}`;
+  if (!IMMIGRATION.test(text)) return 0;
+
+  const axis = Number(bill.axis) || 0;
+  if (!axis) return 0;
+  /**
+   * Restriction is a right-coded project and expansion a left-coded one, so the
+   * bill's own position says which it is and how far it goes.
+   *
+   * The flat term matters as much as the scaled one. A border statute is a
+   * border statute even when it is written down the middle, and scaling purely
+   * by conviction meant the bills that could actually *pass* a real chamber —
+   * the moderate ones — moved the flow by four hundredths and a whole career of
+   * sustained policy changed the country's composition by less than a point.
+   */
+  const direction = axis > 0 ? -1 : 1;
+  return round2(direction * (0.06 + Math.abs(axis) * 0.28));
+}
+
+/**
+ * The same lever, for a president.
+ *
+ * A member votes on a bill with a stated position; a president writes a
+ * paragraph. So the direction is read from the words — whether this is a policy
+ * of restriction or of expansion — using the same vocabulary either side of the
+ * argument actually uses. Deliberately conservative: a policy that merely
+ * mentions the border in passing does not reset national immigration law.
+ */
+const RESTRICTING = /\b(restrict\w*|cap|caps|capping|deport\w*|remove|barrier|wall|enforce\w*|crack ?down|detention|moratorium|halt|suspend|tighten|secure the border|end (?:asylum|birthright))\b/i;
+const EXPANDING = /\b(path(?:way)? to citizenship|amnesty|regularis\w*|regulariz\w*|welcome|resettle\w*|raise the (?:cap|ceiling)|expand (?:visas?|admissions?|asylum)|open|liberalis\w*|liberaliz\w*|reunif\w*|dreamer)\b/i;
+
+export function applyMigrationPolicy(state, policy) {
+  const text = String(policy || "");
+  if (!IMMIGRATION.test(text)) return 0;
+
+  const restrict = (text.match(RESTRICTING) || []).length;
+  const expand = (text.match(EXPANDING) || []).length;
+  if (!restrict && !expand) return 0;
+
+  const direction = restrict > expand ? -1 : expand > restrict ? 1 : 0;
+  if (!direction) return 0;
+
+  /**
+   * Converging on a steady state rather than ratcheting.
+   *
+   * A member votes on a statute now and then, so accumulating discrete effects
+   * is the right model for a chamber. A president writes policy every month, and
+   * a constant monthly step pegged the flow at its floor inside a single term —
+   * four years of consistent policy is a posture, not forty-eight separate
+   * revolutions of immigration law.
+   *
+   * So a sustained posture approaches where that posture leads and stops there,
+   * which is also what an administration's immigration policy actually looks
+   * like from the outside.
+   */
+  const target = direction < 0 ? 0.45 : 1.65;
+  const before = state.migration ?? 1;
+  state.migration = round2(clamp(before + (target - before) * 0.09, ...MIGRATION_BOUNDS));
+  return round2(state.migration - before);
+}
+
+/** The floor and ceiling on how far policy can push the flow. */
+const MIGRATION_BOUNDS = [0.15, 2.2];
+
+/**
+ * Apply a passed immigration bill to the country's migration setting.
+ *
+ * A policy setting rather than an event: it stays where the last statute left it
+ * until another one moves it, which is how immigration law actually behaves.
+ */
+export function applyMigration(state, bill) {
+  const effect = migrationEffect(bill);
+  if (!effect) return 0;
+  const before = state.migration ?? 1;
+  state.migration = round2(clamp(before + effect, ...MIGRATION_BOUNDS));
+  return round2(state.migration - before);
+}
+
+/**
+ * And what the flow does to the population itself.
+ *
+ * Applied to the society statistics rather than the composition, because
+ * population is counted there. Roughly a million a year of net migration at the
+ * historical rate, which is the right order of magnitude.
+ */
+export function migrationPopulation(state) {
+  if (!state.society) return;
+  const flow = (state.migration ?? 1) - 1;
+  /**
+   * Kept at full precision, because the monthly step is smaller than a tenth.
+   *
+   * Half a million fewer arrivals a year is forty thousand a month, which
+   * `round1` rounded away in its entirety — the same rounding-accumulator bug
+   * that swallowed twenty years of demographic drift, in a second place. A
+   * quantity that moves by less than its display precision has to be carried at
+   * more than its display precision.
+   */
+  state.society.population = Math.round((state.society.population + flow * 0.083) * 1000) / 1000;
+}
+
 /**
  * The country's slow return to normal.
  *

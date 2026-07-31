@@ -15,7 +15,10 @@ import {
   SPONSOR_COOLDOWN,
   runReelection,
   advanceHouseMonth,
+  attributeSponsors,
+  sponsorFor,
 } from "../src/house.js";
+import { createSenateCareer } from "../src/senate.js";
 import { createGame } from "../src/gameEngine.js";
 
 // ---------------------------------------------------------------------------
@@ -379,4 +382,61 @@ test("the floor and the vote agree on what counts as already decided", () => {
   const newCongress = { ...s, term: 2, month: 3, voteLog: log };
   assert.equal(castVote(newCongress, b, "yes").rejected, undefined,
     "a new Congress may vote on it again — the floor offers it, so the vote must take it");
+});
+
+// ---------------------------------------------------------------------------
+// Whose name is on a bill
+//
+// The model used to be asked, and got it wrong two ways: it named the player as
+// the sponsor of eleven of twenty bills, and returned the literal placeholder
+// text from the JSON example for three more. It is derived from the real chamber
+// now, which cannot do either.
+// ---------------------------------------------------------------------------
+
+test("a bill on the floor is never sponsored by the member voting on it", () => {
+  const state = game({ month: 3 });
+  const bills = attributeSponsors(state, [
+    { id: "infrastructure", title: "Bridges and Ports Act", axis: -0.05, domain: "economy" },
+    { id: "tax_cuts", title: "Growth and Investment Act", axis: 0.45, domain: "economy" },
+    { id: "crime_bill", title: "Public Order Act", axis: 0.65, domain: "justice" },
+  ]);
+  for (const b of bills) {
+    assert.ok(b.sponsor, "every bill gets a name");
+    assert.ok(!b.sponsor.includes(state.scenario.presidentName),
+      `${b.sponsor} is the player — leadership sets this calendar, not them`);
+  }
+});
+
+test("the sponsor is a real member of the chamber, formatted as one", () => {
+  const [b] = attributeSponsors(game({ month: 2 }), [
+    { id: "infrastructure", title: "Bridges and Ports Act", axis: -0.05, domain: "economy" },
+  ]);
+  // "Rep. Firstname Lastname (D-XX)" — a title, a name, a party letter, a state.
+  assert.match(b.sponsor, /^(Rep\.|Sen\.|Del\.)\s+\S+.*\([DRI]-[A-Z]{2}\)$/);
+  assert.ok(!/Invented Name|XX/.test(b.sponsor), "and never the placeholder text");
+});
+
+test("the sponsor does not change when the floor is read again", () => {
+  const state = game({ month: 5 });
+  const bill = { id: "veterans_care", title: "Veterans Care Expansion", axis: 0.08, domain: "security" };
+  assert.equal(
+    attributeSponsors(state, [bill])[0].sponsor,
+    attributeSponsors(state, [bill])[0].sponsor,
+  );
+});
+
+test("whoever signs it plausibly believes in it", () => {
+  const state = game({ month: 4 });
+  const left = sponsorFor(state, { id: "wealth_tax", axis: -0.82 });
+  const right = sponsorFor(state, { id: "tax_cuts", axis: 0.45 });
+  assert.ok(left.axis < right.axis,
+    `a -0.82 bill should not be filed by someone to the right of a +0.45 one`);
+});
+
+test("a senator's bill is sponsored from the Senate, not the House", () => {
+  const senate = { ...createSenateCareer(scenario({ office: "senate", seatState: "OH" })), month: 3 };
+  const [b] = attributeSponsors(senate, [
+    { id: "infrastructure", title: "Bridges and Ports Act", axis: -0.05, domain: "economy" },
+  ]);
+  assert.match(b.sponsor, /^Sen\./);
 });

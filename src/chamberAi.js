@@ -2,9 +2,10 @@ import { complete, aiAvailable } from "./ai/provider.js";
 import { parseModelJson } from "./ai/json.js";
 import { seeded } from "./rng.js";
 import { normalizeDomain, activeArcs, ARC_DOMAIN_IDS } from "./arcs.js";
-import { FRINGE_AXIS } from "./bills.js";
+import { FRINGE_AXIS, CONSENSUS_TIERS } from "./bills.js";
 import { nationSummary, absoluteMonth, steerDomain, recentNewsSubjects } from "./nation.js";
 import { committeeById, rankById, chamberOf } from "./committees.js";
+import { describeProfile, loudestObjection } from "./demographics.js";
 
 /**
  * The model, from a seat in Congress.
@@ -64,10 +65,29 @@ function memberSummary(state) {
   const leanWord = Math.abs(lean) < 8 ? "a genuine marginal"
     : `${Math.abs(lean).toFixed(0)} points ${lean < 0 ? "Democratic" : "Republican"}`;
 
+  /**
+   * Who they represent, in the terms a member would actually use.
+   *
+   * The prompt described a seat by its partisan lean alone, which told the model
+   * how the place votes and nothing whatsoever about who lives in it. A bill
+   * written for "a seat 30 points Republican" is a different and much worse bill
+   * than one written for "a heavily rural manufacturing seat with an ageing
+   * population that is 30 points Republican".
+   */
+  const people = state.people
+    ? `\nThe people there: ${describeProfile(state.people, (state.scenario?.startYear || 2025)
+        + Math.floor((state.month || 1) / 12))}. `
+      + `${Math.round(state.people.college)}% are graduates, ${Math.round(state.people.rural)}% rural, `
+      + `${Math.round(state.people.manufacturing)}% work in manufacturing, `
+      + `${Math.round(state.people.union)}% are union households and ${Math.round(state.people.faith)}% attend weekly. `
+      + `Census composition: ${Math.round(state.people.white)}% white, ${Math.round(state.people.black)}% Black, `
+      + `${Math.round(state.people.hispanic)}% Hispanic, ${Math.round(state.people.asian)}% Asian.`
+    : "";
+
   return `THE MEMBER YOU ARE WRITING FOR:
 ${state.scenario.presidentName}, ${state.scenario.party}${
   state.independent ? ` (caucuses with the ${state.caucus}s)` : ""
-}, ${state.scenario.ideology || "no stated ideology"}, representing ${where}, which is ${leanWord}.
+}, ${state.scenario.ideology || "no stated ideology"}, representing ${where}, which is ${leanWord}.${people}
 They are a ${rank.title}${gavel && committee ? `, holding the gavel on ${committee.name} — ${committee.remit}` : ""}.
 Term ${state.term || 1}, month ${state.month}. Standing at home ${state.approval}%, with their caucus ${state.leadership}%.
 
@@ -90,9 +110,9 @@ You MUST respond with ONLY a single JSON object (no prose, no markdown fences) w
       "brief": "ONE sentence, maximum 30 words, saying concretely what the bill does. Mechanisms and numbers, not aspirations.",
       "axis": number,        // where it sits ideologically, -1 (hard left) to +1 (hard right)
       "domain": "one of: ${DOMAINS}",
-      "sponsor": "Rep./Sen. Invented Name (D-XX) — never a real politician",
       "because": "6-12 words on which national problem or news story produced this bill",
       "addresses": "the exact id (e.g. arc_2) of the UNRESOLVED NATIONAL PROBLEM this bill answers, or null if it answers none of them",
+      "support": "one of: partyline | contested | bipartisan | unanimous",
       "extremist": false
     }
   ]
@@ -102,6 +122,12 @@ Rules — read them, they are the difference between a floor and a list:
 - EVERY bill must be traceable to the national situation you are given. The month's dominating story and the unresolved problems are your material. A bill that could have been scheduled in any month of any decade is a failure.
 - Congress responds to a crisis LATE, PARTIALLY and IN ITS OWN INTEREST. The honest legislative answer to a disaster is usually a narrow funding bill, a commission, a reauthorisation with a rider attached, or a messaging vote designed to make the other side vote no. Sweeping, well-designed solutions to the actual problem are the rare case, not the default.
 - "axis" is load-bearing and the engine computes the entire roll call from it. Be honest: a bipartisan disaster-relief appropriation is near 0.0; a targeted tax cut is around +0.45; nationalising an industry is -0.9. Do not push everything to the extremes to seem dramatic — a chamber where every bill is at ±0.8 has no politics in it, only noise.
+- "support" is HOW CONTESTED it is, which is a different question from where it sits. It decides how far across the aisle the bill reaches, and it is the difference between a vote of 54-46 and one of 87-13.
+    "partyline"  — the default and by far the commonest. One side wants it, the other does not.
+    "contested"  — a normal bill that picks up some of the other side's moderates.
+    "bipartisan" — nobody sensible opposes the PURPOSE, even if they argue about the amount: disaster relief, defending the country after an attack that has already happened, veterans' care, keeping the government open.
+    "unanimous"  — nobody will be recorded against it at all. Naming a building, honouring the dead, a resolution of condolence. Rare.
+  Most months should be "partyline" or "contested". A crisis is what earns "bipartisan": if the country has just been attacked, the bill funding the response is not a party-line vote even when a Republican filed it. Do not mark an ideological project bipartisan because you think it is a good idea — a tax cut is partyline however popular you find it.
 - "addresses" is what lets the country notice. If a bill genuinely answers one of the listed problems, quote that problem's id EXACTLY as given. If it does not, use null — a bill that names a problem it does not actually address is worse than one that names none.
 - The MAJORITY sets the calendar and schedules what the majority likes. Most bills should sit near that party's centre of gravity (Democrats about -0.35, Republicans about +0.45). One bill in three or four may be a bipartisan measure near the centre, or a deliberately unwinnable vote staged to put the other side on the record.
 - Where the member SITS is not a subject. Only if they are named as holding a gavel should one bill fall in that committee's remit, and even then it must be a real bill about that remit — never the month's crisis with the committee's subject bolted onto the title. "Agricultural Cybersecurity Protection Act" during a banking crisis is exactly the failure. If the remit does not fit the month, write bills that do and ignore the committee.
@@ -109,6 +135,8 @@ Rules — read them, they are the difference between a floor and a list:
 - Vary the scale. A twelve-billion-dollar authorisation, a technical fix to a statute nobody has read, and a constitutional amendment that will never be ratified are all legitimate floor business, and a calendar of nothing but landmark legislation is not a calendar.
 - Titles are how a bill is sold, and Congress names things dishonestly. A bill gutting an agency is called a Reform and Accountability Act.
 - NEVER reuse a title or a subject listed as already voted on this Congress.
+- THE MEMBER YOU ARE WRITING FOR DID NOT WRITE ANY OF THESE. Leadership sets this calendar and they only get to vote on it; filing their own legislation is a separate thing they do elsewhere. Never name them as an author, a sponsor or a champion of anything on this floor. Their name is given to you as context, not as material.
+- The seat's census composition is given to you as constituency arithmetic and nothing else. You may refer to a district's makeup the way a psephologist would — "a majority-Black seat", "a heavily Hispanic district" — where it is genuinely relevant to why a bill is on the floor. You must NEVER characterise, generalise about, or ascribe views, values or behaviour to any racial or ethnic group. Write about the place and the legislation, never about what a category of people is like.
 - Invent every name. No real politicians, no real organisations, no real publications.
 - Return exactly the number of bills you are asked for. No commentary outside the JSON.`;
 
@@ -225,8 +253,23 @@ export function validateDocket(raw, state, count, { fringe = null } = {}) {
       brief: String(item?.brief || "").trim().slice(0, 240),
       axis: clamped,
       domain: normalizeDomain(item?.domain),
-      sponsor: String(item?.sponsor || "").trim().slice(0, 80) || null,
+      /**
+       * Deliberately dropped, even if the model volunteered one.
+       *
+       * Who filed a bill is a fact about the chamber, and the engine attributes
+       * it from the real roster — see `attributeSponsors` in house.js. Asking
+       * the model produced the player's own name most of the time and the
+       * literal placeholder text the rest of it.
+       */
       because: String(item?.because || "").trim().slice(0, 120) || null,
+      /**
+       * How contested it is, as one of four named tiers. A word rather than a
+       * number because a small model picks from a list far more reliably than
+       * it calibrates a scale, and the engine owns what each word is worth.
+       * Anything unrecognised falls to a party-line vote, which is both the
+       * commonest real outcome and what the engine assumed before this existed.
+       */
+      support: CONSENSUS_TIERS.includes(item?.support) ? item.support : "partyline",
       // Which outstanding problem this answers, if the model named a real one.
       addresses: live.has(String(item?.addresses || "").trim())
         ? String(item.addresses).trim() : null,
@@ -339,6 +382,7 @@ Rules:
 - Voting against your caucus and voting against your district are completely different sins with completely different consequences. Name which one this was.
 - Do not congratulate the member. You are not on their staff. A bill passing is not the same as a bill working, and most of these will not work.
 - Be compact. Headlines are headline-length; the analysis is three sentences and never four.
+- Constituents you invent are individuals with jobs and towns, never representatives of a demographic category. Never ascribe a view to anybody on the basis of race or ethnicity, and never write a quote whose point is the speaker's background.
 - Invent every name. No real people, organisations or publications. Never mention that this is a game.`;
 
 export async function falloutFromModel(state, result) {

@@ -1,6 +1,6 @@
 import { seeded, clamp, round1 } from "./rng.js";
 import { STATES, STATE_CODES } from "./states.js";
-import { BILL_POOL, rollCall } from "./bills.js";
+import { BILL_POOL, rollCall, consensusOf } from "./bills.js";
 import { senateCycle, senateRaces, nationalEnvironment, runCongressionalCycle } from "./elections.js";
 import { buildCongress } from "../public/js/data/government.js";
 import {
@@ -8,15 +8,26 @@ import {
   driftPresident, electionIndex, isElectionMonth, applyCycle, floorPool, votedThisCongress,
   seatFringe, closeTheMonth,
 } from "./house.js";
-import { assignCommittee, earnCapital, evaluateLadder, committeeById } from "./committees.js";
+import { assignCommittee, earnCapital, evaluateLadder, committeeById, isWrecker } from "./committees.js";
 import { emptyArticles, tickArticles } from "./articles.js";
 import { nextChoices } from "./career.js";
 import { emptyNomination, tickNomination } from "./confirmations.js";
 import { seedNation, advanceNation } from "./nation.js";
 import { activeArcs } from "./arcs.js";
+import { stateProfile, seedCountry } from "./demographics.js";
 import { buildSociety } from "./society.js";
-import { applyConsequence } from "./consequence.js";
+import { applyConsequence, applyMigration } from "./consequence.js";
 import { noteEvent, EVENT } from "./chronicle.js";
+import {
+  convictionView, recordConviction, describeConviction, baseTurnout, primaryThreat,
+  INTEGRITY_START, signatureBonus,
+} from "./conviction.js";
+import {
+  factionOf, factionLine, blocDelta, describeBloc, ownBloc, BLOC_START,
+} from "./factions.js";
+import {
+  buildCoalition, applyVoteToCoalition, coalitionTurnout,
+} from "./coalition.js";
 
 /**
  * A seat in the Senate.
@@ -146,7 +157,38 @@ export function createSenateCareer(scenario) {
     confirmations: [],
     president: buildPresident(scenario),
     approval: clamp(Math.round(48 + fit * 16 + r.between(-4, 4))),
-    leadership: clamp(Math.round(52 + r.between(-8, 8))),
+    leadership: isWrecker(scenario)
+      ? clamp(Math.round(16 + r.between(-6, 6)))
+      : clamp(Math.round(52 + r.between(-8, 8))),
+    // How often you vote like the person you said you were, and the blocs your
+    // ideology brought with you. See conviction.js and coalition.js.
+    integrity: INTEGRITY_START,
+    // The running tally the number is derived from. See conviction.js.
+    convictionKept: 0,
+    convictionWeight: 0,
+    // Your standing with the wing of the party you actually sit in.
+    /**
+     * The other half of a wrecker's arrangement.
+     *
+     * Leadership standing is crushed and bloc standing is enormous, and those
+     * are the same fact: the wing adores this member *because* it goes after the
+     * establishment. Every other ideology trades between its caucus and its
+     * wing; this one has already made the trade and cannot untrade it.
+     */
+    bloc: isWrecker(scenario) ? 92 : BLOC_START,
+    coalition: buildCoalition(scenario),
+    /**
+     * The people of the whole state, and who they were at the oath. A senator
+     * represents every kind of place at once, which is why a statewide seat is
+     * so much harder to be extreme in. See demographics.js.
+     */
+    people: stateProfile(seat.state, scenario.startYear || 2025),
+    peopleAtOath: stateProfile(seat.state, scenario.startYear || 2025),
+    leanAtOath: seat.lean,
+    // The country, and the migration setting the chamber's statutes have left.
+    country: seedCountry(scenario.startYear || 2025),
+    countryAtOath: seedCountry(scenario.startYear || 2025),
+    migration: 1,
     economy: { gdpGrowth: 2.4, unemployment: 4.1, inflation: 3.0, debt: 34.2 },
     // The eight national statistics at the era's real baseline, and what they
     // were on the day of the oath. Six years is long enough to move them.
@@ -247,6 +289,9 @@ export function castVote(state, bill, vote) {
   const next = structuredClone(state);
   const party = partyLine(state, bill);
   const home = districtView(state, bill);
+  const conviction = convictionView(state, bill);
+  // And the bloc you sit with, which is more disciplined than either of them.
+  const bloc = factionLine(state, bill);
   const withHome = vote === home.position;
   const withParty = vote === party.position;
 
@@ -260,6 +305,23 @@ export function castVote(state, bill, vote) {
   next.approval = clamp(round1(next.approval + homeDelta));
   next.leadership = clamp(round1(next.leadership + leadershipDelta));
 
+  /**
+   * Six years is long enough for a state to forget a vote, and not nearly long
+   * enough for anybody to forget what you turned out to believe. Integrity does
+   * not decay the way a grudge does — which is the point of it.
+   */
+  const integrityMove = recordConviction(next, conviction, vote);
+  /**
+   * What your own wing makes of it.
+   *
+   * Steeper than crossing party leadership. A caucus of two hundred forgives a
+   * defection; a bloc of forty organised around a shared conviction is only able
+   * to hold a Speaker to ransom because it does not. See factions.js.
+   */
+  const blocMove = blocDelta(bloc, vote);
+  next.bloc = clamp(round1((next.bloc ?? BLOC_START) + blocMove));
+  const blocsOnVote = applyVoteToCoalition(next, bill, vote);
+
   // A vote the state disliked becomes a grudge, which fades. This is the whole
   // difference between the two chambers.
   if (homeDelta < -0.5) {
@@ -270,7 +332,7 @@ export function castVote(state, bill, vote) {
   }
 
   const roster = buildCongress(next, STATES);
-  const tally = rollCall(roster.senate, bill.axis);
+  const tally = rollCall(roster.senate, bill.axis, { consensus: consensusOf(bill) });
   const swung = (next.swung || {})[bill.id] || 0;
   const yourYes = vote === "yes" ? 1 : 0;
   const yes = tally.yes + swung + yourYes;
@@ -292,6 +354,7 @@ export function castVote(state, bill, vote) {
   // consequence.js — this is where a vote becomes something you can point at on
   // a chart six years later.
   const moved = passed ? applyConsequence(next, bill) : {};
+  const migration = passed ? applyMigration(next, bill) : 0;
   next.pending = [...(next.pending || []), noteEvent(passed ? EVENT.PASSED : EVENT.FAILED, {
     title: bill.title, domain: bill.domain, moved, vote,
     tally: `${yes}-${tally.total - yes}`,
@@ -299,6 +362,18 @@ export function castVote(state, bill, vote) {
 
   const result = {
     bill, yourVote: vote, passed, decisive, filibustered, bar, moved,
+    bloc: bloc && {
+      ...bloc, delta: blocMove, total: next.bloc,
+      note: describeBloc(bloc, vote, blocMove),
+    },
+    migration: migration ? { change: migration, now: next.migration } : null,
+    conviction: {
+      ...conviction,
+      delta: integrityMove,
+      note: describeConviction(conviction, vote, integrityMove),
+      total: next.integrity,
+    },
+    blocs: blocsOnVote,
     tally: { ...tally, yes, no: tally.total - yes },
     district: { ...home, delta: homeDelta },
     party: { ...party, delta: leadershipDelta },
@@ -342,6 +417,9 @@ export function filibuster(state, bill) {
   const next = structuredClone(state);
   const party = partyLine(state, bill);
   const home = districtView(state, bill);
+  const conviction = convictionView(state, bill);
+  // And the bloc you sit with, which is more disciplined than either of them.
+  const bloc = factionLine(state, bill);
   // Blocking something your own caucus wanted is the expensive version.
   const againstCaucus = party.position === "yes";
   const used = (next.filibusters || []).length;
@@ -413,11 +491,18 @@ export function runReelection(state) {
   // Whatever the state has not yet forgotten still counts against you.
   const remembered = -round1((state.grudges || []).reduce((sum, g) => sum + g.weight, 0) * 0.5);
 
-  const margin = round1(ground + personal + wave + incumbency + remembered);
+  /**
+   * Whether your own side turns out. A state forgets a vote it disliked; it does
+   * not forget deciding you never believed anything. See conviction.js.
+   */
+  const base = round1(baseTurnout(state) + coalitionTurnout(state));
+
+  const margin = round1(ground + personal + wave + incumbency + remembered + base);
   return {
     margin, won: margin > 0,
     ground: round1(ground), personal: round1(personal), wave: round1(wave),
-    incumbency: round1(incumbency), remembered,
+    incumbency: round1(incumbency), remembered, base,
+    primary: primaryThreat(state),
     seniority: seat.seniority || 1, sameParty,
   };
 }

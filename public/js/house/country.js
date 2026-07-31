@@ -77,6 +77,7 @@ function paint() {
       <div style="margin-top:14px">${indicatorTable(economic)}</div>
     </div>
 
+    ${peopleSection(c)}
     ${turningPointsCard()}
     ${yourselfCard()}
     ${standingCard()}
@@ -88,6 +89,29 @@ function paint() {
 }
 
 const ECONOMIC = new Set(["gdpGrowth", "unemployment", "inflation", "debt"]);
+
+/**
+ * Who the country was, and who it is now.
+ *
+ * Deliberately without the green-and-red of the sections above it. A country
+ * becoming older, more secular or less unionised is not a success or a failure —
+ * it is a change, and how a player feels about it is the whole of having
+ * politics. These lines get a direction and no verdict.
+ */
+function peopleSection(compare) {
+  const rows = compare.people || [];
+  if (!rows.length) return "";
+  return `<div class="card">
+    <div class="card__head">
+      <span class="eyebrow">👥 The people, across the same years</span>
+    </div>
+    <p class="hint" style="margin:6px 0 14px">
+      Nobody voted for any of this. It is the slowest thing that happens to a country
+      and it decides more elections than anything on the floor.
+    </p>
+    ${indicatorTable(rows)}
+  </div>`;
+}
 
 const head = (state) => `
   <div class="dash-head">

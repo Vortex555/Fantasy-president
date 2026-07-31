@@ -1,16 +1,31 @@
 import { seeded, hashString, clamp, round1 } from "./rng.js";
 import { STATES } from "./states.js";
-import { BILL_POOL, billById, rollCall, FRINGE_BILLS, fringeChance } from "./bills.js";
+import { BILL_POOL, billById, rollCall, FRINGE_BILLS, fringeChance, consensusOf } from "./bills.js";
 import { houseRaces, nationalEnvironment, runCongressionalCycle } from "./elections.js";
 import { buildCongress } from "../public/js/data/government.js";
-import { assignCommittee, earnCapital, evaluateLadder, committeeById } from "./committees.js";
+import { assignCommittee, earnCapital, evaluateLadder, committeeById, isWrecker } from "./committees.js";
 import { emptyArticles, tickArticles } from "./articles.js";
 import { nextChoices } from "./career.js";
-import { seedNation, advanceNation } from "./nation.js";
+import { seedNation, advanceNation, absoluteMonth } from "./nation.js";
 import { activeArcs } from "./arcs.js";
+import {
+  districtProfile, stateProfile, driftProfile, leanDriftFor, describeProfile, seedCountry,
+} from "./demographics.js";
 import { buildSociety } from "./society.js";
-import { applyConsequence, applyDetonationDamage, driftSociety } from "./consequence.js";
+import {
+  applyConsequence, applyDetonationDamage, driftSociety, applyMigration, migrationPopulation,
+} from "./consequence.js";
 import { recordMonth, noteEvent, EVENT } from "./chronicle.js";
+import {
+  convictionView, recordConviction, describeConviction, baseTurnout, primaryThreat,
+  INTEGRITY_START, signatureBonus,
+} from "./conviction.js";
+import {
+  factionOf, factionLine, blocDelta, describeBloc, ownBloc, BLOC_START,
+} from "./factions.js";
+import {
+  buildCoalition, applyVoteToCoalition, coalitionTurnout,
+} from "./coalition.js";
 
 /**
  * A seat in the House.
@@ -213,9 +228,57 @@ function buildCareer(scenario) {
     jeopardy: emptyArticles(),
     independent: scenario.party !== "Democrat" && scenario.party !== "Republican",
     president: buildPresident(scenario),
-    // Your two numbers. Everything in this mode is spending one for the other.
+    /**
+     * Your three numbers now. The first two are the old tension — district
+     * against caucus — and the third is the one that was missing: how often you
+     * vote like the person you told everyone you were.
+     */
+    integrity: INTEGRITY_START,
+    // The running tally the number is derived from. See conviction.js.
+    convictionKept: 0,
+    convictionWeight: 0,
+    // Your standing with the wing of the party you actually sit in.
+    /**
+     * The other half of a wrecker's arrangement.
+     *
+     * Leadership standing is crushed and bloc standing is enormous, and those
+     * are the same fact: the wing adores this member *because* it goes after the
+     * establishment. Every other ideology trades between its caucus and its
+     * wing; this one has already made the trade and cannot untrade it.
+     */
+    bloc: isWrecker(scenario) ? 92 : BLOC_START,
+    /**
+     * The people you represent, and who they were the day you were sworn in.
+     *
+     * A seat used to be a code and a lean. Keeping the founding profile beside
+     * the current one is what lets a twenty-year career see that the district
+     * which first elected it has quietly stopped existing. See demographics.js.
+     */
+    people: districtProfile(scenario.district, seat.lean, scenario.startYear || 2025),
+    peopleAtOath: districtProfile(scenario.district, seat.lean, scenario.startYear || 2025),
+    leanAtOath: seat.lean,
+    /**
+     * The country itself, as a thing legislation can change.
+     *
+     * National composition used to be a pure function of the year, which made it
+     * a backdrop no statute could reach. Stored, it can be bent — and immigration
+     * law is the lever that bends it. See consequence.js.
+     */
+    country: seedCountry(scenario.startYear || 2025),
+    countryAtOath: seedCountry(scenario.startYear || 2025),
+    // 1 is wherever history left the flow. Statutes move it and it stays moved.
+    migration: 1,
+    // And the blocs your ideology actually brought with you. See coalition.js.
+    coalition: buildCoalition(scenario),
     approval,
-    leadership: clamp(Math.round(52 + r.between(-8, 8))),
+    /**
+     * A wrecker starts at war with their own side rather than merely to the
+     * right of it. Everyone else negotiates a relationship with leadership; this
+     * one arrived to end careers there. See isWrecker in committees.js.
+     */
+    leadership: isWrecker(scenario)
+      ? clamp(Math.round(16 + r.between(-6, 6)))
+      : clamp(Math.round(52 + r.between(-8, 8))),
     // The country, carried over wholesale from the presidential game.
     economy: { gdpGrowth: 2.4, unemployment: 4.1, inflation: 3.0, debt: 34.2 },
     /**
@@ -415,6 +478,66 @@ export function floorBills(state) {
 }
 
 /**
+ * Whose name is on it.
+ *
+ * Derived from the actual chamber, never asked of the model — which had been
+ * getting it wrong most of the time and in two different ways. It put the
+ * *player* down as the sponsor of eleven of twenty bills, because the member's
+ * own name was the only name in the prompt and a small model reaches for what
+ * it has been given. And three more came back as the literal string "Sen.
+ * Invented Name (D-XX)", copied straight out of the JSON example that was meant
+ * to describe the field rather than fill it.
+ *
+ * Both were the same mistake on my part: asking the model for a fact the engine
+ * already holds. The chamber has four hundred and thirty-five people in it with
+ * names, parties, states and politics, and the bill's own position says which of
+ * them would put their name to it.
+ *
+ * It is also a category error for the player to appear here at all. Leadership
+ * schedules this calendar and the member votes on it; filing their own bill is
+ * a separate act with its own cooldown, its own odds and its own screen. A floor
+ * bill sponsored by the player is not a cosmetic slip, it is the mode describing
+ * itself wrongly.
+ */
+export function sponsorFor(state, bill, salt = "") {
+  const bench = buildCongress(state, STATES)[state.office === "senate" ? "senate" : "house"] || [];
+  const me = state.scenario?.presidentName;
+  const others = bench.filter((m) => m.name !== me);
+  if (!others.length) return null;
+
+  // The twelve members nearest the bill's politics, then one of them — so the
+  // sponsor is always someone who plausibly believes in it, without being the
+  // single closest every time.
+  const near = [...others]
+    .sort((a, b) => Math.abs(a.axis - bill.axis) - Math.abs(b.axis - bill.axis))
+    .slice(0, 12);
+  const r = seeded(`${state.rosterSeed}|billsponsor|${state.term || 1}|${state.month}|${bill.id}${salt}`);
+  const pick = near[Math.floor(r.next() * near.length)] || near[0];
+
+  return {
+    name: `${pick.title} ${pick.name} (${pick.party[0]}-${pick.state})`,
+    ideology: pick.ideology || "",
+    axis: pick.axis,
+  };
+}
+
+/**
+ * Put a name to every bill on the calendar.
+ *
+ * Run once, where the month's calendar is settled, so both the drawn floor and
+ * the written one are attributed the same way and the answer does not change
+ * when the screen repaints.
+ */
+export function attributeSponsors(state, bills) {
+  return bills.map((bill) => {
+    const who = sponsorFor(state, bill);
+    return who
+      ? { ...bill, sponsor: who.name, sponsorIdeology: who.ideology }
+      : { ...bill, sponsor: null };
+  });
+}
+
+/**
  * Give the fringe its slot, if this is one of its months.
  *
  * It takes a place on the calendar rather than being added to it, so the
@@ -435,7 +558,14 @@ export function seatFringe(state, bills) {
 /** Where your leadership stands, and how hard they are leaning on you. */
 export function partyLine(state, bill) {
   const anchor = PARTY_ANCHOR[caucusOf(state.scenario)] ?? 0;
-  const fit = agreement(anchor, bill.axis);
+  /**
+   * Consensus moves the caucus too, or the card contradicts the roll call.
+   *
+   * Without this, a bill nobody wants to be recorded against would show
+   * "leadership: NO" and then pass 95-5 — the two halves of the same screen
+   * disagreeing about the same vote.
+   */
+  const fit = agreement(anchor, bill.axis) + consensusOf(bill) * 0.22;
   const position = fit >= 0.72 ? "yes" : "no";
   const intensity = Math.round(Math.abs(fit - 0.72) * 240);
 
@@ -459,7 +589,9 @@ export function partyLine(state, bill) {
  * makes the choice legible.
  */
 export function districtView(state, bill) {
-  const fit = agreement(state.seat.axis, bill.axis);
+  // The people at home are no keener than anybody else to be on the wrong side
+  // of a bill about a disaster. Same widening as the caucus and the roll call.
+  const fit = agreement(state.seat.axis, bill.axis) + consensusOf(bill) * 0.22;
   const position = fit >= 0.72 ? "yes" : "no";
   const intensity = Math.round(Math.abs(fit - 0.72) * 240);
 
@@ -509,6 +641,10 @@ export function castVote(state, bill, vote) {
   const next = structuredClone(state);
   const party = partyLine(state, bill);
   const district = districtView(state, bill);
+  // The third party to every vote, and the only one that is actually you.
+  const conviction = convictionView(state, bill);
+  // And the bloc you sit with, which is more disciplined than either of them.
+  const bloc = factionLine(state, bill);
 
   // Voting with a side pays in proportion to how much they cared.
   const withDistrict = vote === district.position;
@@ -524,9 +660,29 @@ export function castVote(state, bill, vote) {
   next.approval = clamp(round1(next.approval + districtDelta));
   next.leadership = clamp(round1(next.leadership + leadershipDelta));
 
+  /**
+   * And what it did to your reputation for standing for something.
+   *
+   * Cheap to keep and expensive to break, which is what makes it worth having.
+   * See conviction.js.
+   */
+  const integrityMove = recordConviction(next, conviction, vote);
+  /**
+   * What your own wing makes of it.
+   *
+   * Steeper than crossing party leadership. A caucus of two hundred forgives a
+   * defection; a bloc of forty organised around a shared conviction is only able
+   * to hold a Speaker to ransom because it does not. See factions.js.
+   */
+  const blocMove = blocDelta(bloc, vote);
+  next.bloc = clamp(round1((next.bloc ?? BLOC_START) + blocMove));
+
+  // The blocs who backed you watched this, whichever way it went.
+  const blocsOnVote = applyVoteToCoalition(next, bill, vote);
+
   // The rest of the chamber, and then you.
   const roster = buildCongress(next, STATES);
-  const tally = rollCall(roster.house, bill.axis);
+  const tally = rollCall(roster.house, bill.axis, { consensus: consensusOf(bill) });
   /**
    * The votes a whip actually moved.
    *
@@ -569,6 +725,9 @@ export function castVote(state, bill, vote) {
    * third term.
    */
   const moved = passed ? applyConsequence(next, bill) : {};
+  // Immigration law changes who arrives, which is the only lever in the game
+  // that reaches national composition. See consequence.js.
+  const migration = passed ? applyMigration(next, bill) : 0;
   next.pending = [...(next.pending || []), noteEvent(passed ? EVENT.PASSED : EVENT.FAILED, {
     title: bill.title, domain: bill.domain, moved, vote,
     tally: `${tally.yes + swung + yourYes}-${tally.total - tally.yes - swung - yourYes}`,
@@ -576,6 +735,26 @@ export function castVote(state, bill, vote) {
 
   const result = {
     bill, yourVote: vote, passed, decisive, moved,
+    bloc: bloc && {
+      ...bloc, delta: blocMove, total: next.bloc,
+      note: describeBloc(bloc, vote, blocMove),
+    },
+    migration: migration ? { change: migration, now: next.migration } : null,
+    conviction: {
+      ...conviction,
+      delta: integrityMove,
+      note: describeConviction(conviction, vote, integrityMove),
+      total: next.integrity,
+    },
+    /**
+     * What the blocs make of *you*, which is not the same as how the law affects
+     * them. Folding those together meant a member who voted against an
+     * anti-labour bill that passed anyway saw "labour −2" on their own vote — the
+     * bloc's interests had worsened, so the meter read as though they blamed the
+     * member for it. They do not. This tracks whether they still back you; what
+     * the law did to the country is the chronicle's business.
+     */
+    blocs: blocsOnVote,
     tally: { ...tally, yes: tally.yes + swung + yourYes, no: tally.total - tally.yes - swung - yourYes },
     district: { ...district, delta: districtDelta },
     party: { ...party, delta: leadershipDelta },
@@ -644,6 +823,15 @@ export function sponsorBill(state, { title, axis, domain, favours = 0 }) {
   const senate = next.office === "senate";
   const chamberName = senate ? "Senate" : "House";
   const roster = buildCongress(next, STATES);
+  /**
+   * Your own bill is a party-line proposition, and stays one.
+   *
+   * A member does not get to declare their own legislation uncontroversial — the
+   * chamber decides that, and what it mostly decides is that a bill with one
+   * backbencher's name on it is exactly as partisan as its politics. Consensus
+   * is something a crisis or a national tragedy confers, not something you can
+   * award yourself on the filing form.
+   */
   const tally = rollCall(roster[senate ? "senate" : "house"], billAxis);
 
   // Getting a hearing at all is about clout, not merit.
@@ -666,6 +854,15 @@ export function sponsorBill(state, { title, axis, domain, favours = 0 }) {
   const odds = clamp(Math.round(
     8 + (next.leadership - 50) * 0.55 + Math.min(seniority, 8) * 5.5
     + (tally.passed ? 14 : 0) + (ownsIt ? 18 : 0) + push
+    /**
+     * And whether this is the subject your politics was built to write about.
+     *
+     * The concrete half of an ideology's signature: filing in the area it owns
+     * is markedly easier than filing outside it, which gives a member a reason
+     * to specialise and makes the choice at creation worth something on a screen
+     * they use every four months. See conviction.js.
+     */
+    + signatureBonus(next.scenario, domain || "economy")
   ), 2, 92);
 
   const r = seeded(`${next.rosterSeed}|sponsor|${next.term || 1}|${next.month}`);
@@ -876,7 +1073,18 @@ export function runReelection(state) {
   // Incumbency is worth a few points, and more of them the longer you have held it.
   const incumbency = 3 + Math.min(seat.seniority || 1, 6) * 0.9;
 
-  const margin = round1(ground + personal + wave + incumbency);
+  /**
+   * Whether your own side turns out for you.
+   *
+   * The payoff for the two things ideology now buys. Integrity is whether
+   * voters believe you are who you said you were; the coalition is whether the
+   * organisations that share your politics still bother knocking doors. Both are
+   * bounded and deliberately smaller than the personal vote, because a career
+   * should not come down to one statistic — but in a marginal seat they decide it.
+   */
+  const base = round1(baseTurnout(state) + coalitionTurnout(state));
+
+  const margin = round1(ground + personal + wave + incumbency + base);
   return {
     margin,
     won: margin > 0,
@@ -884,6 +1092,8 @@ export function runReelection(state) {
     personal: round1(personal),
     wave: round1(wave),
     incumbency: round1(incumbency),
+    base,
+    primary: primaryThreat(state),
     // The term this was computed for. A win increments seniority immediately,
     // so the screen must be told which number the bar actually reflects.
     seniority: seat.seniority || 1,
@@ -914,10 +1124,38 @@ export function closeTheMonth(next) {
     events.push(noteEvent(EVENT.RESOLVED, { title: settled.title, domain: settled.domain }));
   }
 
+  driftPeople(next);
   driftSociety(next, next.baseline);
   recordMonth(next, events);
   next.resolvedSeen = (next.resolved || []).length;
   return next;
+}
+
+/**
+ * The seat's population, a month older.
+ *
+ * And then the lean follows it. This is the payoff of deriving a profile from
+ * the politics rather than inventing one beside it: run the same correlation
+ * forwards and a changing population produces a changing seat. A member can hold
+ * the same district for twenty years and find it is no longer the district that
+ * sent them — not because anyone changed their mind, but because the people did.
+ */
+function driftPeople(next) {
+  if (!next.people || !next.seat) return;
+  const startYear = next.scenario?.startYear || 2025;
+  const year = startYear + Math.floor((absoluteMonth(next) - 1) / 12);
+  const flow = { migration: next.migration ?? 1 };
+
+  // The country first, then the seat inside it — both under whatever the
+  // chamber's immigration statutes have done to the flow.
+  if (next.country) driftProfile(next.country, year, flow);
+  migrationPopulation(next);
+  driftProfile(next.people, year, flow);
+
+  const moved = leanDriftFor(next.people, next.peopleAtOath, year, startYear);
+  const base = next.leanAtOath ?? next.seat.lean;
+  const lean = round1(base + moved);
+  next.seat = { ...next.seat, lean, axis: districtAxis(lean) };
 }
 
 /** Problems settled since the last entry, which the record has not yet noted. */

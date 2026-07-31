@@ -1,3 +1,4 @@
+import { coalitionStanding } from "./coalition.js";
 import { round1 } from "./rng.js";
 import { committeeById, rankById, rankIndex } from "./committees.js";
 import { confirmationRecord } from "./confirmations.js";
@@ -183,6 +184,64 @@ export function historicalHouseVerdict(state) {
       `It is the first line of every profile written about you since.` });
   }
 
+  /**
+   * Did they stand for anything.
+   *
+   * The question the record could not previously answer. A career was scored on
+   * longevity, legislation and rank — on whether it *lasted* — and never on
+   * whether the person who lived it voted like the person they had told everyone
+   * they were. Which meant the ideology chosen at creation had no bearing on how
+   * the career was finally read, and a member who spent twenty years voting
+   * against everything they claimed to believe retired with the same verdict as
+   * one who never bent.
+   *
+   * Deliberately double-edged. Conviction is not automatically a virtue here: a
+   * legislature made of people who will not move is a legislature that passes
+   * nothing, and the record says so when somebody held the line into total
+   * irrelevance.
+   */
+  const integrity = state.integrity;
+  if (typeof integrity === "number" && record.length >= 6) {
+    const ideology = state.scenario?.ideology || "the politics you ran on";
+    if (integrity >= 82) {
+      score += passed || rankIndex(rank) >= 2 ? 12 : 4;
+      findings.push({ good: true, text: passed || rankIndex(rank) >= 2
+        ? `You voted like a ${ideology} for ${years} years and still got things done. That combination is rare enough to be the headline.`
+        : `Nobody ever had to ask what you thought. You voted like a ${ideology} every time and it cost you the influence to act on any of it.` });
+    } else if (integrity >= 60) {
+      score += 5;
+      findings.push({ good: true, text:
+        `Your record is broadly the record of a ${ideology}. You bent where you had to and not much further.` });
+    } else if (integrity >= 35) {
+      findings.push({ good: false, text:
+        `You ran as a ${ideology} and then voted like whoever was in the room. There are compilations.` });
+    } else {
+      score -= 9;
+      findings.push({ good: false, text:
+        `Twenty years on and nobody could say what you were for. You took every vote that was easy and none that was not — ` +
+        `and a career spent avoiding the cost of having beliefs is how you end up with no monument and no enemies.` });
+    }
+  }
+
+  // --- And whether the people who put you there stayed.
+  const coalition = coalitionStanding(state);
+  if (coalition && record.length >= 6) {
+    const names = coalition.rows.map((r) => r.name);
+    if (coalition.mood === "committed") {
+      score += 7;
+      findings.push({ good: true, text:
+        `${names.slice(0, 2).join(" and ")} were with you at the start and were still with you at the end.` });
+    } else if (coalition.mood === "gone") {
+      score -= 7;
+      findings.push({ good: false, text:
+        `The people who made this career possible spent its last years trying to end it. ` +
+        `${names.slice(0, 2).join(" and ")} funded the primary against you.` });
+    } else if (coalition.mood === "cooling") {
+      findings.push({ good: false, text:
+        `You finished at arm's length from the coalition that elected you.` });
+    }
+  }
+
   const final = Math.max(0, Math.min(100, Math.round(score)));
   const band = RANKS.find((r) => final >= r.at) || RANKS[RANKS.length - 1];
   const rankBand = { ...band, title: band.title.replace("CHAMBER", chamberName) };
@@ -201,6 +260,9 @@ export function historicalHouseVerdict(state) {
     committee: committeeById(state.committee)?.name || null,
     votes: record.length,
     passed,
+    integrity: typeof integrity === "number" ? Math.round(integrity) : null,
+    ideology: state.scenario?.ideology || null,
+    coalition,
     findings: [
       ...findings.filter((f) => f.good === true),
       ...findings.filter((f) => f.good === null),

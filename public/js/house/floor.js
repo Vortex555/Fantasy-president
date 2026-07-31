@@ -108,9 +108,19 @@ function paint() {
       ${meter("Your leadership", state.leadership, state.independent
         ? `How the ${state.caucus} caucus you sit with rates you`
         : "How the caucus rates you")}
-      ${plain("Seniority", `Term ${seat.seniority}`, "Clout, slowly earned")}
+      ${board.integrity != null
+        ? meter("Your integrity", board.integrity,
+            `How often you vote like a ${board.ideology || "believer"}`)
+        : plain("Seniority", `Term ${seat.seniority}`, "Clout, slowly earned")}
       ${plain("Re-election", forecastLabel(board.forecast), forecastNote(board.forecast))}
     </div>
+    ${board.forecast?.primary ? `<div class="card card--alarm">
+      <span class="eyebrow">🗳️ A primary is being organised against you</span>
+      <p style="margin:10px 0 0">${escapeHtml(board.forecast.primary.note)}</p>
+    </div>` : ""}
+    ${factionCard(board)}
+    ${peopleCard(board)}
+    ${coalitionCard(board)}
 
     <div class="card">
       <div class="card__head">
@@ -382,10 +392,207 @@ function wireNomination() {
 
 // --- One bill ---------------------------------------------------------------
 
+/**
+ * The caucus inside the caucus.
+ *
+ * A chamber used to hold two organised bodies — the majority and the minority —
+ * and four hundred and thirty-five members carrying ideologies that grouped them
+ * into nothing. This is the bloc you actually sit with: it whips harder than
+ * leadership, it can deny a Speaker a majority on its own, and it is why the
+ * ideology picked at creation is now a room you walk into rather than a number.
+ */
+function factionCard(board) {
+  const f = board.faction;
+  if (!f) return "";
+  const trait = board.trait;
+  const standing = board.blocStanding;
+  const tone = standing != null && standing < 40 ? " card--alarm" : "";
+
+  return `<div class="card${tone}">
+    <div class="card__head">
+      <span class="eyebrow">🪧 ${escapeHtml(f.name)}</span>
+      <span class="hint">${f.members} members · ${f.share}% of the chamber</span>
+    </div>
+    <p class="hint" style="margin:6px 0 12px">${escapeHtml(f.creed)}</p>
+    ${standing != null ? `<div class="tiles tiles--four" style="margin-bottom:12px">
+      ${meter("Your bloc", standing, "How your own wing rates you")}
+      ${plain("Its size", `${f.members}`, f.canDenyMajority
+        ? "Enough to deny a majority on its own" : "Too small to stop anything alone")}
+    </div>` : ""}
+    ${trait ? `<div class="whipbox">
+      <div class="whipbox__head"><span class="eyebrow">✍️ ${escapeHtml(board.ideology || "Your politics")}</span></div>
+      <p class="hint" style="margin:6px 0 0">▲ ${escapeHtml(trait.strength)}</p>
+      <p class="hint" style="margin:4px 0 0">▼ ${escapeHtml(trait.limit)}</p>
+      ${trait.files ? `<p class="hint" style="margin:4px 0 0">
+        ✍ Filing on <b>${escapeHtml(trait.files)}</b> is markedly easier for you than anything else.</p>` : ""}
+    </div>` : ""}
+    ${board.chamberFactions?.length ? `<div class="flips" style="margin-top:12px">
+      ${board.chamberFactions.map((x) => `<span class="flip ${x.id === f.id ? "" : "flip--loss"}">
+        ${escapeHtml(x.name.replace(/^The /, ""))}<i>${x.members}</i></span>`).join("")}
+    </div>` : ""}
+  </div>`;
+}
+
+/**
+ * Who you represent.
+ *
+ * A seat used to be a code and a partisan lean — one integer standing in for a
+ * few hundred thousand people. This is the place itself, and how far it has
+ * moved since the day you were sworn in, which over a long career is the
+ * quietest and most consequential thing that happens to a member.
+ */
+function peopleCard(board) {
+  const p = board.people;
+  if (!p) return "";
+  const shifted = Math.round((p.leanNow - p.leanAtOath) * 10) / 10;
+  const lean = (v) => (v > 0 ? `R+${Math.abs(Math.round(v))}` : `D+${Math.abs(Math.round(v))}`);
+
+  return `<div class="card">
+    <div class="card__head">
+      <span class="eyebrow">👥 Who you represent</span>
+      <span class="hint">${lean(p.leanNow)}${
+        Math.abs(shifted) >= 1 ? ` · was ${lean(p.leanAtOath)} at your oath` : ""}</span>
+    </div>
+    <p class="hint" style="margin:6px 0 12px">${escapeHtml(p.describes)}${
+      p.wasDescribed && p.wasDescribed !== p.describes
+        ? ` — it was ${escapeHtml(p.wasDescribed)} when you arrived.` : "."}</p>
+    <div class="people">
+      ${p.rows.map((r) => {
+        const off = Math.abs(r.deviation) >= 0.8 ? (r.deviation > 0 ? "up" : "down") : "";
+        return `<div class="people__cell">
+          <span class="people__k">${escapeHtml(r.name)}</span>
+          <b class="${off}">${r.value}${escapeHtml(r.unit)}</b>
+          <i>national ${Math.round(r.national)}${escapeHtml(r.unit)}</i>
+        </div>`;
+      }).join("")}
+    </div>
+    ${Math.abs(shifted) >= 2 ? `<p class="hint" style="margin:12px 0 0">
+      <b>The seat has moved ${Math.abs(shifted)} points ${shifted > 0 ? "toward the Republicans" : "toward the Democrats"} since you were sworn in.</b>
+      Nobody changed their mind. The people changed.
+    </p>` : ""}
+  </div>`;
+}
+
+/** Which groups in the seat this bill actually lands on. */
+function impactBlock(bill) {
+  const hits = bill.impact || [];
+  if (!hits.length) return "";
+  return `<div class="whipbox" style="margin-top:12px">
+    <div class="whipbox__head">
+      <span class="eyebrow">👥 Who this hits in ${escapeHtml(G.state.seat.district || "your seat")}</span>
+    </div>
+    <div class="flips" style="margin-top:8px">
+      ${hits.map((g) => `<span class="flip ${g.feeling < 0 ? "flip--loss" : ""}">
+        ${g.feeling > 0 ? "▲" : "▼"} ${escapeHtml(g.name)}<i>${g.share}% of the seat</i>
+      </span>`).join("")}
+    </div>
+  </div>`;
+}
+
+/**
+ * When all three of them disagree.
+ *
+ * The mode used to be a two-way bind: your caucus against your district. Adding
+ * what you actually believe makes a third case possible, and it is the most
+ * interesting vote in the game — there is no way through it that does not cost
+ * you something real, which is exactly the position a legislature puts people in.
+ */
+function threeWayNote(bill) {
+  const c = bill.conviction;
+  if (!c) return "";
+  const positions = new Set([bill.party.position, bill.district.position, c.position]);
+  if (positions.size === 1) return "";
+
+  const alone = c.position !== bill.party.position && c.position !== bill.district.position;
+  if (alone) {
+    return `<p class="hint" style="margin:12px 0 0">
+      ⚠️ <b>You are on your own here.</b> Your caucus and ${escapeHtml(bill.district.district || "your seat")}
+      agree with each other and not with you. Voting your conscience costs you both at once.
+    </p>`;
+  }
+  const withWhom = c.position === bill.party.position ? "your caucus" : "the people who elected you";
+  return `<p class="hint" style="margin:12px 0 0">
+    🪞 On this one you are with ${escapeHtml(withWhom)}. The other one is the price.
+  </p>`;
+}
+
+/** Which of the blocs behind you moved, and which way. */
+function blocMoves(blocs) {
+  const moved = Object.entries(blocs || {}).filter(([, v]) => Math.abs(v) >= 1);
+  if (!moved.length) return "";
+  const label = (id) => (BLOC_NAMES[id] || id);
+  return `<div class="flips" style="margin-top:12px">
+    ${moved.sort((a, b) => Math.abs(b[1]) - Math.abs(a[1])).slice(0, 5).map(([id, v]) =>
+      `<span class="flip ${v < 0 ? "flip--loss" : ""}">${escapeHtml(label(id))}<i>${v > 0 ? "+" : ""}${Math.round(v)}</i></span>`).join("")}
+  </div>`;
+}
+
+const BLOC_NAMES = {
+  wall_street: "Wall Street", big_business: "Big Business", pentagon: "The Pentagon",
+  labor: "Labour", greens: "Environmentalists", civil_rights: "Civil Rights",
+  gun_owners: "Gun Owners", faith: "Faith Communities",
+};
+
+/**
+ * The people who put you here.
+ *
+ * Seeded from the ideology chosen at creation, which until now bought a starting
+ * approval number and nothing else. These are the groups that funded the last
+ * campaign and decide whether there is another one.
+ */
+function coalitionCard(board) {
+  const c = board.coalition;
+  if (!c) return "";
+  const tone = c.mood === "gone" ? " card--alarm" : c.mood === "committed" ? " card--accent" : "";
+  return `<div class="card${tone}">
+    <div class="card__head">
+      <span class="eyebrow">🤝 Who brought you here</span>
+      <span class="hint">${escapeHtml(board.ideology || "")} · ${c.mood}</span>
+    </div>
+    <p class="hint" style="margin:6px 0 12px">${escapeHtml(c.note)}</p>
+    <div class="record">
+      ${c.rows.map((r) => {
+        const tone2 = r.now >= 60 ? "up" : r.now < 45 ? "down" : "";
+        return `<div class="record__row" style="grid-template-columns:11rem 1fr 4rem 5rem">
+          <span class="record__name">${escapeHtml(r.name)}</span>
+          <span class="track"><i style="width:${Math.round(r.now)}%;background:${
+            r.now >= 60 ? "var(--green)" : r.now >= 45 ? "var(--amber)" : "var(--red)"}"></i></span>
+          <span class="record__to">${Math.round(r.now)}%</span>
+          <span class="record__change ${tone2}">${r.change > 0 ? "+" : ""}${r.change} since day one</span>
+        </div>`;
+      }).join("")}
+    </div>
+  </div>`;
+}
+
 /** Ranks that hold a gavel over their own committee's bills. */
 const GAVEL = new Set(["subchair", "chair", "speaker"]);
 
 const stanceClass = (p) => (p === "yes" ? "stance--yes" : "stance--no");
+
+/**
+ * How contested this one is, said out loud.
+ *
+ * Worth its own line because it is the difference between a vote of 54-46 and
+ * one of 87-13, and until it existed the two were indistinguishable on screen:
+ * a bill nobody wanted to be recorded against looked exactly like a party-line
+ * tax cut, and both were counted as one.
+ */
+const SUPPORT_NOTE = {
+  unanimous: ["🕊️", "Nobody will be recorded against this. The vote is a formality; being absent for it is not."],
+  bipartisan: ["🤝", "Not a party-line vote. Both sides want the purpose even where they argue about the amount."],
+  contested: ["↔️", "Some of the other side will cross over on this one."],
+};
+
+function supportNote(bill) {
+  const note = SUPPORT_NOTE[bill.support];
+  if (!note) return "";
+  const [icon, text] = note;
+  return `<p class="hint" style="margin:0 0 14px">
+    ${icon} <b>${bill.support === "unanimous" ? "Unanimous" : bill.support === "bipartisan" ? "Bipartisan" : "Crosses the aisle"}.</b>
+    ${escapeHtml(text)}${bill.crisis ? ` The chamber has closed ranks over ${escapeHtml(bill.crisis)}.` : ""}
+  </p>`;
+}
 
 function billCard(bill) {
   const split = bill.party.position !== bill.district.position;
@@ -402,12 +609,13 @@ function billCard(bill) {
     </p>` : ""}
     <h3 class="display display--sm" style="margin:4px 0 6px">${escapeHtml(bill.title)}</h3>
     <p class="brief__body" style="margin:0 0 ${bill.because || bill.sponsor ? "10px" : "14px"}">${escapeHtml(bill.brief || "")}</p>
-    ${bill.because || bill.sponsor ? `<p class="hint" style="margin:0 0 14px">
+    ${bill.because || bill.sponsor ? `<p class="hint" style="margin:0 0 10px">
       ${bill.sponsor ? `Filed by ${escapeHtml(bill.sponsor)}.` : ""}
       ${bill.because ? `<b>Why it is on the floor:</b> ${escapeHtml(bill.because)}.` : ""}
     </p>` : ""}
+    ${supportNote(bill)}
 
-    <div class="stances">
+    <div class="stances${bill.bloc ? " stances--four" : bill.conviction ? " stances--three" : ""}">
       <div class="stance ${stanceClass(bill.party.position)}">
         <span class="stance__who">${G.state.independent ? escapeHtml(G.state.caucus) + " caucus" : "Your leadership"}</span>
         <span class="stance__pos">${bill.party.position.toUpperCase()}</span>
@@ -420,7 +628,21 @@ function billCard(bill) {
         <span class="stance__note">${escapeHtml(bill.district.reason)}</span>
         <span class="stance__heat">Pressure ${bill.district.intensity}</span>
       </div>
+      ${bill.bloc ? `<div class="stance stance--bloc ${stanceClass(bill.bloc.position)}">
+        <span class="stance__who">${escapeHtml(bill.bloc.name)}</span>
+        <span class="stance__pos">${bill.bloc.position.toUpperCase()}</span>
+        <span class="stance__note">${escapeHtml(bill.bloc.reason)}</span>
+        <span class="stance__heat">Discipline ${Math.round(bill.bloc.discipline * 100)} · ${bill.bloc.intensity}</span>
+      </div>` : ""}
+      ${bill.conviction ? `<div class="stance stance--you ${stanceClass(bill.conviction.position)}">
+        <span class="stance__who">You${bill.conviction.fringe ? " ⚑" : ""}</span>
+        <span class="stance__pos">${bill.conviction.position.toUpperCase()}</span>
+        <span class="stance__note">${escapeHtml(bill.conviction.reason)}</span>
+        <span class="stance__heat">${escapeHtml(bill.conviction.ideology)} · ${bill.conviction.intensity}</span>
+      </div>` : ""}
     </div>
+    ${impactBlock(bill)}
+    ${threeWayNote(bill)}
     <p class="hint" style="margin:12px 0 0">${escapeHtml(bill.district.pressureNote || "")}</p>
 
     ${whipBox(bill)}
@@ -600,7 +822,14 @@ function paintVoteResult(card, result) {
     <div class="vote-result__deltas">
       <span>District ${delta(result.district.delta)}</span>
       <span>Leadership ${delta(result.party.delta)}</span>
+      ${result.conviction ? `<span>Integrity ${delta(result.conviction.delta)}</span>` : ""}
+      ${result.bloc ? `<span>Your bloc ${delta(result.bloc.delta)}</span>` : ""}
     </div>
+    ${result.conviction?.note
+      ? `<p class="hint" style="margin:10px 0 0"><b>🪞 ${escapeHtml(result.conviction.note)}</b></p>` : ""}
+    ${result.bloc?.note
+      ? `<p class="hint" style="margin:8px 0 0"><b>🪧 ${escapeHtml(result.bloc.note)}</b></p>` : ""}
+    ${blocMoves(result.blocs)}
     ${falloutBlock(result.fallout)}`;
   // The two headline numbers moved; keep the tiles honest.
   refreshMeters();

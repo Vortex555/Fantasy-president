@@ -12,6 +12,7 @@ import { deploymentsSummary } from "./deployments.js";
 import { covertSummary } from "./covert.js";
 import { billsSummary } from "./bills.js";
 import { jeopardySummary } from "./impeachment.js";
+import { factionOf, factionRoll } from "./factions.js";
 
 /**
  * Which brain is answering is decided in ai/provider.js — the hosted API, a
@@ -45,6 +46,7 @@ You MUST respond with ONLY a single JSON object (no prose, no markdown fences) w
   "arcs": [ { "id": "<the exact id from ONGOING SITUATIONS>", "addressed": 0, "note": "short clause on how this month's policy touched it" } ],
   "newArc": { "title": "short name for a lingering problem", "brief": "1-2 sentences on what is still unresolved", "domain": "one of: ${ARC_DOMAIN_IDS.join('|')}" },
   "nextEvent": { "title": "headline for next month's crisis", "brief": "2-4 sentence situation the player must respond to next" },
+  "ideologyFit": number,           // -3..3: did this policy match the ideology this president ran on? See the rule below.
   "flags": { "removedFromOffice": false, "reason": "" } // set true only for catastrophic, plausible removal (impeachment+conviction, resignation, coup)
 }
 
@@ -58,6 +60,7 @@ Rules:
 - "newArc" is optional; use null on most months. Set it only when this month's policy or situation plausibly leaves behind a NEW problem that will still be sitting there next month. Never more than one per turn, and never duplicate an existing ongoing situation.
 - The country remembers what is still unfixed. Your analysis and headlines should reference ongoing situations by name where it is natural — especially ones that have been festering for months.
 - Only include a stakeholder in "stakeholders" if it genuinely moved. Silence is a valid outcome; a list of eight near-zero changes is noise.
+- "ideologyFit" holds the president to what they campaigned as, which is a separate judgement from whether the policy was any good. The dashboard names their ideology; score how far this month's policy is from it. +3 is the purest possible expression of that politics; 0 is orthogonal or unremarkable; -3 is a direct betrayal of the thing they were elected to do. A Social Democrat cutting welfare is -3 whether or not it worked. A Libertarian nationalising a railway is -3 even if it saved the economy. Judge the fit, not the merit — the merit is already in every other number you are returning.
 - Keep it grounded in the scenario's era and the current dashboard. Never break character or mention that this is a game.
 
 ===========================================================================
@@ -144,16 +147,54 @@ export function stateSummary(state) {
 ${state.scenario.profile ? `Who they are: ${state.scenario.profile}.\n` : ""}${bioBlock(state.scenario)}${termLine(state, clock)}
 National approval: ${state.approval}%   Government stability: ${state.stability}%
 Economy: GDP growth ${state.economy.gdpGrowth}%, unemployment ${state.economy.unemployment}%, inflation ${state.economy.inflation}%, national debt $${state.economy.debt}T.
-${state.congressDissolved
+${presidentFaction(state)}${state.congressDissolved
   ? "Congress: DISSOLVED. The Capitol is padlocked and the President rules by decree. There is no chamber to pass, amend or block anything, no oversight, and no legislative route for anyone to resist through. Write the month accordingly — the resistance is in the streets, the courts, the states and the barracks, not on the floor."
   : `Congress: House ${state.congress.houseD}D-${state.congress.houseR}R (${control.house}), Senate ${state.congress.senateD}D-${state.congress.senateR}R (${control.senate}).`}
 Supreme Court: ${state.court.conservative}–${state.court.liberal} ${state.court.conservative >= state.court.liberal ? "conservative" : "liberal"} majority.
 Electoral map: ~${ev.win} EV favorable, ~${ev.lose} unfavorable, ~${ev.tossup} tossup.
-Stakeholder support (0-100): ${stakes}.
+Stakeholder support (0-100): ${stakes}.${countryLine(state)}
 Notable states (approval): ${notableStates}.
 Official stakeholder names you must use: ${STAKEHOLDERS.map((s) => s.name).join(", ")}.
 ${subsystemBlock(state)}
 ${describeArcs(state.arcs)}`;
+}
+
+/**
+ * Who the country is, for a judge deciding what a policy did to it.
+ *
+ * Constituency arithmetic and nothing else — the same rule the congressional
+ * prompts carry. It is here because a president's policy lands on a country with
+ * a composition, and because immigration policy is judged against it.
+ */
+function countryLine(state) {
+  const c = state.country;
+  if (!c) return "";
+  return `\nThe country: median age ${Math.round(c.age)}, ${Math.round(c.college)}% graduates, `
+    + `${Math.round(c.rural)}% rural, ${Math.round(c.union)}% union households, `
+    + `${Math.round(c.faith)}% attend weekly. Census composition ${Math.round(c.white)}% white, `
+    + `${Math.round(c.black)}% Black, ${Math.round(c.hispanic)}% Hispanic, ${Math.round(c.asian)}% Asian.`
+    + `\nThis is constituency arithmetic. NEVER characterise, generalise about, or ascribe views, `
+    + `values or behaviour to any racial or ethnic group — write about the country and the policy, `
+    + `never about what a category of people is like.`;
+}
+
+/**
+ * The President's own wing, and what it is worth in the chamber.
+ *
+ * A president who cannot hold their own faction cannot pass anything, and a
+ * president whose faction is small has to govern from somebody else's votes.
+ * Naming it lets the judge write a Congress that behaves like one.
+ */
+function presidentFaction(state) {
+  const mine = factionOf(state.scenario);
+  if (!mine) return "";
+  const roll = factionRoll({ ...state, office: "house" });
+  const row = roll.find((f) => f.id === mine.id);
+  const others = roll.filter((f) => f.id !== mine.id && f.members >= 20).slice(0, 3);
+  return `The President came out of ${mine.name} — ${mine.creed} `
+    + `It holds roughly ${row?.members || 0} seats in the House. `
+    + `The other organised blocs of any size are ${others.map((f) => `${f.name} (${f.members})`).join(", ")}. `
+    + `Congress is these factions negotiating, not two parties voting.\n`;
 }
 
 /** The optional subsystems, listed only when they are actually running. */

@@ -44,7 +44,9 @@ test("a well-formed bill comes through intact", () => {
   assert.equal(out.title, "Bridges and Ports Act");
   assert.equal(out.axis, -0.05);
   assert.equal(out.domain, "economy");
-  assert.equal(out.sponsor, "Rep. Marguerite Kirkland (D-OH)");
+  // Who filed it is the engine's business now, not the model's — see the
+  // sponsor tests in house.test.js. Anything the model volunteers is dropped.
+  assert.equal(out.sponsor, undefined);
   assert.equal(out.because, "the refinery fallout has closed two Gulf ports");
   assert.equal(out.written, true);
   assert.equal(out.fringe, false);
@@ -123,9 +125,26 @@ test("a model that writes an essay for a title gets a title", () => {
   assert.ok(out.brief.length <= 240);
 });
 
-test("a missing sponsor or reason is absent rather than empty", () => {
-  const [out] = validateDocket({ bills: [bill({ sponsor: "", because: undefined })] }, house(), 1);
-  assert.equal(out.sponsor, null);
+/**
+ * The model claimed the player had filed eleven of twenty bills, because their
+ * name was the only one in the prompt. It also returned the literal placeholder
+ * "Sen. Invented Name (D-XX)" three times, copied out of the JSON example. Both
+ * are gone: the field is not asked for and anything offered is discarded.
+ */
+test("a sponsor the model volunteers is thrown away", () => {
+  const [mine] = validateDocket({
+    bills: [bill({ sponsor: "Sen. Dale Fairweather (D-OH)" })],
+  }, house(), 1);
+  assert.equal(mine.sponsor, undefined, "above all, never the player");
+
+  const [placeholder] = validateDocket({
+    bills: [bill({ sponsor: "Rep./Sen. Invented Name (D-XX)" })],
+  }, house(), 1);
+  assert.equal(placeholder.sponsor, undefined);
+});
+
+test("a missing reason is absent rather than empty", () => {
+  const [out] = validateDocket({ bills: [bill({ because: undefined })] }, house(), 1);
   assert.equal(out.because, null);
 });
 

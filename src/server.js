@@ -24,7 +24,7 @@ import { historicalVerdict } from "./verdict.js";
 import {
   districtOptions, seatFor, floorBills, partyLine, districtView,
   castVote, sponsorBill, advanceHouseMonth, runReelection, HOUSE_TERM, canFileAgain,
-  docketSize, fringeMonth, fringeSide, fringeBillFor,
+  docketSize, fringeMonth, fringeSide, fringeBillFor, attributeSponsors,
 } from "./house.js";
 import {
   COMMITTEES, RANKS, committeeById, rankById, inYourDomain,
@@ -65,8 +65,12 @@ import {
 import {
   nationCard, setSituation, situationFromPool, wantsWrittenSituation,
 } from "./nation.js";
-import { detonationEvent } from "./arcs.js";
+import { detonationEvent, activeArcs } from "./arcs.js";
 import { thenAndNow, turningPoints, series } from "./chronicle.js";
+import { convictionView, traitFor } from "./conviction.js";
+import { factionLine, ownBloc, factionRoll } from "./factions.js";
+import { coalitionStanding, foundingBlocs } from "./coalition.js";
+import { billImpact, describeProfile, profileRows, nationalProfile } from "./demographics.js";
 import {
   providerInfo, providerId, providerHealth, probeProvider,
   recordModelFailure, resetProviderHealth, providerMisconfigured,
@@ -586,11 +590,76 @@ async function ensureDocket(state, { size, offline }) {
       const written6 = fringeBillFor(state);
       if (written6) bills = [...bills.slice(0, -1), written6];
     }
+
+    /**
+     * Whose name is on each bill, decided here for both routes at once.
+     *
+     * The single point where the month's calendar is final, which is what this
+     * needs: the sponsor is drawn from the real chamber roster and must not
+     * change when the floor screen repaints. See `attributeSponsors`.
+     */
+    bills = attributeSponsors(state, bills);
+    bills = crisisConsensus(state, bills);
   }
 
   const next = { ...state, docket: { term, month: state.month, bills, written } };
   return { state: next, bills, written };
 }
+
+/**
+ * A real emergency suspends normal politics, whatever anyone marked the bill.
+ *
+ * This is the specific thing that was wrong. A five-billion-dollar cyber-defence
+ * appropriation, in the month after an actual attack on critical infrastructure,
+ * came back marked as a party-line Republican project and passed 55-45 with not
+ * one Democrat voting for it. Both halves of that were wrong: the bill was given
+ * the politics of a tax cut, and the roll call had no way to express a chamber
+ * closing ranks even if it had been marked correctly.
+ *
+ * So the engine has the last word on it. If a bill answers a problem the country
+ * is carrying at severity four or five, it is at least bipartisan no matter what
+ * the model said — because that is what an acute crisis does to a legislature,
+ * and it is not a judgement a model should be trusted to make when the engine
+ * already knows how bad things are.
+ *
+ * It only ever raises. A bill the model called unanimous is left alone.
+ */
+function crisisConsensus(state, bills) {
+  const acute = new Map();
+  for (const arc of activeArcs(state)) {
+    if (arc.severity >= 4) acute.set(arc.id, arc);
+  }
+
+  return bills.map((raw) => {
+    /**
+     * Every bill leaves here with a stated tier, never an absent one.
+     *
+     * Bills drawn from the pool and the six fringe bills do not pass through
+     * `validateDocket`, so they arrived with `support` undefined — harmless,
+     * since `consensusOf` reads the pool's own value and defaults to zero, but
+     * it left the field meaning two different things depending on which route
+     * the bill took. A party-line vote is the honest default and says so.
+     */
+    const bill = raw.support ? raw : { ...raw, support: "partyline" };
+
+    // The fringe is never a consensus, however bad things get. That is the
+    // entire point of the fringe.
+    if (bill.fringe) return bill;
+    if (!acute.size) return bill;
+    if (!bill.addresses || !acute.has(bill.addresses)) return bill;
+    if (bill.support === "unanimous" || bill.support === "bipartisan") return bill;
+    return {
+      ...bill,
+      support: "bipartisan",
+      crisis: acute.get(bill.addresses).title,
+    };
+  });
+}
+
+/** Which calendar year a career is standing in, for the era-aware demographics. */
+const yearOf = (state) =>
+  (state?.scenario?.startYear || 2025)
+  + Math.floor((((state?.term || 1) - 1) * (state?.office === "senate" ? 72 : 24) + (state?.month || 1) - 1) / 12);
 
 /** What leadership has scheduled, and where everyone stands on it. */
 app.post("/api/house/floor", async (req, res) => {
@@ -608,6 +677,12 @@ app.post("/api/house/floor", async (req, res) => {
         ...bill,
         party: partyLine(state, bill),
         district: districtView(state, bill),
+        // The third party to the vote, and the only one that is actually them.
+        conviction: convictionView(state, bill),
+        // And the bloc you sit with, which whips harder than the caucus does.
+        bloc: factionLine(state, bill),
+        // And who in the seat actually wins or loses by it.
+        impact: billImpact(state.people, bill, yearOf(state)),
         // What this member's rank lets them do to it before anybody votes.
         yours: inYourDomain(state, bill),
         whip: whipCount(state, bill),
@@ -625,6 +700,25 @@ app.post("/api/house/floor", async (req, res) => {
       articles: articlesReady(state)
         ? { ...state.jeopardy, stance: articlesStance(state), president: state.president }
         : null,
+      // How often they have voted like the person they said they were, and where
+      // they stand with the blocs their ideology brought. See conviction.js.
+      integrity: state.integrity ?? null,
+      coalition: coalitionStanding(state),
+      founding: foundingBlocs(state.scenario),
+      ideology: state.scenario?.ideology || null,
+      // The wing of the party you actually sit in, and what it is worth.
+      faction: ownBloc(state),
+      blocStanding: state.bloc ?? null,
+      chamberFactions: factionRoll(state),
+      trait: traitFor(state.scenario?.party, state.scenario?.ideology),
+      // Who this member represents, and how far that has moved since the oath.
+      people: state.people ? {
+        rows: profileRows(state.people, yearOf(state)),
+        describes: describeProfile(state.people, yearOf(state)),
+        wasDescribed: describeProfile(state.peopleAtOath, state.scenario?.startYear || 2025),
+        leanNow: state.seat?.lean,
+        leanAtOath: state.leanAtOath ?? state.seat?.lean,
+      } : null,
       committee: committee && { ...committee },
       rank: rankById(state.rank, "house"),
       capital: state.capital ?? 0,
@@ -980,6 +1074,9 @@ app.post("/api/senate/floor", async (req, res) => {
         ...bill,
         party: senatePartyLine(state, bill),
         district: senateStateView(state, bill),
+        conviction: convictionView(state, bill),
+        bloc: factionLine(state, bill),
+        impact: billImpact(state.people, bill, yearOf(state)),
         yours: inYourDomain(state, bill),
         whip: whipCount(state, bill),
         filibustered: held.has(bill.id),
@@ -990,6 +1087,25 @@ app.post("/api/senate/floor", async (req, res) => {
       written,
       staff: staffOf(state),
       state,
+      // How often they have voted like the person they said they were, and where
+      // they stand with the blocs their ideology brought. See conviction.js.
+      integrity: state.integrity ?? null,
+      coalition: coalitionStanding(state),
+      founding: foundingBlocs(state.scenario),
+      ideology: state.scenario?.ideology || null,
+      // The wing of the party you actually sit in, and what it is worth.
+      faction: ownBloc(state),
+      blocStanding: state.bloc ?? null,
+      chamberFactions: factionRoll(state),
+      trait: traitFor(state.scenario?.party, state.scenario?.ideology),
+      // Who this member represents, and how far that has moved since the oath.
+      people: state.people ? {
+        rows: profileRows(state.people, yearOf(state)),
+        describes: describeProfile(state.people, yearOf(state)),
+        wasDescribed: describeProfile(state.peopleAtOath, state.scenario?.startYear || 2025),
+        leanNow: state.seat?.lean,
+        leanAtOath: state.leanAtOath ?? state.seat?.lean,
+      } : null,
       committee: committeeById(state.committee),
       rank: rankById(state.rank, "senate"),
       capital: state.capital ?? 0,

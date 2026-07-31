@@ -24,9 +24,17 @@ import {
 import { PRIMARY_MONTH, primaryThreat, primaryChallenger, runPrimary } from "./primary.js";
 import { buildGovernors, tickGovernors, defianceDrag } from "./governors.js";
 import { courtRuling } from "./court.js";
+import { STAKEHOLDERS } from "./stakeholders.js";
+import { INTEGRITY_START } from "./conviction.js";
+import { seedCountry, driftProfile } from "./demographics.js";
+import { factionOf, factionRoll, factionFor } from "./factions.js";
+import { applyMigrationPolicy, migrationPopulation } from "./consequence.js";
+import { foundingBlocs } from "./coalition.js";
 import { createHouseCareer } from "./house.js";
 import { createSenateCareer } from "./senate.js";
 import { seedFromCareer } from "./career.js";
+
+export { STAKEHOLDERS };
 
 export const TERM_LENGTH = 48; // months
 export const MIDTERM_MONTH = 24;
@@ -81,16 +89,6 @@ export const pacing = (state) => {
   };
 };
 
-export const STAKEHOLDERS = [
-  { id: "wall_street", name: "Wall Street",       lean:  1 },
-  { id: "big_business", name: "Big Business",     lean:  1 },
-  { id: "pentagon",     name: "The Pentagon",     lean:  0.5 },
-  { id: "labor",        name: "Labor Unions",     lean: -1 },
-  { id: "greens",       name: "Environmentalists", lean: -1 },
-  { id: "civil_rights", name: "Civil Rights Orgs", lean: -1 },
-  { id: "gun_owners",   name: "Gun Owners",       lean:  1 },
-  { id: "faith",        name: "Faith Communities", lean:  0.7 },
-];
 
 
 // party sign: Democrat = -1, Republican = +1. Used to align leans.
@@ -199,6 +197,12 @@ export function createGame(scenario, career = null) {
       debt: 34.2, // trillions
     },
     stakeholders,
+    /**
+     * How closely this presidency has resembled the one that was elected.
+     * Starts with the benefit of the doubt, and the judge revises it every month.
+     * See conviction.js — the chambers keep the same number for the same reason.
+     */
+    integrity: INTEGRITY_START,
     stateApproval,
     congress,
     // The Supreme Court is inherited, not chosen — a standing constraint.
@@ -234,6 +238,35 @@ export function createGame(scenario, career = null) {
     over: false,
     ending: null,
   };
+
+  /**
+   * Who the country is, as opposed to how it is doing.
+   *
+   * Not the same thing as `society` and not a replacement for it — the two share
+   * no field at all. Society is the country's condition, which policy improves or
+   * ruins; this is its composition, which policy barely touches and which decides
+   * what is politically possible. The chambers have carried both since the
+   * demographics work; the presidency carried only the first.
+   *
+   * Unconditional, unlike society. Social Engineering is a rule of play a player
+   * opts into; who lives in the country is not optional.
+   */
+  /**
+   * The wing of the party the President came from.
+   *
+   * A president is not a free agent inside their own caucus. They were nominated
+   * by a faction, that faction has a bloc of votes in Congress, and it expects
+   * to be paid — which is the difference between a party that governs and a party
+   * that merely holds a majority. The chambers have carried this since factions
+   * were built; the presidency was still treating Congress as two undifferentiated
+   * parties.
+   */
+  state.faction = factionOf(scenario)?.id || null;
+
+  state.country = seedCountry(scenario.startYear || 2025);
+  state.countryAtOath = seedCountry(scenario.startYear || 2025);
+  // Where the last immigration statute left the flow. See consequence.js.
+  state.migration = 1;
 
   // Optional subsystems, only present when their rule is switched on.
   if (scenario.society) state.society = buildSociety(scenario);
@@ -574,8 +607,63 @@ function softenByDifficulty(change, difficulty) {
 }
 
 // Fold a TurnResult (from Claude or the mock engine) into a new game state.
+/**
+ * The country's composition, a month on — and what this month's policy did to it.
+ *
+ * A president has far more purchase on immigration law than any single member
+ * does, so this is where the lever matters most. The policy is free text rather
+ * than a bill with an axis, so the direction is read from what was actually
+ * written: the same vocabulary check the offline judge uses for ideological fit,
+ * pointed at whether this is restriction or expansion.
+ */
+function driftCountry(next, policy) {
+  if (!next.country) return null;
+  const year = (next.scenario?.startYear || 2025) + Math.floor((absoluteMonth(next) - 1) / 12);
+
+  const before = { ...next.country };
+  const moved = applyMigrationPolicy(next, policy);
+  driftProfile(next.country, year, { migration: next.migration ?? 1 });
+  if (next.society) migrationPopulation(next);
+
+  return {
+    migration: moved ? { change: moved, now: next.migration } : null,
+    white: round1(next.country.white - before.white),
+    hispanic: round1(next.country.hispanic - before.hispanic),
+  };
+}
+
 export function applyResult(state, policy, result) {
   const next = structuredClone(state);
+
+  /**
+   * Whether this month looked like the politics they were elected on.
+   *
+   * The presidency has always seeded its eight blocs from the chosen ideology
+   * and then never referred to the choice again. A Social Democrat could govern
+   * as a deregulator for four years and the only trace was that Wall Street
+   * happened to be warm — nothing anywhere asked whether the person in the
+   * office resembled the person on the ballot.
+   *
+   * The judge answers that now, separately from whether the policy worked, and
+   * it accumulates. A president's own coalition reads the gap before the
+   * opposition does. See conviction.js for the same idea in Congress.
+   */
+  const fit = Math.max(-3, Math.min(3, Math.round(Number(result.ideologyFit) || 0)));
+  next.integrity = clamp(round1((next.integrity ?? INTEGRITY_START) + fit * 2.4));
+  result.integrity = { fit, total: next.integrity };
+
+  /**
+   * And the blocs who share those politics notice the drift directly.
+   *
+   * Only the ones the ideology actually brought — a Third Way president is not
+   * owed anything by organised labour and should not be scored against it.
+   */
+  if (fit) {
+    for (const bloc of foundingBlocs(next.scenario)) {
+      if (bloc.pull <= 0 || next.stakeholders?.[bloc.id] == null) continue;
+      next.stakeholders[bloc.id] = clamp(Math.round(next.stakeholders[bloc.id] + fit * 1.5));
+    }
+  }
 
   // Ensure a checks-and-balances narrative exists (AI may omit it). With the
   // rule switched off in setup, nothing blocks the president at all.
@@ -738,6 +826,7 @@ export function applyResult(state, policy, result) {
   result.governorMoves = tickGovernors(next, policy);
   result.foreignMoves = applyForeign(next, policy, result);
   if (next.society) result.societyMoves = applySociety(next, policy, result);
+  result.countryMoves = driftCountry(next, policy);
   if (next.deployments) result.warEvents = tickDeployments(next, policy);
   if (next.covert) result.covertOutcome = tickCovert(next, policy, result.covertAction);
   // The Bureau, the articles, the House and the Senate.
@@ -1434,8 +1523,47 @@ export function mockTurn(state, policy, publicMessage, event) {
     arcs: mockJudgeArcs(state.arcs || [], text),
     newArc: mockProposeArc(state, event, approvalChange),
     nextEvent: { title: ev.title, brief: ev.brief },
+    /**
+     * Whether the policy looked like the politics they ran on, worked out from
+     * the words rather than judged. Blunt, but a keyless game still has to hold
+     * a president to their ideology or the choice at creation stops mattering
+     * the moment the model is absent.
+     */
+    ideologyFit: mockIdeologyFit(state, text),
     flags,
   };
+}
+
+/**
+ * The offline reading of ideological fit.
+ *
+ * Looks for the vocabulary each end of the spectrum actually uses and compares
+ * the balance of it against where the president said they stood. A policy full of
+ * expansion and public provision from a libertarian scores badly; the same policy
+ * from a social democrat scores well.
+ */
+const LEFT_WORDS = /\b(expand|public|universal|invest|union|subsid|welfare|nationalis|nationaliz|regulat|tax the|wealth tax|climate|equity|guarantee)\b/gi;
+const RIGHT_WORDS = /\b(cut|deregulat|privatis|privatiz|tax cut|border|enforce|military|deficit|austerity|repeal|traditional|freedom to|market)\b/gi;
+
+export function mockIdeologyFit(state, text) {
+  const axis = Number(state?.scenario?.ideologyAxis) || 0;
+  if (!axis) return 0;
+  const left = (String(text).match(LEFT_WORDS) || []).length;
+  const right = (String(text).match(RIGHT_WORDS) || []).length;
+  if (!left && !right) return 0;
+  // Which way the policy leans, -1 (all left vocabulary) to +1 (all right).
+  const lean = (right - left) / (right + left);
+  /**
+   * Agreement of direction, not of magnitude.
+   *
+   * Comparing the lean to the axis directly punished a president for being purer
+   * than their own label — a social democrat at -0.6 writing an unambiguously
+   * left policy scored a lean of -1, a gap of 0.4, and came out neutral. What is
+   * being asked is "is this the politics you ran on", and the answer to that is
+   * a direction.
+   */
+  const alignment = lean * (axis > 0 ? 1 : -1);
+  return Math.max(-3, Math.min(3, Math.round(alignment * 3)));
 }
 
 // In local-sim mode, the crisis you fumbled is the one that lingers.
