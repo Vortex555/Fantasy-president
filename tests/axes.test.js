@@ -80,11 +80,20 @@ test("a Groyper is not a libertarian with the dial turned up", () => {
     assert.ok(apart(groyper, find(name)) > 1.5,
       `${name} and a Groyper are still neighbours at ${apart(groyper, find(name)).toFixed(2)}`);
   }
-  // And specifically: nationalist, authoritarian, traditional, and not a marketeer.
+  // And specifically: nationalist, exclusionary, traditional, and no marketeer.
   assert.ok(groyper.diplomatic > 0.6, "its whole politics is nation over globe");
-  assert.ok(groyper.liberty < 0, "it wants the state doing more, not less");
+  assert.ok(groyper.pluralism < -0.8, "this is the axis it actually lives on");
   assert.ok(groyper.culture > 0.6, "it is a reaction, not a programme");
   assert.ok(groyper.economic < 0.5, "it takes no corporate money and says so");
+  /**
+   * Note what is NOT asserted: that its `liberty` is negative.
+   *
+   * It was, and that was a double-count. The case for a negative value was that
+   * the movement wants the state deporting, policing its enemies and enforcing a
+   * moral order — and every one of those now sits on `pluralism` or `culture`.
+   * Charging it here as well made the ideology oppose bills narrowing civil
+   * rights protections, which is the opposite of the whole point of it.
+   */
 });
 
 test("a neoconservative and a paleoconservative split on the axis they actually hate each other over", () => {

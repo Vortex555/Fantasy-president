@@ -70,34 +70,57 @@ test("and against one that expands it", () => {
 });
 
 /**
- * Corrects what this file first claimed.
+ * Corrected twice, which is worth leaving on the record.
  *
- * It asserted a Groyper votes for a warrant requirement, on the reasoning that
- * the movement is loudly against the agencies investigating it. That is true of
- * the movement and it is not a liberty position — it is a grievance about who
- * the state is pointed at. Coded as +0.5 it made the ideology read as
- * libertarianism turned up, which is close to the inverse of a politics whose
- * founding fight was against the libertarian wing of its own side.
+ * This first asserted a Groyper votes FOR a warrant requirement, on the grounds
+ * that the movement is loudly against the agencies investigating it. Then it
+ * asserted the opposite, on the grounds that a movement wanting mass deportation
+ * and a policed moral order is authoritarian and the single number had to answer
+ * for all of it.
  *
- * So the member and their own bloc now come apart here, which is the honest
- * result: the Freedom Caucus whips for the warrant requirement, and the Groyper
- * sitting in it does not care for warrants when the target is somebody else.
+ * The second reading was a double-count, and only became visible once there were
+ * axes to hold the other halves. Deportation is `pluralism`. A policed moral
+ * order is `culture`. What is left for `liberty` alone is state coercion of the
+ * person, and there the movement's actual legislative demands are anti-state —
+ * so it votes for the warrant bill after all, and the ugly part of the politics
+ * is carried where it belongs instead of smuggled onto this axis.
  */
-test("a Groyper is not a civil libertarian, whatever their caucus is", () => {
-  const state = seat();
-  assert.ok(findIdeology("Republican", "Groyper").liberty < 0,
-    "its anti-statism is selective, and the single number has to answer for all of it");
-  assert.equal(convictionView(state, PRIVACY).position, "no");
-  assert.equal(factionLine(state, PRIVACY).position, "yes",
-    "the bloc still whips for it, which is the disagreement worth having");
+test("a Groyper is against the agencies, and that is all this axis says", () => {
+  assert.ok(findIdeology("Republican", "Groyper").liberty > 0);
+
+  /**
+   * Stated as a comparison rather than a vote, because a vote is not this axis's
+   * to decide alone. `surveillance_reform` is partisan-left at -0.1 and a
+   * Groyper sits at +0.95, so the composite pulls hard the other way and they
+   * come out against it on balance — which is a fair reading of a member who
+   * wants the FBI defunded but will not hand the other side a win.
+   *
+   * What this axis is responsible for is the ordering, and the ordering is the
+   * thing the old value got wrong: against a warrant requirement, a Groyper must
+   * be warmer than the law-and-order right and cooler than a doctrinaire
+   * libertarian. Under the double-counted -0.25 it sat below both.
+   */
+  const fitFor = (ideology) => convictionView({
+    scenario: { party: "Republican", ideology, ...ideologyPosition("Republican", ideology) },
+    seat: { district: "WV-2", axis: 0.9, lean: 60 },
+  }, PRIVACY).fit;
+
+  assert.ok(fitFor("Groyper") > fitFor("Law & Order Conservative"),
+    "a movement built on hating the federal agencies is not the police caucus");
+  assert.ok(fitFor("Constitutionalist") > fitFor("Groyper"),
+    "and it is not the Fourth Amendment caucus either");
 });
 
-test("and it is nobody's libertarian, however far right it sits", () => {
+test("and it is still nobody's libertarian, on the axes that actually divide them", () => {
   const groyper = findIdeology("Republican", "Groyper");
   for (const name of ["Libertarian Conservative", "Constitutionalist", "Techno-Libertarian"]) {
     const lib = findIdeology("Republican", name);
-    assert.ok(lib.liberty - groyper.liberty > 0.8,
-      `${name} and a Groyper should not be neighbours on state power`);
+    // Not `liberty` — they broadly agree there, and always did. The distance is
+    // on who the law protects and on who gets what.
+    assert.ok(lib.pluralism - groyper.pluralism > 0.5,
+      `${name} and a Groyper should be far apart on who the law is for`);
+    assert.ok(lib.economic - groyper.economic > 0.5,
+      `${name} and a Groyper should be far apart on markets`);
   }
 });
 

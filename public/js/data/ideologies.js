@@ -214,11 +214,22 @@ export const IDEOLOGIES = {
      * order in public life. Weigh those against each other across all the bills
      * that touch state power and the balance is authoritarian.
      *
-     * A scalar cannot hold "against the state when it is pointed at us, for it
-     * when it is pointed at them" — nothing here can. That is what per-bill
-     * `defectors` is for, and a warrant bill is exactly the case to use it on.
+     * Revised upward once `pluralism` existed, because -0.25 was double-counting.
+     *
+     * The reasoning for a negative value was that the movement wants the state
+     * doing more: mass deportation, policing of its enemies, a moral order
+     * enforced in public life. Every one of those now lives on an axis of its
+     * own — exclusion on `pluralism`, moral order on `culture` — so charging
+     * them here as well counted the same authoritarianism twice, and left the
+     * ideology opposing bills it would obviously vote for.
+     *
+     * What is left on this axis alone is the part about state coercion of the
+     * person, and there the movement's loudest legislative demands really are
+     * anti-state: get the federal agencies off us, stop the platforms banning
+     * us. Modestly positive, and the ugly half of the politics is now carried
+     * where it belongs rather than smuggled in here.
      */
-    { value: "Groyper", axis: 0.95, economic: 0.1, diplomatic: 0.9, liberty: -0.25, culture: 0.85, pluralism: -0.95, sub: "+Young online right hard, −Party establishment hard, −Civil rights hard", fringe: true,
+    { value: "Groyper", axis: 0.95, economic: 0.1, diplomatic: 0.9, liberty: 0.2, culture: 0.85, pluralism: -0.95, sub: "+Young online right hard, −Party establishment hard, −Civil rights hard", fringe: true,
       wrecker: true,
       fx: { gun_owners: 14, faith: 8, civil_rights: -32, big_business: -24, wall_street: -22, pentagon: -14, stability: -20, approval: -12 },
       trait: {
