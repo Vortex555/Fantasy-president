@@ -72,23 +72,47 @@ export const FACTIONS = [
   },
   {
     id: "study_committee", party: "Republican", name: "The Republican Study Committee",
-    band: [0.34, 0.55], discipline: 0.62,
+    band: [0.34, 0.58], discipline: 0.62,
     // Split down the middle on it, which is what being the party's centre of gravity means.
     liberty: 0.05,
     creed: "The party's centre of gravity. Large, orthodox, and rarely the problem.",
   },
   {
     id: "liberty", party: "Republican", name: "The Liberty Caucus",
-    band: [0.55, 0.72], discipline: 0.7,
+    /**
+     * Empty by design: this bloc is populated entirely through `OVERRIDES`.
+     *
+     * It is the one faction that cannot be described by a stretch of the
+     * economic axis, because what its members share is the *other* dimension.
+     * A Techno-Libertarian at 0.35 and a Constitutionalist at 0.7 sit a third of
+     * the spectrum apart on money and next to each other on state power, and any
+     * band wide enough to hold both swallows half the caucus with it. Naming
+     * them is honest; the band was not.
+     */
+    band: [0.58, 0.58], discipline: 0.7,
     // The whole point of the bloc.
     liberty: 0.9,
     creed: "Doctrinaire on spending and on the Constitution. Will vote against its own leadership's budget on principle and enjoy it.",
   },
   {
     id: "freedom", party: "Republican", name: "The Freedom Caucus",
-    band: [0.72, 1], discipline: 0.85,
-    // Organised against federal power as much as against the left. The other half of every warrant-requirement coalition.
-    liberty: 0.75,
+    /**
+     * Was [0.72, 1], which no mainstream ideology could reach — the bench tops
+     * out at 0.7 — so outside a radicalised chamber the bloc was populated by a
+     * single override and stood at seven seats. The caucus that exists to deny
+     * a Speaker his majority could not have denied him anything.
+     */
+    band: [0.58, 1], discipline: 0.85,
+    /**
+     * Organised against federal power as much as against the left, and the
+     * other half of every warrant-requirement coalition.
+     *
+     * Deliberately above where its own roster averages. A caucus's whipped line
+     * is not the mean of its members' dispositions — this one organises around
+     * distrust of federal agencies specifically, which is why it turns out for a
+     * warrant requirement that several of its members would not have written.
+     */
+    liberty: 0.55,
     creed: "Organised to say no. Small enough to fit in a room, disciplined enough to deny the Speaker a majority, and entirely willing to.",
   },
 ];
@@ -121,6 +145,13 @@ const OVERRIDES = {
    * exists for. The axis could not see it; the second one cannot miss it.
    */
   "Law & Order Conservative": "study_committee",
+  /**
+   * The definitional Liberty Caucus politics, and the axis sends it to the
+   * hardliners instead. At 0.7 on money it is the furthest-right mainstream
+   * ideology in the game; at +0.85 on state power it is the furthest thing from
+   * what the Freedom Caucus's other members want.
+   */
+  "Constitutionalist": "liberty",
 };
 
 export const factionById = (id) => FACTIONS.find((f) => f.id === id) || null;

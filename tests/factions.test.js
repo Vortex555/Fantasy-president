@@ -317,3 +317,64 @@ test("only wreckers are treated this way", () => {
 test("it still sits in the caucus nearest its politics", () => {
   assert.equal(factionFor("Republican", "Groyper").id, "freedom");
 });
+
+// ---------------------------------------------------------------------------
+// Size, which is the only reason a bloc is worth anything
+// ---------------------------------------------------------------------------
+
+/**
+ * A faction's entire power is that it can withhold enough votes to matter, so a
+ * bloc sized wrong is a bloc that does not exist. This went unnoticed for real:
+ * the Freedom Caucus band was [0.72, 1] and the mainstream Republican bench tops
+ * out at 0.70, so outside a radicalised chamber the caucus organised to deny a
+ * Speaker his majority stood at seven seats and could deny him nothing.
+ *
+ * Ranges rather than numbers, and checked across seeds and chamber splits,
+ * because the roster is drawn at random around each party's anchor.
+ */
+test("every bloc is big enough to be worth whipping and small enough not to be the party", () => {
+  const SANE = {
+    progressive: [18, 60], labor_caucus: [40, 85], new_democrat: [70, 130], blue_dog: [12, 40],
+    main_street: [18, 60], study_committee: [90, 165], liberty: [18, 50], freedom: [18, 55],
+  };
+  const splits = [
+    { houseD: 213, houseR: 222, senateD: 47, senateR: 53 },
+    { houseD: 240, houseR: 195, senateD: 53, senateR: 47 },
+    { houseD: 190, houseR: 245, senateD: 44, senateR: 56 },
+  ];
+
+  for (const rosterSeed of ["demo", "a2", "b7", "zz", "q9", "m4"]) {
+    for (const congress of splits) {
+      const roll = factionRoll({ rosterSeed, congress, scenario: { party: "Republican" } });
+      for (const [id, [lo, hi]] of Object.entries(SANE)) {
+        const row = roll.find((f) => f.id === id);
+        assert.ok(row, `${id} has no members at all in ${rosterSeed}`);
+        assert.ok(row.members >= lo && row.members <= hi,
+          `${id} came out at ${row.members} seats (want ${lo}-${hi}) — seed ${rosterSeed}`);
+      }
+    }
+  }
+});
+
+test("the hardliners can actually deny a majority, which is the whole point of them", () => {
+  const state = {
+    rosterSeed: "demo",
+    congress: { houseD: 213, houseR: 222, senateD: 47, senateR: 53 },
+    scenario: { party: "Republican", ideology: "Groyper", ideologyAxis: 0.95, ideologyLiberty: 0.5 },
+    office: "house",
+  };
+  const mine = ownBloc(state);
+  assert.equal(mine.id, "freedom");
+  assert.ok(mine.canDenyMajority,
+    "a Freedom Caucus that cannot cost leadership a vote is scenery");
+});
+
+test("the Liberty Caucus is held together by state power, not by the spectrum", () => {
+  // The case the band could not express: a third of the spectrum apart on money,
+  // next to each other on what the state may do.
+  for (const name of ["Techno-Libertarian", "Libertarian Conservative", "Constitutionalist"]) {
+    assert.equal(factionFor("Republican", name).id, "liberty", name);
+  }
+  assert.equal(factionFor("Republican", "Law & Order Conservative").id, "study_committee",
+    "mandatory minimums do not belong in the bloc organised around the Constitution");
+});

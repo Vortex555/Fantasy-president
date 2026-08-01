@@ -143,14 +143,21 @@ export const BILL_POOL = [
    * them by party. Now leadership takes one side and both organised wings take
    * the other, which is how every surveillance vote of the last twenty years has
    * actually gone.
+   *
+   * Both sat at ±0.85 on the first pass and the reform bill lost 73-362, because
+   * the chamber's liberty median is about -0.1 and 0.85 is a fringe position
+   * measured against it — the same mistake as writing a bill at axis +0.9 and
+   * being surprised. At ±0.58 the vote lands within twenty of the line, which is
+   * where warrant amendments actually land and the only place a player's own
+   * vote is worth anything.
    */
-  { id: "surveillance_reform", axis: -0.1, liberty: 0.85, domain: "justice",
+  { id: "surveillance_reform", axis: -0.1, liberty: 0.58, domain: "justice",
     consensus: CONSENSUS.contested,
     title: "Warrant Requirement Act",
     brief: "Requires a judicial warrant before federal agencies may query Americans' communications, and forces disclosure of data breaches.",
     fx: { approval: 2, civil_rights: 14, gun_owners: 8, pentagon: -16, big_business: -8 },
     society: { crime: 3 } },
-  { id: "surveillance_powers", axis: 0.2, liberty: -0.85, domain: "justice",
+  { id: "surveillance_powers", axis: 0.2, liberty: -0.58, domain: "justice",
     consensus: CONSENSUS.contested,
     title: "Intelligence Authorities Reauthorisation",
     brief: "Renews bulk collection authorities for five years and extends them to data bought from commercial brokers.",
