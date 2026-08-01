@@ -112,7 +112,7 @@ export function factionLine(state, bill) {
   const centre = {
     axis: (faction.band[0] + faction.band[1]) / 2,
     economic: faction.economic, diplomatic: faction.diplomatic,
-    liberty: faction.liberty, culture: faction.culture,
+    liberty: faction.liberty, culture: faction.culture, pluralism: faction.pluralism,
   };
   const fit = stanceFit(centre, bill);
 

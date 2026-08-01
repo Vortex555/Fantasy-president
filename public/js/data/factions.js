@@ -27,7 +27,7 @@ export const FACTIONS = [
   // --- Democratic ----------------------------------------------------------
   {
     id: "progressive", party: "Democrat", name: "The Progressive Caucus",
-    economic: -0.75, diplomatic: -0.4, culture: -0.65,
+    economic: -0.75, diplomatic: -0.4, culture: -0.65, pluralism: 0.7,
     band: [-1, -0.52], discipline: 0.78,
     // Anti-war, anti-surveillance, and the reliable left half of every civil-liberties coalition.
     liberty: 0.55,
@@ -35,7 +35,7 @@ export const FACTIONS = [
   },
   {
     id: "labor_caucus", party: "Democrat", name: "The Labor Caucus",
-    economic: -0.7, diplomatic: 0.2, culture: 0.0,
+    economic: -0.7, diplomatic: 0.2, culture: 0.0, pluralism: 0.3,
     band: [-0.52, -0.38], discipline: 0.72,
     // Institutionalist. Wants the state strong enough to hold an employer to account.
     liberty: -0.1,
@@ -43,7 +43,7 @@ export const FACTIONS = [
   },
   {
     id: "new_democrat", party: "Democrat", name: "The New Democrat Coalition",
-    economic: -0.15, diplomatic: -0.45, culture: -0.35,
+    economic: -0.15, diplomatic: -0.45, culture: -0.35, pluralism: 0.4,
     band: [-0.38, -0.2], discipline: 0.6,
     // The governing wing defends the security state, because governing it is the job.
     liberty: -0.35,
@@ -51,7 +51,7 @@ export const FACTIONS = [
   },
   {
     id: "blue_dog", party: "Democrat", name: "The Blue Dog Coalition",
-    economic: -0.05, diplomatic: 0.3, culture: 0.25,
+    economic: -0.05, diplomatic: 0.3, culture: 0.25, pluralism: 0.1,
     band: [-0.2, 0], discipline: 0.55,
     // Law-and-order Democrats from seats that vote for sheriffs.
     liberty: -0.5,
@@ -61,7 +61,7 @@ export const FACTIONS = [
   // --- Republican ----------------------------------------------------------
   {
     id: "main_street", party: "Republican", name: "The Main Street Partnership",
-    economic: 0.6, diplomatic: -0.3, culture: 0.1,
+    economic: 0.6, diplomatic: -0.3, culture: 0.1, pluralism: 0.15,
     band: [0, 0.34], discipline: 0.55,
     // Governing conservatives. Votes to reauthorise whatever the agencies ask for.
     liberty: -0.3,
@@ -69,7 +69,7 @@ export const FACTIONS = [
   },
   {
     id: "study_committee", party: "Republican", name: "The Republican Study Committee",
-    economic: 0.55, diplomatic: 0.2, culture: 0.55,
+    economic: 0.55, diplomatic: 0.2, culture: 0.55, pluralism: -0.15,
     band: [0.34, 0.58], discipline: 0.62,
     // Split down the middle on it, which is what being the party's centre of gravity means.
     liberty: 0.05,
@@ -77,7 +77,7 @@ export const FACTIONS = [
   },
   {
     id: "liberty", party: "Republican", name: "The Liberty Caucus",
-    economic: 0.85, diplomatic: -0.1, culture: 0.1,
+    economic: 0.85, diplomatic: -0.1, culture: 0.1, pluralism: 0.05,
     /**
      * Empty by design: this bloc is populated entirely through `OVERRIDES`.
      *
@@ -95,7 +95,7 @@ export const FACTIONS = [
   },
   {
     id: "freedom", party: "Republican", name: "The Freedom Caucus",
-    economic: 0.25, diplomatic: 0.8, culture: 0.75,
+    economic: 0.25, diplomatic: 0.8, culture: 0.75, pluralism: -0.55,
     /**
      * Was [0.72, 1], which no mainstream ideology could reach — the bench tops
      * out at 0.7 — so outside a radicalised chamber the bloc was populated by a

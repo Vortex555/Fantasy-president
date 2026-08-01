@@ -4,6 +4,8 @@ import { seeded } from "./rng.js";
 import { normalizeDomain, activeArcs, ARC_DOMAIN_IDS } from "./arcs.js";
 import { FRINGE_AXIS, CONSENSUS_TIERS, MAX_DEFECTIONS, ISSUE_AXES } from "./bills.js";
 import { FACTIONS } from "../public/js/data/factions.js";
+import { findIdeology } from "../public/js/data/ideologies.js";
+import { STAKEHOLDERS } from "./stakeholders.js";
 import { nationSummary, absoluteMonth, steerDomain, recentNewsSubjects } from "./nation.js";
 import { committeeById, rankById, chamberOf } from "./committees.js";
 import { describeProfile, loudestObjection } from "./demographics.js";
@@ -55,6 +57,39 @@ const GAVEL_RANKS = new Set(["subchair", "chair", "speaker"]);
  * "Agricultural Resiliency and Cybersecurity Act" in consecutive months of a
  * banking crisis. A committee seat is not a subject; a gavel is.
  */
+/**
+ * What this member's politics actually is, rather than only what it is called.
+ *
+ * The prompts named the ideology and stopped — "Groyper", "Distributist",
+ * "Sovereigntist" — and a model handed an unfamiliar label writes the most
+ * flattering thing the words could plausibly mean. That produced a Groyper whose
+ * vote against weakening racial anti-discrimination law was explained as
+ * declining to trade away "broader civil rights": a principled moderate
+ * invented out of a name, printed on the floor screen, for a politics whose own
+ * definition is hostile to exactly that.
+ *
+ * A label invites invention. Its own numbers do not, so they go in the prompt:
+ * the plain-English line the setup screen already shows, and the blocs it courts
+ * and repels, which is where an ideology's character actually lives.
+ */
+function politicsOf(scenario) {
+  const found = findIdeology(scenario?.party, scenario?.ideology);
+  if (!found) return "";
+
+  const named = (test) => STAKEHOLDERS
+    .filter((h) => test(Number(found.fx?.[h.id]) || 0))
+    .map((h) => h.name);
+  const courts = named((v) => v >= 8);
+  const repels = named((v) => v <= -8);
+
+  return `\nWhat that politics is: ${found.sub}.`
+    + (courts.length ? `\n  It is backed by: ${courts.join(", ")}.` : "")
+    + (repels.length ? `\n  It is hostile to: ${repels.join(", ")}.` : "")
+    + `\n  Write them as that politics honestly is. Do NOT soften it, do not `
+    + `credit it with commitments it does not hold, and do not invent a `
+    + `principled-sounding reason that contradicts the description above.`;
+}
+
 function memberSummary(state) {
   const seat = state.seat || {};
   const senate = state.office === "senate";
@@ -88,7 +123,7 @@ function memberSummary(state) {
   return `THE MEMBER YOU ARE WRITING FOR:
 ${state.scenario.presidentName}, ${state.scenario.party}${
   state.independent ? ` (caucuses with the ${state.caucus}s)` : ""
-}, ${state.scenario.ideology || "no stated ideology"}, representing ${where}, which is ${leanWord}.${people}
+}, ${state.scenario.ideology || "no stated ideology"}, representing ${where}, which is ${leanWord}.${politicsOf(state.scenario)}${people}
 They are a ${rank.title}${gavel && committee ? `, holding the gavel on ${committee.name} — ${committee.remit}` : ""}.
 Term ${state.term || 1}, month ${state.month}. Standing at home ${state.approval}%, with their caucus ${state.leadership}%.
 
@@ -114,6 +149,7 @@ You MUST respond with ONLY a single JSON object (no prose, no markdown fences) w
       "diplomatic": number,  // -1 globe (alliances, trade, integration) … +1 nation (sovereignty, tariffs, borders)
       "liberty": number,     // -1 authority (state power over the person) … +1 liberty (restrains it)
       "culture": number,     // -1 progress (social change) … +1 tradition (the settled moral order)
+      "pluralism": number,   // -1 hierarchy (narrows who the law protects) … +1 protection (widens it)
       "domain": "one of: ${DOMAINS}",
       "because": "6-12 words on which national problem or news story produced this bill",
       "addresses": "the exact id (e.g. arc_2) of the UNRESOLVED NATIONAL PROBLEM this bill answers, or null if it answers none of them",
@@ -133,6 +169,7 @@ Rules — read them, they are the difference between a floor and a list:
     "diplomatic" — sovereignty against integration, NOT hawkishness. Tariffs, immigration enforcement and withdrawing from a treaty are positive; alliances, trade deals and foreign aid are negative. A neoconservative is on the *negative* side of this despite being a hawk, and a paleoconservative is on the positive side despite wanting the troops home. That is the split it exists to draw.
     "liberty"    — warrants, policing, detention, censorship, surveillance, emergency powers. Positive restrains the state; negative empowers it. Anything that builds out coercive capacity is negative even when framed as safety: prison beds, police hiring and mandatory minimums are -0.4 to -0.7.
     "culture"    — religion in public life, family and gender, speech, education content, monuments. Positive is tradition, negative is progress.
+    "pluralism"  — WHO the law protects, which is a different question from the moral order. Anti-discrimination law, voting access, immigration status and minority protections live here. Positive widens protection; negative narrows it. A bill creating exemptions from anti-discrimination law is strongly negative even when its mechanism is a religious liberty one, and set "liberty" for the mechanism only if that is genuinely also what it is about.
   Keep magnitudes honest. The chamber's median sits near 0 on all four, so ±0.85 is a fringe position and most real bills that touch an axis land between 0.3 and 0.6. The strongest single claim decides how much of the vote leaves ordinary partisanship, so inflating one number quietly overrides the whole rest of the chamber.
 
 - "defectors" is for the rare bill whose politics the two numbers above genuinely cannot express: an organised bloc that will vote AGAINST where its own ideology sits. Leave it out entirely on almost every bill — the axes already handle the ordinary case, and a defection you did not need makes the chamber incoherent. Use it when a specific caucus has a known, concrete commitment that cuts across its own side: a farm-state bloc against its party's trade bill, a libertarian bloc against its party's police funding, a labour bloc against its party's environmental bill. At most TWO blocs per bill, and never on a bill where you cannot name the reason in a clause.
@@ -217,7 +254,8 @@ Rules:
 - Be specific to THIS bill. A sentence that would fit any bill in the domain is a wasted line.
 - The four voices must not paraphrase each other. If two of them landed the same way, they landed there for different reasons and you should say what those are.
 - NEVER contradict the stated position. Read it again before each sentence. If a voice is YES you are explaining why they SUPPORT it, and the words "opposes", "rejects" and "against" must not appear. If a voice is NO you are explaining why they are AGAINST it. Getting this backwards is the single worst thing you can do here, and a line that does it is thrown away.
-- Use the district's own name. Never invent statistics, vote counts or named people.`;
+- Use the district's own name. Never invent statistics, vote counts or named people.
+- Write the member as the politics described to you, not as you would like them to be. If their ideology is hostile to a group, a bill helping that group is not something they support reluctantly on principle — they oppose it, and the sentence should say why in their own terms. Never launder an ugly politics into a reasonable one; a flattering explanation that contradicts the stated politics is worse than no explanation, and will be thrown away.`;
 
 /**
  * The engine hands over the positions; the model hands back the sentences.

@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 
 import { stanceFit, ISSUE_AXES, ISSUE_WEIGHT_CAP, CONSENSUS } from "../src/bills.js";
 import { IDEOLOGIES, findIdeology, ideologyPosition } from "../public/js/data/ideologies.js";
+import { convictionView } from "../src/conviction.js";
 import { FACTIONS } from "../public/js/data/factions.js";
 
 /**
@@ -34,12 +35,12 @@ const find = (name) => ALL.find((i) => i.value === name);
 // ---------------------------------------------------------------------------
 
 test("each axis is named once and carries a pole in each direction", () => {
-  assert.equal(ISSUE_AXES.length, 4);
+  assert.equal(ISSUE_AXES.length, 5);
   for (const a of ISSUE_AXES) {
     assert.ok(a.id && a.low && a.high, `${a.id} is missing a pole`);
   }
   assert.deepEqual(ISSUE_AXES.map((a) => a.id).sort(),
-    ["culture", "diplomatic", "economic", "liberty"]);
+    ["culture", "diplomatic", "economic", "liberty", "pluralism"]);
 });
 
 test("every ideology states a position on all four", () => {
@@ -158,4 +159,70 @@ test("a voice with no view on an axis is judged without it", () => {
   const bill = { axis: 0.2, diplomatic: 0.7, domain: "foreign", support: "contested" };
   const seat = { axis: 0.9, economic: null, diplomatic: null, liberty: null, culture: null };
   assert.equal(stanceFit(seat, bill), stanceFit(seat, { ...bill, diplomatic: 0 }));
+});
+
+// ---------------------------------------------------------------------------
+// The fifth: who the law is for
+// ---------------------------------------------------------------------------
+
+/**
+ * Four axes and none of them could see a bill about discrimination.
+ *
+ * A bill weakening racial anti-discrimination protections reached the floor and
+ * the engine read it as a *liberty* question — religious exemption, freedom from
+ * a state mandate — which is a defensible reading of the mechanism and says
+ * nothing about the politics. A Groyper came out against it, and the floor
+ * printed a sentence crediting them with declining to weaken civil rights.
+ *
+ * The number that should have decided it was sitting in the file the whole time.
+ * `fx.civil_rights` is -32 on that ideology, the most extreme value it carries
+ * and the single thing that defines it, and no stance had ever read it. Money,
+ * sovereignty, state power and moral order are four real questions and none of
+ * them is *who the law protects*.
+ */
+
+test("every politics states where it stands on who the law is for", () => {
+  const missing = ALL.filter((i) => typeof i.pluralism !== "number"
+    || i.pluralism < -1 || i.pluralism > 1);
+  assert.deepEqual(missing.map((i) => `${i.party}/${i.value}`), []);
+  assert.ok(ISSUE_AXES.some((a) => a.id === "pluralism"));
+});
+
+test("the ideologies whose own bloc effects shout it are on the right side of zero", () => {
+  for (const name of ["Groyper", "Ethnonationalist", "Christian Nationalist", "Nativist"]) {
+    assert.ok(find(name).pluralism < -0.5, `${name} should be well below zero`);
+  }
+  for (const name of ["Abolitionist Left", "New Left / Identitarian", "Civil Libertarian"]) {
+    assert.ok(find(name).pluralism > 0.5, `${name} should be well above zero`);
+  }
+});
+
+test("it separates a traditionalism that protects people from one that does not", () => {
+  // Both far up the culture axis; opposite on who the moral order is for. This
+  // is the confusion that produced the laughable card.
+  const religiousLeft = find("Religious Left");
+  const christianNationalist = ALL.find(
+    (i) => i.value === "Christian Nationalist" && i.party === "Republican");
+  assert.ok(religiousLeft.pluralism > 0.3);
+  assert.ok(christianNationalist.pluralism < -0.5);
+});
+
+test("a Groyper is for a bill that weakens anti-discrimination law, and says so", () => {
+  const bill = {
+    axis: 0.8, liberty: 0.7, culture: 0.4, pluralism: -0.8,
+    domain: "social", support: "contested",
+  };
+  const seatFor = (ideology) => ({
+    scenario: { party: "Republican", ideology, ...ideologyPosition("Republican", ideology) },
+    seat: { district: "WV-2", axis: 0.9, lean: 60 }, caucus: "Republican",
+  });
+  assert.equal(convictionView(seatFor("Groyper"), bill).position, "yes",
+    "the engine read this as a liberty question and got the politics backwards");
+  assert.equal(convictionView(seatFor("Rockefeller Republican"), bill).position, "no");
+});
+
+test("and a bill that says nothing about it is scored as though the axis were not there", () => {
+  const voice5 = { axis: 0.45, economic: 0.5, diplomatic: 0, liberty: 0, culture: 0, pluralism: -0.9 };
+  const quiet = { axis: 0.45, economic: 0.5, domain: "economy", support: "partyline" };
+  assert.equal(stanceFit(voice5, quiet), stanceFit({ ...voice5, pluralism: 0.9 }, quiet));
 });

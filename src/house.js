@@ -105,7 +105,7 @@ const PARTY_ANCHOR = { Democrat: -0.35, Republican: 0.45 };
  * ones who do not have to.
  */
 const PARTY_ISSUES = {
-  Democrat:   { economic: -0.4, diplomatic: -0.45, liberty: -0.3,  culture: -0.35 },
+  Democrat:   { economic: -0.4, diplomatic: -0.45, liberty: -0.3,  culture: -0.35, pluralism:  0.45 },
   Republican: { economic:  0.6, diplomatic: -0.15, liberty: -0.25, society:  0.45 },
 };
 

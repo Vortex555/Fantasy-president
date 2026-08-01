@@ -81,7 +81,7 @@ export const BILL_POOL = [
     title: "National Decarbonisation Act",
     brief: "Sunsets fossil generation on a ten-year clock and funds the replacement grid.",
     fx: { approval: 0.5, greens: 18, labor: -6, big_business: -10, economy: { debt: 1.8, gdpGrowth: -0.2 } } },
-  { id: "universal_care", axis: -0.55, economic: -0.8, diplomatic: 0, culture: 0, domain: "health",
+  { id: "universal_care", axis: -0.55, economic: -0.8, diplomatic: 0, culture: 0, pluralism: 0.3, domain: "health",
     title: "Universal Coverage Act",
     brief: "Extends federal health coverage to every resident, funded by payroll and premium reform.",
     fx: { approval: 2.5, labor: 12, civil_rights: 8, big_business: -8, economy: { debt: 2.4 } },
@@ -91,12 +91,12 @@ export const BILL_POOL = [
     title: "Organising Rights Restoration Act",
     brief: "Bans captive-audience meetings, permits card-check recognition and penalises retaliatory dismissal.",
     fx: { approval: 0.5, labor: 18, big_business: -12, wall_street: -6 } },
-  { id: "voting_rights", axis: -0.42, economic: 0, diplomatic: 0, liberty: 0.4, culture: -0.4, domain: "justice",
+  { id: "voting_rights", axis: -0.42, economic: 0, diplomatic: 0, liberty: 0.4, culture: -0.4, pluralism: 0.8, domain: "justice",
     consensus: CONSENSUS.partyline,
     title: "Voting Access Act",
     brief: "Sets a federal floor for early voting, mail ballots and same-day registration.",
     fx: { approval: 1, civil_rights: 16, faith: -5, gun_owners: -4 } },
-  { id: "childcare", axis: -0.35, economic: -0.6, diplomatic: 0, culture: -0.2, domain: "social",
+  { id: "childcare", axis: -0.35, economic: -0.6, diplomatic: 0, culture: -0.2, pluralism: 0.2, domain: "social",
     consensus: CONSENSUS.contested,
     title: "Universal Childcare Act",
     brief: "Caps childcare costs at seven per cent of household income, with federal top-up payments.",
@@ -152,13 +152,13 @@ export const BILL_POOL = [
    * where warrant amendments actually land and the only place a player's own
    * vote is worth anything.
    */
-  { id: "surveillance_reform", axis: -0.1, economic: 0, diplomatic: 0, liberty: 0.58, culture: 0, domain: "justice",
+  { id: "surveillance_reform", axis: -0.1, economic: 0, diplomatic: 0, liberty: 0.58, culture: 0, pluralism: 0.3, domain: "justice",
     consensus: CONSENSUS.contested,
     title: "Warrant Requirement Act",
     brief: "Requires a judicial warrant before federal agencies may query Americans' communications, and forces disclosure of data breaches.",
     fx: { approval: 2, civil_rights: 14, gun_owners: 8, pentagon: -16, big_business: -8 },
     society: { crime: 3 } },
-  { id: "surveillance_powers", axis: 0.2, economic: 0, diplomatic: 0.2, liberty: -0.58, culture: 0.2, domain: "justice",
+  { id: "surveillance_powers", axis: 0.2, economic: 0, diplomatic: 0.2, liberty: -0.58, culture: 0.2, pluralism: -0.35, domain: "justice",
     consensus: CONSENSUS.contested,
     title: "Intelligence Authorities Reauthorisation",
     brief: "Renews bulk collection authorities for five years and extends them to data bought from commercial brokers.",
@@ -173,7 +173,7 @@ export const BILL_POOL = [
     fx: { approval: 1.5, wall_street: 8, big_business: 6, labor: -6, economy: { debt: -1.2 } } },
 
   // --- Right --------------------------------------------------------------
-  { id: "border_enforcement", axis: 0.38, economic: 0, diplomatic: 0.8, liberty: -0.5, culture: 0.4, domain: "security",
+  { id: "border_enforcement", axis: 0.38, economic: 0, diplomatic: 0.8, liberty: -0.5, culture: 0.4, pluralism: -0.6, domain: "security",
     consensus: CONSENSUS.contested,
     title: "Border Enforcement Act",
     brief: "Funds physical barriers, detention capacity and eight thousand additional agents.",
@@ -192,12 +192,12 @@ export const BILL_POOL = [
     title: "Defence Modernisation Act",
     brief: "A shipbuilding and munitions expansion with a five-year procurement floor.",
     fx: { approval: 1, pentagon: 18, big_business: 8, economy: { debt: 2.2, gdpGrowth: 0.2 } } },
-  { id: "school_choice", axis: 0.6, economic: 0.5, diplomatic: 0, liberty: 0.25, culture: 0.6, domain: "social",
+  { id: "school_choice", axis: 0.6, economic: 0.5, diplomatic: 0, liberty: 0.25, culture: 0.6, pluralism: -0.2, domain: "social",
     title: "Education Freedom Act",
     brief: "Converts federal education funding into portable accounts families can spend anywhere.",
     fx: { approval: 0, faith: 16, labor: -14, economy: {} },
     society: { literacy: -0.4 } },
-  { id: "crime_bill", axis: 0.65, economic: 0, diplomatic: 0.2, liberty: -0.8, culture: 0.5, domain: "justice",
+  { id: "crime_bill", axis: 0.65, economic: 0, diplomatic: 0.2, liberty: -0.8, culture: 0.5, pluralism: -0.45, domain: "justice",
     consensus: CONSENSUS.contested,
     title: "Public Order Act",
     brief: "Mandatory minimums for armed offences and a federal grant programme for police hiring.",
@@ -214,7 +214,7 @@ export const BILL_POOL = [
     title: "Federal Reserve Abolition Act",
     brief: "Winds up the central bank and returns monetary authority to Treasury and the states.",
     fx: { approval: -3, wall_street: -24, big_business: -14, gun_owners: 10, economy: { inflation: 2.4, gdpGrowth: -0.8 } } },
-  { id: "national_faith", axis: 0.92, economic: 0, diplomatic: 0.5, liberty: -0.6, culture: 0.95, domain: "social", fringe: true,
+  { id: "national_faith", axis: 0.92, economic: 0, diplomatic: 0.5, liberty: -0.6, culture: 0.95, pluralism: -0.7, domain: "social", fringe: true,
     title: "National Religious Heritage Act",
     brief: "Establishes scriptural instruction in federally funded schools and a national day of observance.",
     fx: { approval: -4, faith: 24, civil_rights: -26, big_business: -8 },
@@ -337,6 +337,22 @@ export const ISSUE_AXES = [
    */
   { id: "culture", low: "progress", high: "tradition",
     of: "the moral order — how much of it is settled" },
+  /**
+   * Who the law is for.
+   *
+   * The gap the other four left. A bill weakening racial anti-discrimination
+   * protections was read as a *liberty* question — religious exemption, freedom
+   * from a mandate — which describes the mechanism and says nothing about the
+   * politics, so a Groyper came out against it. The number that should have
+   * decided it was already in the file: `fx.civil_rights` is -32 on that
+   * ideology, the most extreme value it carries, and no stance had ever read it.
+   *
+   * Not the same question as `culture`, and conflating them is what produced the
+   * error. A Religious Left member is as traditional as a Christian Nationalist
+   * on the moral order and the opposite of them on whom it is meant to protect.
+   */
+  { id: "pluralism", low: "hierarchy", high: "protection",
+    of: "who the law is for — exclusion against universal protection" },
 ];
 
 /**
