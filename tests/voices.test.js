@@ -221,3 +221,59 @@ test("an ordinary reason with no stance verb at all is kept", () => {
   }] }, [{ id: "a", title: "Warrant Requirement Act" }], { a: { district: "no" } });
   assert.match(out.a.district.text, /another region/);
 });
+
+// ---------------------------------------------------------------------------
+// The one voice that may not defer
+// ---------------------------------------------------------------------------
+
+/**
+ * "Tolpa is aligned with the bloc's stance, believing such regulation infringes
+ * upon First Amendment rights."
+ *
+ * The conviction card exists to say what the member themselves believes, and it
+ * is the one voice on the floor whose whole job is to be capable of disagreeing
+ * with the other three. A sentence that answers "why do you vote this way" with
+ * "because my caucus does" has not answered it, and on a screen laid out to show
+ * a three-way bind it quietly removes one of the three.
+ *
+ * The other cards may name institutions freely — the bloc card naming its own
+ * caucus is the point of it.
+ */
+test("the conviction card may not explain itself by another voice's position", () => {
+  const bills = [{ id: "a", title: "Social Responsibility Act" }];
+  const positions = { a: { conviction: "no", bloc: "no", party: "no", district: "no" } };
+
+  const deferring = [
+    "Tolpa is aligned with the bloc's stance on this one.",
+    "They agree with leadership that it goes too far.",
+    "Sides with the caucus, as they usually do.",
+    "In line with the Freedom Caucus position.",
+    "They follow the party on procedural votes like this.",
+  ];
+  for (const text of deferring) {
+    const out = validateVoices({ voices: [{ title: "Social Responsibility Act", conviction: text }] },
+      bills, positions);
+    assert.equal(out.a, undefined, `should have been refused: "${text}"`);
+  }
+});
+
+test("but a conviction of their own that happens to mention a caucus is kept", () => {
+  const bills = [{ id: "a", title: "Social Responsibility Act" }];
+  const positions = { a: { conviction: "no" } };
+  const out = validateVoices({ voices: [{ title: "Social Responsibility Act",
+    conviction: "They have wanted the platforms broken up since the caucus was still defending them." }] },
+    bills, positions);
+  assert.match(out.a.conviction.text, /broken up/);
+});
+
+test("and the other three cards may name institutions freely", () => {
+  const bills = [{ id: "a", title: "Social Responsibility Act" }];
+  const positions = { a: { bloc: "no", party: "no", district: "no" } };
+  const out = validateVoices({ voices: [{
+    title: "Social Responsibility Act",
+    bloc: "The Freedom Caucus is aligned with leadership for once.",
+    party: "Leadership agrees with the caucus on the timetable.",
+    district: "WV-2 sides with the party here.",
+  }] }, bills, positions);
+  assert.equal(Object.keys(out.a).length, 3, "only the conviction card is held to this");
+});

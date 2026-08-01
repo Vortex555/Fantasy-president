@@ -256,6 +256,7 @@ Rules:
 - The four voices must not paraphrase each other. If two of them landed the same way, they landed there for different reasons and you should say what those are.
 - NEVER contradict the stated position. Read it again before each sentence. If a voice is YES you are explaining why they SUPPORT it, and the words "opposes", "rejects" and "against" must not appear. If a voice is NO you are explaining why they are AGAINST it. Getting this backwards is the single worst thing you can do here, and a line that does it is thrown away.
 - Use the district's own name. Never invent statistics, vote counts or named people.
+- The "conviction" line is the member's OWN belief and must never explain itself by another voice. "Aligned with the bloc", "agrees with leadership", "in line with the caucus" are not reasons and are thrown away — that card exists to be capable of disagreeing with the other three, and this is the one place on the screen where the player learns what they personally stand for.
 - Write the member as the politics described to you, not as you would like them to be. If their ideology is hostile to a group, a bill helping that group is not something they support reluctantly on principle — they oppose it, and the sentence should say why in their own terms. Never launder an ugly politics into a reasonable one; a flattering explanation that contradicts the stated politics is worse than no explanation, and will be thrown away.`;
 
 /**
@@ -325,6 +326,22 @@ const ARGUES_FOR = /\b(support\w*|back(s|ed|ing)?\b|favou?r\w*|endors\w*|champio
  * would cost a good line to catch nothing. Only the unambiguous case is refused,
  * and refusing is cheap: the hand-written line takes over.
  */
+/**
+ * The conviction card answering "why do you vote this way" with "because my
+ * caucus does".
+ *
+ * It is the one voice on the floor whose job is to be capable of disagreeing
+ * with the other three, and a sentence that defers to one of them has not
+ * answered the question — on a screen built to show a three-way bind it quietly
+ * removes one of the three. Every other card may name institutions freely; the
+ * bloc card naming its own caucus is the entire point of it.
+ */
+const DEFERS = new RegExp(
+  "\\b(align\\w*|agree\\w*|side[sd]?|siding|consistent|in line|follow\\w*|defer\\w*)\\b"
+  + "[^.]{0,24}?\\b(bloc|caucus|leadership|party|delegation|district)\\b", "i");
+
+const defersToAnother = (text) => DEFERS.test(text);
+
 function contradicts(text, position) {
   const against = ARGUES_AGAINST.test(text);
   const towards = ARGUES_FOR.test(text);
@@ -352,6 +369,7 @@ export function validateVoices(raw, bills, positions) {
       if (!text) continue;
       const position = positions[bill.id][who];
       if (contradicts(text, position)) continue;
+      if (who === "conviction" && defersToAnother(text)) continue;
       lines[who] = { position, text };
     }
     if (Object.keys(lines).length) out[bill.id] = lines;
