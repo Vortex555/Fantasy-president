@@ -29,7 +29,7 @@ export function anthropicInfo() {
 }
 
 export async function completeAnthropic({
-  system, messages, tier = "judge", maxTokens = 1600, temperature, cache = false,
+  system, messages, tier = "judge", maxTokens = 4096, temperature, cache = false,
 }) {
   const model = MODELS[tier] ? MODELS[tier]() : MODELS.judge();
   const resp = await getClient().messages.create({

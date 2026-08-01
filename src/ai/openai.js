@@ -167,7 +167,7 @@ export async function openAiInfo() {
 }
 
 export async function completeOpenAI({
-  system, messages, tier = "judge", maxTokens = 1600, temperature = 0.8, json = false,
+  system, messages, tier = "judge", maxTokens = 4096, temperature = 0.8, json = false,
 }) {
   const model = await resolveModel(tier);
   if (!model) {

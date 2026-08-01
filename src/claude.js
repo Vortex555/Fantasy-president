@@ -338,7 +338,7 @@ Simulate the consequences and return the JSON object.`;
     system: SYSTEM,
     messages: [{ role: "user", content: user }],
     tier: "judge",
-    maxTokens: 2200,
+    maxTokens: 5000,
     json: true,
     // The rules prompt is identical every turn and clears the 4096-token
     // minimum, so repeat turns bill the prefix at ~10% on the hosted API. The
@@ -409,7 +409,7 @@ ${list}`;
     system: voicesSystem(state),
     messages: [{ role: "user", content: user }],
     tier: "chat",
-    maxTokens: 900,
+    maxTokens: 2500,
     json: true,
   });
   logUsage("voices", resp.model, resp.usage);
@@ -436,7 +436,7 @@ DASHBOARD: approval ${state.approval}%, stability ${state.stability}%. Congress:
   // 4096-token minimum, so a breakpoint here would be silently inert.
   // Not JSON either — this one just talks.
   const resp = await complete({
-    system: sys, messages, tier: "chat", maxTokens: 400,
+    system: sys, messages, tier: "chat", maxTokens: 1500,
   });
   return resp.text.trim();
 }
@@ -461,7 +461,7 @@ Respond with ONLY JSON: {"opponentLine": "...", "score": number, "pundit": "..."
   messages.push({ role: "user", content: `The President's answer this round:\n"""${playerLine}"""` });
 
   const resp = await complete({
-    system: sys, messages, tier: "chat", maxTokens: 500, json: true,
+    system: sys, messages, tier: "chat", maxTokens: 1500, json: true,
   });
   const out = parseModelJson(resp.text);
   out.score = Math.max(-10, Math.min(10, Math.round(Number(out.score) || 0)));
@@ -478,7 +478,7 @@ export async function claudeOpening(scenario) {
       content: `President ${scenario.presidentName}, ${presidentProfile(scenario)}, has just taken office. Era/setting: ${scenario.era}. Starting approval: ${scenario.startApproval}%. Generate their opening crisis.`,
     }],
     tier: "chat",
-    maxTokens: 700,
+    maxTokens: 2000,
     json: true,
   });
   return parseModelJson(resp.text);

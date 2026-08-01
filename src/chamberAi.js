@@ -170,7 +170,7 @@ Schedule exactly ${count} bill${count === 1 ? "" : "s"} for this month's floor i
     system: DOCKET_SYSTEM,
     messages: [{ role: "user", content: user }],
     tier: "judge",
-    maxTokens: 900,
+    maxTokens: 3000,
     json: true,
     // Identical every month and comfortably over the 4096-token minimum once
     // the worked rules are counted, so repeat months bill the prefix at ~10%.
@@ -241,14 +241,7 @@ Write the explanations. Return the JSON object.`;
     system: VOICES_SYSTEM,
     messages: [{ role: "user", content: user }],
     tier: "judge",
-    /**
-     * Twelve sentences on a three-bill month, and the first cut of this capped
-     * at 700 — which truncated the JSON after the first bill and silently
-     * dropped the other two back to the hand-written lines. The failure mode is
-     * invisible precisely because the fallback is good, so the ceiling is set
-     * well clear of four voices on the largest docket the mode ever schedules.
-     */
-    maxTokens: 1600,
+    maxTokens: 3000,
     json: true,
     cache: true,
   });
@@ -503,7 +496,7 @@ ${used.length ? `SUBJECTS ALREADY USED — write about none of these:\n${used.ma
 It is month ${absoluteMonth(state)} of this career. Write next month's story, in the ${domain} domain.`,
     }],
     tier: "chat",
-    maxTokens: 400,
+    maxTokens: 1500,
     json: true,
   });
   logUsage("situation", resp.model, resp.usage);
@@ -580,7 +573,7 @@ Write the aftermath and return the JSON object.`;
     system: FALLOUT_SYSTEM,
     messages: [{ role: "user", content: user }],
     tier: "chat",
-    maxTokens: 700,
+    maxTokens: 2000,
     json: true,
   });
   logUsage("fallout", resp.model, resp.usage);
@@ -639,7 +632,7 @@ Their re-election is ${monthsToElection(state)} months away.`;
   }
   messages.push({ role: "user", content: message });
 
-  const resp = await complete({ system: sys, messages, tier: "chat", maxTokens: 350 });
+  const resp = await complete({ system: sys, messages, tier: "chat", maxTokens: 1500 });
   return resp.text.trim();
 }
 

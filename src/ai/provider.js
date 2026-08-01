@@ -115,6 +115,36 @@ export async function providerInfo() {
  * @param {boolean} req.cache      let the provider cache the system prefix
  * @returns {Promise<{ text: string, usage: object, model: string }>}
  */
+/**
+ * Say so when an answer ran into its own ceiling.
+ *
+ * The one failure in this system that hides. Every caller here is written to
+ * degrade well — a malformed docket falls through to the hand-written pool, a
+ * missing explanation falls back to the hand-written line — so a reply cut off
+ * mid-JSON does not look like a fault. It looks like the fallback working.
+ *
+ * That is exactly how the floor's explanations shipped capped at 700 tokens:
+ * the model answered for the first bill, the JSON was truncated, the other two
+ * quietly used their templates, and nothing anywhere said a word. The reply was
+ * two thirds missing and every symptom of it was indistinguishable from the
+ * feature being off.
+ *
+ * So the ceiling reports itself. Ceilings are a runaway guard and nothing else —
+ * length is the prompt's job — and any call that reaches one has almost
+ * certainly lost something.
+ */
+function warnIfTruncated(req, out) {
+  const ceiling = Number(req?.maxTokens);
+  const used = Number(out?.usage?.out);
+  if (!Number.isFinite(ceiling) || !Number.isFinite(used) || !used) return;
+  // Servers vary by a token or two on where they stop, so this is not an equality.
+  if (used < ceiling - 2) return;
+  console.warn(
+    `[truncated] a reply hit its ${ceiling}-token ceiling and was almost certainly cut off. `
+    + `Raise maxTokens at the call site — the fallbacks will hide this otherwise.`
+  );
+}
+
 export async function complete(req) {
   const id = providerId();
   if (id !== "anthropic" && id !== "local") {
@@ -124,6 +154,7 @@ export async function complete(req) {
   try {
     const out = id === "anthropic" ? await completeAnthropic(req) : await completeOpenAI(req);
     health = { ok: true, reason: null, at: Date.now(), failures: 0, id, model: out.model };
+    warnIfTruncated(req, out);
     return out;
   } catch (err) {
     health = {
