@@ -1,6 +1,6 @@
 import { seeded, hashString, clamp, round1 } from "./rng.js";
 import { STATES } from "./states.js";
-import { BILL_POOL, billById, rollCall, FRINGE_BILLS, fringeChance, consensusOf } from "./bills.js";
+import { BILL_POOL, billById, rollCall, FRINGE_BILLS, fringeChance, consensusOf, stanceFit } from "./bills.js";
 import { houseRaces, nationalEnvironment, runCongressionalCycle } from "./elections.js";
 import { buildCongress } from "../public/js/data/government.js";
 import { assignCommittee, earnCapital, evaluateLadder, committeeById, isWrecker } from "./committees.js";
@@ -80,6 +80,20 @@ const otherParty = (p) => (p === "Republican" ? "Democrat" : "Republican");
 
 /** Where each party's caucus sits. Mirrors PARTY_ANCHOR in government.js. */
 const PARTY_ANCHOR = { Democrat: -0.35, Republican: 0.45 };
+
+/**
+ * And where each party's *leadership* sits on state power.
+ *
+ * Both negative, and that is not a thumb on the scale — it is the most reliably
+ * bipartisan fact about a legislature. Leadership is the wing that has to
+ * govern, so it is the wing that reauthorises the surveillance programme,
+ * funds the agency and votes down the warrant amendment, whichever party holds
+ * the gavel. The organised wings on both flanks are the ones that vote against
+ * it, which is why a liberty bill produces the one pattern the old single axis
+ * could never draw: leadership alone on one side, and both ends of the chamber
+ * together on the other.
+ */
+const PARTY_LIBERTY = { Democrat: -0.3, Republican: -0.25 };
 
 /**
  * Which caucus a member actually sits in.
@@ -565,7 +579,7 @@ export function partyLine(state, bill) {
    * "leadership: NO" and then pass 95-5 — the two halves of the same screen
    * disagreeing about the same vote.
    */
-  const fit = agreement(anchor, bill.axis) + consensusOf(bill) * 0.22;
+  const fit = stanceFit({ axis: anchor, liberty: PARTY_LIBERTY[caucusOf(state.scenario)] ?? 0 }, bill);
   const position = fit >= 0.72 ? "yes" : "no";
   const intensity = Math.round(Math.abs(fit - 0.72) * 240);
 
@@ -589,9 +603,19 @@ export function partyLine(state, bill) {
  * makes the choice legible.
  */
 export function districtView(state, bill) {
-  // The people at home are no keener than anybody else to be on the wrong side
-  // of a bill about a disaster. Same widening as the caucus and the roll call.
-  const fit = agreement(state.seat.axis, bill.axis) + consensusOf(bill) * 0.22;
+  /**
+   * The people at home are no keener than anybody else to be on the wrong side
+   * of a bill about a disaster. Same widening as the caucus and the roll call.
+   *
+   * `liberty: null` is deliberate and is the one voice on the floor that gets
+   * it. A seat's partisan lean genuinely tells you nothing about where its
+   * voters stand on what the state may do to them — the two do not correlate in
+   * any district in the country — so rather than invent a number the seat is
+   * scored on the economic axis alone and the second dimension does not reach
+   * it. Which is also true to how the pressure feels: surveillance is a caucus
+   * and conscience fight, and almost never a doorstep one.
+   */
+  const fit = stanceFit({ axis: state.seat.axis, liberty: null }, bill);
   const position = fit >= 0.72 ? "yes" : "no";
   const intensity = Math.round(Math.abs(fit - 0.72) * 240);
 
@@ -682,7 +706,7 @@ export function castVote(state, bill, vote) {
 
   // The rest of the chamber, and then you.
   const roster = buildCongress(next, STATES);
-  const tally = rollCall(roster.house, bill.axis, { consensus: consensusOf(bill) });
+  const tally = rollCall(roster.house, bill, { consensus: consensusOf(bill) });
   /**
    * The votes a whip actually moved.
    *

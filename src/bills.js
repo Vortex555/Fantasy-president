@@ -48,7 +48,19 @@ export const CONSENSUS = {
 
 export const CONSENSUS_TIERS = Object.keys(CONSENSUS);
 
-// A bill's `axis` is its position on the same −1…+1 spectrum as an ideology.
+/**
+ * A bill's `axis` is its position on the same −1…+1 spectrum as an ideology,
+ * and `liberty` is the second one: what the state may do to a person.
+ *
+ * `liberty` is salience, not flavour, and most bills leave it out entirely. The
+ * test is whether state power over a person is *the question the bill asks* —
+ * warrants, policing, detention, censorship, emergency powers — not whether the
+ * bill has a libertarian tint. Abolishing the Fed and nationalising the railways
+ * are arguments about who gets what, and both sat far too high here on the first
+ * pass, which pulled a radicalised chamber apart on a dimension those bills are
+ * not actually about. Where it is 0 every number in the game is exactly what it
+ * was before the dimension existed. See `stanceFit`.
+ */
 export const BILL_POOL = [
   // --- Left ---------------------------------------------------------------
   { id: "nationalise_rail", axis: -0.92, domain: "economy",
@@ -78,7 +90,7 @@ export const BILL_POOL = [
     title: "Organising Rights Restoration Act",
     brief: "Bans captive-audience meetings, permits card-check recognition and penalises retaliatory dismissal.",
     fx: { approval: 0.5, labor: 18, big_business: -12, wall_street: -6 } },
-  { id: "voting_rights", axis: -0.42, domain: "justice",
+  { id: "voting_rights", axis: -0.42, liberty: 0.4, domain: "justice",
     consensus: CONSENSUS.partyline,
     title: "Voting Access Act",
     brief: "Sets a federal floor for early voting, mail ballots and same-day registration.",
@@ -122,6 +134,29 @@ export const BILL_POOL = [
     brief: "Funds treatment capacity and clinic staffing in counties with no obstetric or addiction services.",
     fx: { approval: 2.5, faith: 8, labor: 6, economy: { debt: 0.7 } },
     society: { lifeExpectancy: 0.3 } },
+  /**
+   * The cross-cutting pair.
+   *
+   * Both sit near the middle on money and at opposite poles on state power,
+   * which is the combination the single axis could not hold: read on economics
+   * alone they are indistinguishable centrist bills, and the chamber divided on
+   * them by party. Now leadership takes one side and both organised wings take
+   * the other, which is how every surveillance vote of the last twenty years has
+   * actually gone.
+   */
+  { id: "surveillance_reform", axis: -0.1, liberty: 0.85, domain: "justice",
+    consensus: CONSENSUS.contested,
+    title: "Warrant Requirement Act",
+    brief: "Requires a judicial warrant before federal agencies may query Americans' communications, and forces disclosure of data breaches.",
+    fx: { approval: 2, civil_rights: 14, gun_owners: 8, pentagon: -16, big_business: -8 },
+    society: { crime: 3 } },
+  { id: "surveillance_powers", axis: 0.2, liberty: -0.85, domain: "justice",
+    consensus: CONSENSUS.contested,
+    title: "Intelligence Authorities Reauthorisation",
+    brief: "Renews bulk collection authorities for five years and extends them to data bought from commercial brokers.",
+    fx: { approval: -1, pentagon: 18, big_business: 8, civil_rights: -20, gun_owners: -10 },
+    society: { crime: -6, unrest: 4 } },
+
   { id: "budget_deal", axis: 0.18, domain: "economy",
     // It is a compromise by construction.
     consensus: CONSENSUS.bipartisan,
@@ -130,7 +165,7 @@ export const BILL_POOL = [
     fx: { approval: 1.5, wall_street: 8, big_business: 6, labor: -6, economy: { debt: -1.2 } } },
 
   // --- Right --------------------------------------------------------------
-  { id: "border_enforcement", axis: 0.38, domain: "security",
+  { id: "border_enforcement", axis: 0.38, liberty: -0.5, domain: "security",
     consensus: CONSENSUS.contested,
     title: "Border Enforcement Act",
     brief: "Funds physical barriers, detention capacity and eight thousand additional agents.",
@@ -140,21 +175,21 @@ export const BILL_POOL = [
     title: "Growth and Investment Act",
     brief: "Cuts corporate and top marginal rates and makes prior expensing provisions permanent.",
     fx: { approval: 0.5, wall_street: 18, big_business: 16, labor: -10, economy: { gdpGrowth: 0.4, debt: 2.6 } } },
-  { id: "deregulation", axis: 0.52, domain: "economy",
+  { id: "deregulation", axis: 0.52, liberty: 0.3, domain: "economy",
     title: "Regulatory Relief Act",
     brief: "Requires two rules repealed for each new one and strips agencies of independent rulemaking.",
     fx: { approval: -0.5, big_business: 16, wall_street: 12, greens: -16, economy: { gdpGrowth: 0.3 } } },
-  { id: "defence_buildup", axis: 0.55, domain: "security",
+  { id: "defence_buildup", axis: 0.55, liberty: -0.15, domain: "security",
     consensus: CONSENSUS.contested,
     title: "Defence Modernisation Act",
     brief: "A shipbuilding and munitions expansion with a five-year procurement floor.",
     fx: { approval: 1, pentagon: 18, big_business: 8, economy: { debt: 2.2, gdpGrowth: 0.2 } } },
-  { id: "school_choice", axis: 0.6, domain: "social",
+  { id: "school_choice", axis: 0.6, liberty: 0.25, domain: "social",
     title: "Education Freedom Act",
     brief: "Converts federal education funding into portable accounts families can spend anywhere.",
     fx: { approval: 0, faith: 16, labor: -14, economy: {} },
     society: { literacy: -0.4 } },
-  { id: "crime_bill", axis: 0.65, domain: "justice",
+  { id: "crime_bill", axis: 0.65, liberty: -0.8, domain: "justice",
     consensus: CONSENSUS.contested,
     title: "Public Order Act",
     brief: "Mandatory minimums for armed offences and a federal grant programme for police hiring.",
@@ -167,29 +202,29 @@ export const BILL_POOL = [
     society: { poverty: 1.1 } },
 
   // --- Fringe: only a radicalised chamber writes these ---------------------
-  { id: "abolish_fed", axis: 0.88, domain: "economy", fringe: true,
+  { id: "abolish_fed", axis: 0.88, liberty: 0.25, domain: "economy", fringe: true,
     title: "Federal Reserve Abolition Act",
     brief: "Winds up the central bank and returns monetary authority to Treasury and the states.",
     fx: { approval: -3, wall_street: -24, big_business: -14, gun_owners: 10, economy: { inflation: 2.4, gdpGrowth: -0.8 } } },
-  { id: "national_faith", axis: 0.92, domain: "social", fringe: true,
+  { id: "national_faith", axis: 0.92, liberty: -0.6, domain: "social", fringe: true,
     title: "National Religious Heritage Act",
     brief: "Establishes scriptural instruction in federally funded schools and a national day of observance.",
     fx: { approval: -4, faith: 24, civil_rights: -26, big_business: -8 },
     society: { unrest: 12 } },
-  { id: "abolish_income_tax", axis: 0.95, domain: "economy", fringe: true,
+  { id: "abolish_income_tax", axis: 0.95, liberty: 0.2, domain: "economy", fringe: true,
     title: "Income Tax Repeal Act",
     brief: "Repeals the federal income tax outright and funds the government from tariffs and excise.",
     fx: { approval: 2, wall_street: 10, big_business: 12, labor: -12, economy: { debt: 5.5, inflation: 1.2 } } },
-  { id: "seize_industry", axis: -0.95, domain: "economy", fringe: true,
+  { id: "seize_industry", axis: -0.95, liberty: -0.3, domain: "economy", fringe: true,
     title: "Commanding Heights Act",
     brief: "Brings energy, pharmaceuticals and heavy industry under public ownership and workers' councils.",
     fx: { approval: -4, labor: 26, wall_street: -30, big_business: -28, economy: { gdpGrowth: -1.2, debt: 3.4 } },
     society: { unrest: 14 } },
-  { id: "max_income", axis: -0.88, domain: "economy", fringe: true,
+  { id: "max_income", axis: -0.88, liberty: -0.15, domain: "economy", fringe: true,
     title: "Maximum Income Act",
     brief: "Caps total compensation at a fixed multiple of the federal minimum wage.",
     fx: { approval: -1, labor: 22, wall_street: -28, big_business: -22, economy: { gdpGrowth: -0.6 } } },
-  { id: "degrowth_act", axis: -0.85, domain: "health", fringe: true,
+  { id: "degrowth_act", axis: -0.85, liberty: -0.3, domain: "health", fringe: true,
     title: "Planetary Limits Act",
     brief: "Sets a declining statutory cap on national energy and material throughput.",
     fx: { approval: -6, greens: 26, labor: -14, big_business: -24, economy: { gdpGrowth: -1.6 } } },
@@ -234,6 +269,65 @@ export const FRINGE_AXIS = 0.75;
 const agreement = (memberAxis, billAxis) => 1 - Math.abs(memberAxis - billAxis) / 2;
 
 /**
+ * The second axis: what the state may do to a person.
+ *
+ * Everything in the chamber used to be one number between −1 and 1, which meant
+ * the room could only ever be ordered by how far out each voice sat. A single
+ * axis cannot express the commonest cross-cutting fight a real legislature has —
+ * both ends voting together against both leaderships — because monotone ordering
+ * puts the ends at opposite poles by construction.
+ *
+ * Surveillance is where that broke visibly. A bill limiting government
+ * surveillance reads as "moderate" on the economic axis, so the engine placed
+ * the Freedom Caucus against it — the bloc that in life whips hardest *for* it,
+ * and has done in every FISA fight of the last decade. The same error runs the
+ * other way on the left, where an anti-war progressive was scored as a reliable
+ * vote for the security state.
+ *
+ * `liberty` is that dimension. +1 is "the state may not"; −1 is "the state
+ * must". It is orthogonal to money on purpose: a Civil Libertarian and a
+ * Constitutionalist disagree about everything except this.
+ */
+const positionOf = (bill) => (typeof bill === "number"
+  ? { axis: bill, liberty: 0 }
+  : { axis: Number(bill?.axis) || 0, liberty: Number(bill?.liberty) || 0 });
+
+/**
+ * How much of this bill is about state power at all.
+ *
+ * The dimension is deliberately sparse. A tax cut, a childcare subsidy and a
+ * bridge say nothing about what the state may do to a person, and for those the
+ * weight is zero and every number in the game is exactly what it was before this
+ * existed. Only a bill that stakes out a position is scored on it, and then in
+ * proportion to how hard it stakes it — which is why adding this could not
+ * retune a single existing outcome.
+ */
+export const libertyWeight = (bill) => Math.abs(positionOf(bill).liberty);
+
+/**
+ * Where a voice lands on a bill, across both axes plus consensus.
+ *
+ * The single place any of it is computed. The caucus card, the district card,
+ * the bloc card, the player's own conviction card and the roll call all call
+ * here, because the last time two of them computed the same fit separately the
+ * panel and the tally disagreed about the same vote on screen.
+ *
+ * `voice.liberty` of `null` means "has no view on state power" — which is not
+ * the same as a neutral view, and is the honest answer for a congressional
+ * district. A seat's partisan lean tells you nothing about where its voters
+ * stand on surveillance, so rather than invent a number the seat is scored on
+ * the economic axis alone and the dimension simply does not reach it.
+ */
+export function stanceFit(voice, bill, consensus = consensusOf(bill)) {
+  const position = positionOf(bill);
+  const onAxis = agreement(Number(voice?.axis) || 0, position.axis);
+  // A voice with no stated position on state power is judged on money alone.
+  const care = voice?.liberty == null ? 0 : libertyWeight(bill);
+  const onLiberty = agreement(Number(voice?.liberty) || 0, position.liberty);
+  return (1 - care) * onAxis + care * onLiberty + consensus * CONSENSUS_PULL;
+}
+
+/**
  * How far consensus can stretch the window.
  *
  * Tuned against target outcomes in a 46D/54R Senate rather than by feel: a
@@ -258,8 +352,8 @@ export function consensusOf(bill) {
 }
 
 /** The bar a member has to clear to vote yes, once consensus is counted. */
-const votesYes = (memberAxis, billAxis, consensus) =>
-  agreement(memberAxis, billAxis) + consensus * CONSENSUS_PULL >= YES_THRESHOLD;
+const votesYes = (member, bill, consensus) =>
+  stanceFit(member, bill, consensus) >= YES_THRESHOLD;
 
 // Above this level of agreement a member votes yes. Tuned so a bill written at
 // the chamber's own median clears comfortably and one written at the far end
@@ -273,10 +367,16 @@ const YES_THRESHOLD = 0.78;
  * a simple majority — an override needs its two thirds on its own, and the
  * Vice President has no vote in it.
  */
-export function rollCall(roster, billAxis, { tieBreak = false, consensus = 0 } = {}) {
+/**
+ * `bill` may be a bare axis number, which is what every caller passed before the
+ * liberty dimension existed and what several still legitimately pass — a
+ * hypothetical position rather than a bill. A number is a bill that says nothing
+ * about state power, which is the correct reading of it.
+ */
+export function rollCall(roster, bill, { tieBreak = false, consensus = 0 } = {}) {
   let yes = 0, dYes = 0, rYes = 0;
   for (const m of roster) {
-    if (!votesYes(m.axis, billAxis, consensus)) continue;
+    if (!votesYes(m, bill, consensus)) continue;
     yes += 1;
     if (m.party === "Democrat") dYes += 1; else rYes += 1;
   }
@@ -326,8 +426,8 @@ export function originateBills(state, roster = rosterFor(state)) {
     .filter((b) => (radical || !b.fringe) && !seen.has(b.id))
     .map((bill) => ({
       bill,
-      house: rollCall(roster.house, bill.axis),
-      senate: rollCall(roster.senate, bill.axis, { tieBreak: vpSupports(state, bill.axis) }),
+      house: rollCall(roster.house, bill),
+      senate: rollCall(roster.senate, bill, { tieBreak: vpSupports(state, bill.axis) }),
     }))
     .filter((c) => c.house.passed && c.senate.passed)
     .map((c) => ({ ...c, weight: 1 / (0.12 + Math.abs(c.bill.axis - median)) }));
@@ -418,9 +518,9 @@ export function actOnBill(state, billId, action) {
 
   // A veto. Congress gets its say.
   const roster = rosterFor(state);
-  const house = rollCall(roster.house, bill.axis);
+  const house = rollCall(roster.house, bill);
   // The casting vote cannot save a veto: an override is a two-thirds question.
-  const senate = rollCall(roster.senate, bill.axis, { tieBreak: vpSupports(state, bill.axis) });
+  const senate = rollCall(roster.senate, bill, { tieBreak: vpSupports(state, bill.axis) });
   const overridden = house.overrode && senate.overrode;
 
   if (overridden) {

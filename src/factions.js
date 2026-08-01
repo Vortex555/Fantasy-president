@@ -2,7 +2,7 @@ import { clamp, round1 } from "./rng.js";
 import { buildCongress } from "../public/js/data/government.js";
 import { STATES } from "./states.js";
 import { findIdeology } from "../public/js/data/ideologies.js";
-import { consensusOf } from "./bills.js";
+import { stanceFit } from "./bills.js";
 
 /**
  * The caucus inside the caucus.
@@ -36,21 +36,29 @@ export const FACTIONS = [
   {
     id: "progressive", party: "Democrat", name: "The Progressive Caucus",
     band: [-1, -0.52], discipline: 0.78,
+    // Anti-war, anti-surveillance, and the reliable left half of every civil-liberties coalition.
+    liberty: 0.55,
     creed: "Movement politics. Would rather lose a vote than water a bill down, and says so on television.",
   },
   {
     id: "labor_caucus", party: "Democrat", name: "The Labor Caucus",
     band: [-0.52, -0.38], discipline: 0.72,
+    // Institutionalist. Wants the state strong enough to hold an employer to account.
+    liberty: -0.1,
     creed: "Organised labour's own bloc. Economically hard, culturally cautious, and unmoved by anything that costs a union job.",
   },
   {
     id: "new_democrat", party: "Democrat", name: "The New Democrat Coalition",
     band: [-0.38, -0.2], discipline: 0.6,
+    // The governing wing defends the security state, because governing it is the job.
+    liberty: -0.35,
     creed: "The governing wing. Believes in markets, institutions and winning, roughly in that order.",
   },
   {
     id: "blue_dog", party: "Democrat", name: "The Blue Dog Coalition",
     band: [-0.2, 0], discipline: 0.55,
+    // Law-and-order Democrats from seats that vote for sheriffs.
+    liberty: -0.5,
     creed: "Members from seats their party should not hold. Vote with the other side often enough to keep them.",
   },
 
@@ -58,21 +66,29 @@ export const FACTIONS = [
   {
     id: "main_street", party: "Republican", name: "The Main Street Partnership",
     band: [0, 0.34], discipline: 0.55,
+    // Governing conservatives. Votes to reauthorise whatever the agencies ask for.
+    liberty: -0.3,
     creed: "Governing conservatives from suburbs that will not tolerate a shutdown. The bloc leadership counts on and the base distrusts.",
   },
   {
     id: "study_committee", party: "Republican", name: "The Republican Study Committee",
     band: [0.34, 0.55], discipline: 0.62,
+    // Split down the middle on it, which is what being the party's centre of gravity means.
+    liberty: 0.05,
     creed: "The party's centre of gravity. Large, orthodox, and rarely the problem.",
   },
   {
     id: "liberty", party: "Republican", name: "The Liberty Caucus",
     band: [0.55, 0.72], discipline: 0.7,
+    // The whole point of the bloc.
+    liberty: 0.9,
     creed: "Doctrinaire on spending and on the Constitution. Will vote against its own leadership's budget on principle and enjoy it.",
   },
   {
     id: "freedom", party: "Republican", name: "The Freedom Caucus",
     band: [0.72, 1], discipline: 0.85,
+    // Organised against federal power as much as against the left. The other half of every warrant-requirement coalition.
+    liberty: 0.75,
     creed: "Organised to say no. Small enough to fit in a room, disciplined enough to deny the Speaker a majority, and entirely willing to.",
   },
 ];
@@ -95,6 +111,16 @@ const OVERRIDES = {
   "Paleoconservative": "freedom",
   "Nativist": "freedom",
   "Neoconservative": "study_committee",
+  /**
+   * Found by the liberty axis rather than by hand.
+   *
+   * At 0.6 this sits inside the Liberty Caucus band, and on money that is right
+   * — but the Liberty Caucus is organised around the Constitution and this is
+   * the politics of mandatory minimums and federal police grants. Seating them
+   * together made the bloc's own line meaningless on exactly the votes the bloc
+   * exists for. The axis could not see it; the second one cannot miss it.
+   */
+  "Law & Order Conservative": "study_committee",
 };
 
 export const factionById = (id) => FACTIONS.find((f) => f.id === id) || null;
@@ -177,8 +203,6 @@ export function ownBloc(state) {
 
 // --- Where the bloc stands --------------------------------------------------
 
-const agreement = (a, b) => 1 - Math.abs(a - b) / 2;
-
 /**
  * The bloc's position on a bill, as a fourth voice beside the caucus, the seat
  * and the member's own convictions.
@@ -192,8 +216,20 @@ export function factionLine(state, bill) {
   const faction = factionOf(state.scenario);
   if (!faction) return null;
 
-  const centre = (faction.band[0] + faction.band[1]) / 2;
-  const fit = agreement(centre, bill.axis) + consensusOf(bill) * 0.22;
+  /**
+   * Its centre on money is the middle of its own band; its position on state
+   * power is stated outright, because that is the axis a faction organises
+   * around and no band can imply it.
+   *
+   * This is what stops the bloc card from being a second copy of the member's
+   * own. Measured on the old single axis, a Groyper and the Freedom Caucus
+   * differed on 6.5% of the range — nine hundredths apart, so the fourth voice
+   * agreed with the player nineteen times in twenty. Two axes let a bloc be at
+   * odds with its own most extreme members, which is the entire reason a whip
+   * has a job.
+   */
+  const centre = { axis: (faction.band[0] + faction.band[1]) / 2, liberty: faction.liberty };
+  const fit = stanceFit(centre, bill);
   const position = fit >= 0.76 ? "yes" : "no";
   // Discipline sharpens the demand rather than moving it.
   const intensity = clamp(Math.round(Math.abs(fit - 0.76) * 240 * (0.6 + faction.discipline)), 5, 100);

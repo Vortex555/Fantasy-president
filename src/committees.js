@@ -382,6 +382,17 @@ export function chairAction(state, bill, action) {
   // Amend: drag it a third of the way toward your own politics.
   const own = Number(next.scenario.ideologyAxis) || anchor;
   const moved = round1(bill.axis + (own - bill.axis) * 0.34);
+  /**
+   * Both axes, or the gavel cannot touch the bills it most wants to.
+   *
+   * A chair amending a surveillance bill is not adjusting its economics — the
+   * amendment *is* the warrant requirement. Moving only the axis left the one
+   * dimension such a bill is actually about frozen, so the committee power
+   * silently did nothing on exactly the legislation it matters most for.
+   */
+  const ownLiberty = Number(next.scenario.ideologyLiberty) || 0;
+  const movedLiberty = round1((Number(bill.liberty) || 0)
+    + (ownLiberty - (Number(bill.liberty) || 0)) * 0.34);
   next.leadership = clamp(round1(next.leadership + 1));
   next.committeeLog.unshift({
     month: next.month, term: next.term || 1, action: "amended",
@@ -391,7 +402,7 @@ export function chairAction(state, bill, action) {
     state: next,
     result: {
       buried: false,
-      bill: { ...bill, axis: moved, amended: true },
+      bill: { ...bill, axis: moved, liberty: movedLiberty, amended: true },
       note: `You reported the ${bill.title} out of committee amended — moved from ${bill.axis} to ${moved}.`,
     },
   };
@@ -415,7 +426,7 @@ export function whipCount(state, bill) {
   const roster = buildCongress(state, STATES);
   // Count the room you are standing in. A senate whip walked in knowing a
   // House number, which was both wrong and 335 votes too large.
-  const tally = rollCall(roster[chamberOf(state)], bill.axis, { consensus: consensusOf(bill) });
+  const tally = rollCall(roster[chamberOf(state)], bill, { consensus: consensusOf(bill) });
   const swung = (state.swung || {})[bill.id] || 0;
   const yes = tally.yes + swung;
 
