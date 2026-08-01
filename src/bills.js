@@ -2,6 +2,7 @@ import { seeded, clamp, round1 } from "./rng.js";
 import { buildCongress } from "../public/js/data/government.js";
 import { STATES } from "./states.js";
 import { vpSupports } from "./succession.js";
+import { factionById } from "../public/js/data/factions.js";
 
 /**
  * Bills on your desk.
@@ -362,6 +363,55 @@ export function consensusOf(bill) {
 const votesYes = (member, bill, consensus) =>
   stanceFit(member, bill, consensus) >= YES_THRESHOLD;
 
+/** The most blocs one bill may turn. Two is a cross-cutting vote; four is a rewrite. */
+export const MAX_DEFECTIONS = 2;
+
+/**
+ * A bloc voting against where its own politics would put it.
+ *
+ * Two axes carry the cross-cutting fights that generalise. They cannot carry
+ * the ones that do not — a trade bill that splits both parties, an ag subsidy
+ * that unites the two farm delegations against their leaderships, a crypto bill
+ * that scrambles everybody. There is no third number for those, because what
+ * they have in common is being particular, and a dimension per particular is
+ * just the model's judgement with extra steps.
+ *
+ * So the model states it on the bill instead, once, when the bill is written.
+ * Everything here stays a pure function of that frozen value: the same bill
+ * gives the same roll call every time, an amended bill carries its defections
+ * with it, and the bloc card and the tally cannot disagree because both read
+ * this.
+ */
+export const defectionOn = (bill, factionId) =>
+  (Array.isArray(bill?.defectors) ? bill.defectors : [])
+    .find((d) => d?.faction === factionId) || null;
+
+/**
+ * Which members of a defecting bloc actually follow the whip.
+ *
+ * Not all of them, and that is the point — a bloc is not a switch. Discipline
+ * is the share that goes, and *which* share is decided by how close each member
+ * already sat to where the bloc is going: a whip converts the persuadable
+ * first and the holdouts are the ones it was furthest from. That ordering is
+ * deterministic, which the roll call requires, and it means a disciplined bloc
+ * moves nearly whole while a loose one leaks.
+ */
+function whipped(roster, bill, consensus, defection) {
+  const faction = factionById(defection.faction);
+  if (!faction) return new Set();
+
+  const bloc = roster.filter((m) => m.faction === defection.faction);
+  const wanted = defection.position === "yes";
+  // Everyone already voting the bloc's way needs no whipping.
+  const holdouts = bloc.filter((m) => votesYes(m, bill, consensus) !== wanted);
+  const follow = Math.round(bloc.length * faction.discipline) - (bloc.length - holdouts.length);
+  if (follow <= 0) return new Set();
+
+  const byPersuadability = [...holdouts].sort((a, b) =>
+    (wanted ? -1 : 1) * (stanceFit(b, bill, consensus) - stanceFit(a, bill, consensus)));
+  return new Set(byPersuadability.slice(0, follow));
+}
+
 // Above this level of agreement a member votes yes. Tuned so a bill written at
 // the chamber's own median clears comfortably and one written at the far end
 // of the room does not.
@@ -381,9 +431,22 @@ const YES_THRESHOLD = 0.78;
  * about state power, which is the correct reading of it.
  */
 export function rollCall(roster, bill, { tieBreak = false, consensus = 0 } = {}) {
+  /**
+   * Blocs that broke ranks, resolved once for the whole chamber.
+   *
+   * Capped here as well as at validation, so a bill hand-written with five
+   * defections in the pool cannot do what a model-written one is refused.
+   */
+  const turned = new Map();
+  for (const d of (Array.isArray(bill?.defectors) ? bill.defectors : []).slice(0, MAX_DEFECTIONS)) {
+    if (!d?.faction || (d.position !== "yes" && d.position !== "no")) continue;
+    for (const m of whipped(roster, bill, consensus, d)) turned.set(m, d.position === "yes");
+  }
+
   let yes = 0, dYes = 0, rYes = 0;
   for (const m of roster) {
-    if (!votesYes(m, bill, consensus)) continue;
+    const cast = turned.has(m) ? turned.get(m) : votesYes(m, bill, consensus);
+    if (!cast) continue;
     yes += 1;
     if (m.party === "Democrat") dYes += 1; else rYes += 1;
   }

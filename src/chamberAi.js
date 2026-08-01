@@ -2,7 +2,8 @@ import { complete, aiAvailable } from "./ai/provider.js";
 import { parseModelJson } from "./ai/json.js";
 import { seeded } from "./rng.js";
 import { normalizeDomain, activeArcs, ARC_DOMAIN_IDS } from "./arcs.js";
-import { FRINGE_AXIS, CONSENSUS_TIERS } from "./bills.js";
+import { FRINGE_AXIS, CONSENSUS_TIERS, MAX_DEFECTIONS } from "./bills.js";
+import { FACTIONS } from "../public/js/data/factions.js";
 import { nationSummary, absoluteMonth, steerDomain, recentNewsSubjects } from "./nation.js";
 import { committeeById, rankById, chamberOf } from "./committees.js";
 import { describeProfile, loudestObjection } from "./demographics.js";
@@ -114,6 +115,7 @@ You MUST respond with ONLY a single JSON object (no prose, no markdown fences) w
       "because": "6-12 words on which national problem or news story produced this bill",
       "addresses": "the exact id (e.g. arc_2) of the UNRESOLVED NATIONAL PROBLEM this bill answers, or null if it answers none of them",
       "support": "one of: partyline | contested | bipartisan | unanimous",
+      "defectors": [],       // OPTIONAL and usually empty — see the rule below
       "extremist": false
     }
   ]
@@ -124,6 +126,9 @@ Rules — read them, they are the difference between a floor and a list:
 - Congress responds to a crisis LATE, PARTIALLY and IN ITS OWN INTEREST. The honest legislative answer to a disaster is usually a narrow funding bill, a commission, a reauthorisation with a rider attached, or a messaging vote designed to make the other side vote no. Sweeping, well-designed solutions to the actual problem are the rare case, not the default.
 - "axis" is load-bearing and the engine computes the entire roll call from it. Be honest: a bipartisan disaster-relief appropriation is near 0.0; a targeted tax cut is around +0.45; nationalising an industry is -0.9. Do not push everything to the extremes to seem dramatic — a chamber where every bill is at ±0.8 has no politics in it, only noise.
 - "liberty" is a SECOND and SEPARATE axis, and most bills are 0 on it. A tax rate, a childcare subsidy and a bridge say nothing about state power: leave them at 0. Use it only when the bill genuinely turns on what the government may do to a person — surveillance, warrants, policing, detention, censorship, emergency powers, gun ownership, federal pre-emption of the states. Positive restrains the state (a warrant requirement is +0.85); negative empowers it (renewing bulk collection is -0.85). It is what lets both ends of the chamber vote together against both leaderships, which is a real and common pattern that "axis" alone cannot produce — so do not simply mirror the axis here. A right-wing bill can be strongly positive and a left-wing bill strongly negative.
+- "defectors" is for the rare bill whose politics the two numbers above genuinely cannot express: an organised bloc that will vote AGAINST where its own ideology sits. Leave it out entirely on almost every bill — the axes already handle the ordinary case, and a defection you did not need makes the chamber incoherent. Use it when a specific caucus has a known, concrete commitment that cuts across its own side: a farm-state bloc against its party's trade bill, a libertarian bloc against its party's police funding, a labour bloc against its party's environmental bill. At most TWO blocs per bill, and never on a bill where you cannot name the reason in a clause.
+  The only valid ids are: ${FACTIONS.map((f) => f.id).join(" | ")}
+  Shape: [{ "faction": "<id>", "position": "yes" | "no", "because": "under 15 words, the concrete commitment that makes them break" }]
 - "support" is HOW CONTESTED it is, which is a different question from where it sits. It decides how far across the aisle the bill reaches, and it is the difference between a vote of 54-46 and one of 87-13.
     "partyline"  — the default and by far the commonest. One side wants it, the other does not.
     "contested"  — a normal bill that picks up some of the other side's moderates.
@@ -221,6 +226,35 @@ function votedSubjects(state) {
  * reads. Anything malformed is dropped rather than repaired into a bill nobody
  * meant to write, and if that leaves nothing the caller falls back to the pool.
  */
+const FACTION_IDS = new Set(FACTIONS.map((f) => f.id));
+
+/**
+ * The defections the engine is willing to act on, out of whatever was offered.
+ *
+ * Every rejection here is silent and deliberate. A malformed defection should
+ * cost the bill its annotation, never the bill itself — the axis is what the
+ * roll call cannot do without, and this is a refinement on top of it.
+ */
+function validDefectors(raw) {
+  if (!Array.isArray(raw)) return [];
+  const out = [];
+  const named = new Set();
+
+  for (const d of raw) {
+    if (out.length >= MAX_DEFECTIONS) break;
+    const faction = String(d?.faction || "").trim();
+    if (!FACTION_IDS.has(faction) || named.has(faction)) continue;
+    if (d?.position !== "yes" && d?.position !== "no") continue;
+    named.add(faction);
+    out.push({
+      faction,
+      position: d.position,
+      because: String(d?.because || "").trim().slice(0, 160) || null,
+    });
+  }
+  return out;
+}
+
 export function validateDocket(raw, state, count, { fringe = null } = {}) {
   const list = Array.isArray(raw?.bills) ? raw.bills : [];
   const out = [];
@@ -268,6 +302,21 @@ export function validateDocket(raw, state, count, { fringe = null } = {}) {
       liberty: Number.isFinite(Number(item?.liberty)) && item?.liberty !== null && item?.liberty !== ""
         ? Math.max(-1, Math.min(1, Math.round(Number(item.liberty) * 100) / 100))
         : 0,
+      /**
+       * Blocs the model says break from where their own politics would put them.
+       *
+       * The one place the model is allowed to decide who is for a bill rather
+       * than only what the bill is — and it decides once, here, after which the
+       * value is frozen and every downstream calculation stays a function of it.
+       *
+       * Trusted no further than anything else it volunteers. An invented caucus
+       * is dropped rather than believed, because a defection naming a bloc that
+       * does not exist would sit on the bill forever matching nothing; a
+       * position that is not a vote is not a position; and the whole list is
+       * capped, because a model that can turn four blocs at once is not
+       * annotating the roll call, it is writing it.
+       */
+      defectors: validDefectors(item?.defectors),
       domain: normalizeDomain(item?.domain),
       /**
        * Deliberately dropped, even if the model volunteered one.

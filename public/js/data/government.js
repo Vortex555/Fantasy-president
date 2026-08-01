@@ -2,6 +2,7 @@
 
 import { seeded } from "./rng.js";
 import { IDEOLOGIES, mainstreamIdeologies, fringeIdeologies } from "./ideologies.js";
+import { factionFor } from "./factions.js";
 
 /**
  * The people who actually hold office.
@@ -143,6 +144,14 @@ export function buildChamber({ seed, chamber, seats, radical = false, states = {
       // the axis. A member without it is invisible to half of every bill
       // that is actually about state power. See `stanceFit` in bills.js.
       liberty: ideology.liberty ?? 0,
+      /**
+       * The bloc this member sits in, stamped once rather than looked up.
+       *
+       * The roll call needs it to honour a faction breaking ranks, and it is a
+       * pure function of party and ideology, so computing it here costs one
+       * lookup per member instead of one per member per bill.
+       */
+      faction: factionFor(party, ideology.value)?.id || null,
       fringe: Boolean(ideology.fringe),
     };
   });
