@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import { stanceFit, ISSUE_AXES, ISSUE_WEIGHT_CAP, CONSENSUS } from "../src/bills.js";
+import { validateDocket } from "../src/chamberAi.js";
 import { IDEOLOGIES, findIdeology, ideologyPosition } from "../public/js/data/ideologies.js";
 import { convictionView } from "../src/conviction.js";
 import { FACTIONS } from "../public/js/data/factions.js";
@@ -266,4 +267,59 @@ test("and a bill that says nothing about it is scored as though the axis were no
   const voice5 = { axis: 0.45, economic: 0.5, diplomatic: 0, liberty: 0, culture: 0, pluralism: -0.9 };
   const quiet = { axis: 0.45, economic: 0.5, domain: "economy", support: "partyline" };
   assert.equal(stanceFit(voice5, quiet), stanceFit({ ...voice5, pluralism: 0.9 }, quiet));
+});
+
+
+// ---------------------------------------------------------------------------
+// The label is a checksum on the sign, not a replacement for the value
+// ---------------------------------------------------------------------------
+
+/**
+ * A 14B model gets the *sign* wrong on bills whose wording cuts both ways.
+ * "Stricter oversight of the police" restrains coercion and is positive;
+ * "stricter enforcement by the police" builds it out and is negative. It read
+ * the first as the second and put a Groyper on the wrong side of a police
+ * accountability bill.
+ *
+ * The repo already knew the answer and wrote it down on `support`: a small model
+ * picks from a list far more reliably than it calibrates a scale. But replacing
+ * the numbers with labels outright measurably costs something — snapping the
+ * pool to five buckets changes 5.5% of votes and drifts intensity by seven
+ * points — so the label does not replace the number. It checks it.
+ */
+
+const docketOf = (bill) =>
+  validateDocket({ bills: [{ title: "T", brief: "b", axis: 0.2, domain: "justice", ...bill }] },
+    { term: 1, month: 4, arcs: [], voteLog: [] }, 1)[0];
+
+test("a number that agrees with its label is kept exactly", () => {
+  const bill = docketOf({ liberty: 0.43, liberty_side: "liberty" });
+  assert.equal(bill.liberty, 0.43, "granularity is the whole reason not to use labels alone");
+});
+
+test("a number that contradicts its label loses to the label", () => {
+  // The police accountability case: the model says "restrains" and then writes
+  // a negative number, having pattern-matched on the word "stricter".
+  const bill = docketOf({ liberty: -0.5, liberty_side: "liberty" });
+  assert.ok(bill.liberty > 0, "the sign the model described in words is the one it meant");
+});
+
+test("a label on its own supplies a sensible magnitude", () => {
+  const bill = docketOf({ pluralism_side: "hierarchy" });
+  assert.ok(bill.pluralism < 0 && bill.pluralism >= -0.6);
+});
+
+test("a number on its own behaves exactly as it did before labels existed", () => {
+  assert.equal(docketOf({ diplomatic: 0.65 }).diplomatic, 0.65);
+  assert.equal(docketOf({ culture: -0.4 }).culture, -0.4);
+});
+
+test("a label nobody recognises is ignored rather than believed", () => {
+  const bill = docketOf({ economic: 0.7, economic_side: "sideways" });
+  assert.equal(bill.economic, 0.7);
+});
+
+test("saying nothing on an axis still says nothing", () => {
+  const bill = docketOf({});
+  for (const { id } of ISSUE_AXES) assert.equal(bill[id], 0);
 });

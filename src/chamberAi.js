@@ -145,11 +145,20 @@ You MUST respond with ONLY a single JSON object (no prose, no markdown fences) w
       "title": "the name it will be known by — an Act, a Resolution, an Amendment",
       "brief": "ONE sentence, maximum 30 words, saying concretely what the bill does. Mechanisms and numbers, not aspirations.",
       "axis": number,        // where it sits ideologically, -1 (hard left) to +1 (hard right)
-      "economic": number,    // -1 equality (redistribute) … +1 markets (growth, lower taxes, deregulation)
-      "diplomatic": number,  // -1 globe (alliances, trade, integration) … +1 nation (sovereignty, tariffs, borders)
-      "liberty": number,     // -1 authority (state power over the person) … +1 liberty (restrains it)
-      "culture": number,     // -1 progress (social change) … +1 tradition (the settled moral order)
-      "pluralism": number,   // -1 hierarchy (narrows who the law protects) … +1 protection (widens it)
+      // For each of the five axes: name the SIDE in words, then score it.
+      // Leave both out entirely on axes the bill is not about — most bills are
+      // about one or two. The word decides the direction and the number decides
+      // how far, so they must not disagree; if they do, the word is believed.
+      "economic_side": "equality" | "markets" | null,
+      "economic": number,        //  -1 … +1, matching the side named above
+      "diplomatic_side": "globe" | "nation" | null,
+      "diplomatic": number,
+      "liberty_side": "authority" | "liberty" | null,   // "liberty" = restrains the state
+      "liberty": number,
+      "culture_side": "progress" | "tradition" | null,
+      "culture": number,
+      "pluralism_side": "hierarchy" | "protection" | null,
+      "pluralism": number,
       "domain": "one of: ${DOMAINS}",
       "because": "6-12 words on which national problem or news story produced this bill",
       "addresses": "the exact id (e.g. arc_2) of the UNRESOLVED NATIONAL PROBLEM this bill answers, or null if it answers none of them",
@@ -164,10 +173,15 @@ Rules — read them, they are the difference between a floor and a list:
 - EVERY bill must be traceable to the national situation you are given. The month's dominating story and the unresolved problems are your material. A bill that could have been scheduled in any month of any decade is a failure.
 - Congress responds to a crisis LATE, PARTIALLY and IN ITS OWN INTEREST. The honest legislative answer to a disaster is usually a narrow funding bill, a commission, a reauthorisation with a rider attached, or a messaging vote designed to make the other side vote no. Sweeping, well-designed solutions to the actual problem are the rare case, not the default.
 - "axis" is load-bearing and the engine computes the entire roll call from it. Be honest: a bipartisan disaster-relief appropriation is near 0.0; a targeted tax cut is around +0.45; nationalising an industry is -0.9. Do not push everything to the extremes to seem dramatic — a chamber where every bill is at ±0.8 has no politics in it, only noise.
-- The four axes AFTER "axis" are what the bill is *about*, and MOST BILLS ARE 0 ON MOST OF THEM. Set only the ones the bill genuinely turns on — usually one, sometimes two, rarely three. A bill that is 0 on all four is fine and common; it is scored on "axis" alone exactly as before these existed.
+- NAME THE SIDE BEFORE YOU SCORE IT. On every axis the bill touches, write the "_side" word first and then a number with the matching sign. Deciding "this restrains the police" and then writing -0.5 is the single commonest mistake made here, because the wording of these bills cuts both ways; the word is what will be believed. Omit both fields on any axis the bill is not about.
+- The five axes AFTER "axis" are what the bill is *about*, and MOST BILLS ARE 0 ON MOST OF THEM. Set only the ones the bill genuinely turns on — usually one, sometimes two, rarely three. A bill that is 0 on all four is fine and common; it is scored on "axis" alone exactly as before these existed.
     "economic"   — taxes, spending, subsidies, wages, ownership. A corporate rate cut is +0.9; a jobs guarantee is -0.85.
     "diplomatic" — sovereignty against integration, NOT hawkishness. Tariffs, immigration enforcement and withdrawing from a treaty are positive; alliances, trade deals and foreign aid are negative. A neoconservative is on the *negative* side of this despite being a hawk, and a paleoconservative is on the positive side despite wanting the troops home. That is the split it exists to draw.
-    "liberty"    — the state's COERCIVE power over a person: warrants, police, prisons, detention, surveillance, censorship, conscription. Positive restrains it; negative builds it out, even when framed as safety — prison beds, police hiring and mandatory minimums are -0.4 to -0.7.
+    "liberty"    — the state's COERCIVE power over a person: warrants, police, prisons, detention, surveillance, censorship, conscription. Positive RESTRAINS that power; negative BUILDS IT OUT.
+                   A bill about the police can be either, and the sign is decided by WHO is being restrained — the citizen or the officer. Read it that way every time:
+                     police hiring, prison beds, detention capacity, mandatory minimums, bulk collection, new surveillance authorities  ->  NEGATIVE (-0.4 to -0.7), even when framed as safety.
+                     body cameras, use-of-force limits, oversight boards, consent decrees, de-escalation mandates, warrant requirements, ending qualified immunity  ->  POSITIVE (+0.4 to +0.6).
+                   "Stricter oversight OF the police" is positive. "Stricter enforcement BY the police" is negative. The words look alike and mean opposite things.
                    It is NOT "is there a regulation". A bill that deregulates an industry is "economic", not liberty. A bill that narrows who a civil-rights law protects is "pluralism", not liberty, however much its sponsors call it a liberty bill — the state declining to protect one person from another is not the state letting a person alone. Set liberty on such a bill only if it ALSO genuinely changes what police or courts may do to somebody, and then only weakly.
     "culture"    — religion in public life, family and gender, speech, education content, monuments. Positive is tradition, negative is progress.
     "pluralism"  — WHO the law protects, which is a different question from the moral order. Anti-discrimination law, voting access, immigration status and minority protections live here. Positive widens protection; negative narrows it. A bill creating exemptions from anti-discrimination law is strongly negative even when its mechanism is a religious liberty one, and set "liberty" for the mechanism only if that is genuinely also what it is about.
@@ -427,6 +441,43 @@ const clampedIssue = (raw) => (Number.isFinite(Number(raw)) && raw !== null && r
   ? Math.max(-1, Math.min(1, Math.round(Number(raw) * 100) / 100))
   : 0);
 
+/** What a label alone is worth, in the band the prompt says most real bills occupy. */
+const LABELLED_STRENGTH = 0.45;
+
+/**
+ * The direction a bill leans on one axis, checked against the number it gave.
+ *
+ * A small model gets the *sign* wrong on wording that cuts both ways. "Stricter
+ * oversight OF the police" restrains coercion and is positive; "stricter
+ * enforcement BY the police" builds it out and is negative. It read the first as
+ * the second and put a Groyper on the wrong side of a police accountability
+ * bill — confidently, with a fluent explanation underneath.
+ *
+ * This file already knew the fix and wrote it down on `support`: a small model
+ * picks from a list far more reliably than it calibrates a scale. But swapping
+ * the numbers for labels outright costs something measurable — snapping the pool
+ * to five buckets moves 5.5% of votes and drifts intensity by seven points — so
+ * the label does not replace the number, it checks it. Signs agree and the
+ * number stands, to the hundredth. They disagree and the word wins, because the
+ * word is the thing the model is reliable about.
+ *
+ * The override is logged rather than swallowed: how often a model contradicts
+ * itself here is worth knowing, and nobody knows it yet.
+ */
+function issueValue(item, axis, title) {
+  const number = clampedIssue(item?.[axis.id]);
+  const said = String(item?.[`${axis.id}_side`] || "").trim().toLowerCase();
+  const wants = said === axis.high ? 1 : said === axis.low ? -1 : 0;
+
+  if (!wants) return number;                                  // no label: as before
+  if (!number) return wants * LABELLED_STRENGTH;              // label only
+  if (Math.sign(number) === wants) return number;             // agree: keep the precision
+
+  console.warn(`[axis] "${title}" called ${axis.id} "${said}" and then scored it `
+    + `${number}; taking the word. If this is frequent the prompt is the problem.`);
+  return wants * LABELLED_STRENGTH;
+}
+
 const FACTION_IDS = new Set(FACTIONS.map((f) => f.id));
 
 /**
@@ -500,7 +551,7 @@ export function validateDocket(raw, state, count, { fringe = null } = {}) {
        * instead of dropping the bill, and at 0 an axis takes none of the vote.
        * See `stanceFit` in bills.js.
        */
-      ...Object.fromEntries(ISSUE_AXES.map(({ id }) => [id, clampedIssue(item?.[id])])),
+      ...Object.fromEntries(ISSUE_AXES.map((axis) => [axis.id, issueValue(item, axis, title)])),
       /**
        * Blocs the model says break from where their own politics would put them.
        *
