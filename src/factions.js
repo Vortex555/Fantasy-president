@@ -1,7 +1,7 @@
 import { clamp, round1 } from "./rng.js";
 import { buildCongress } from "../public/js/data/government.js";
 import { STATES } from "./states.js";
-import { stanceFit, defectionOn, voiceFor } from "./bills.js";
+import { stanceFit, defectionOn, voiceFor, reflexVote } from "./bills.js";
 import {
   FACTIONS, factionById, factionFor,
 } from "../public/js/data/factions.js";
@@ -141,9 +141,12 @@ export function factionLine(state, bill) {
     };
   }
 
-  const position = fit >= 0.76 ? "yes" : "no";
+  const reflex = reflexVote(faction, bill);
+  const position = reflex || (fit >= 0.76 ? "yes" : "no");
   // Discipline sharpens the demand rather than moving it.
-  const intensity = clamp(Math.round(Math.abs(fit - 0.76) * 240 * (0.6 + faction.discipline)), 5, 100);
+  const intensity = reflex
+    ? clamp(Math.round(80 * (0.6 + faction.discipline)), 5, 100)
+    : clamp(Math.round(Math.abs(fit - 0.76) * 240 * (0.6 + faction.discipline)), 5, 100);
 
   return {
     id: faction.id,

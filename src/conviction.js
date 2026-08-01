@@ -1,5 +1,5 @@
 import { clamp, round1 } from "./rng.js";
-import { consensusOf, stanceFit, voiceFor } from "./bills.js";
+import { consensusOf, stanceFit, voiceFor, reflexVote } from "./bills.js";
 import {
   findIdeology, ideologyEffects, ISSUE_KEYS, issueKey,
 } from "../public/js/data/ideologies.js";
@@ -68,6 +68,9 @@ export function convictionWeight(scenario) {
  */
 const CONVICTION_THRESHOLD = 0.78;
 
+/** What a reflex feels like. High, because it is definitional rather than a preference. */
+const REFLEX_INTENSITY = 78;
+
 export function convictionView(state, bill) {
   /**
    * Both of your numbers, not just the economic one.
@@ -87,8 +90,17 @@ export function convictionView(state, bill) {
   }
   const weight = convictionWeight(state?.scenario);
   const fit = stanceFit(mine, bill, consensusOf(bill));
-  const position = fit >= CONVICTION_THRESHOLD ? "yes" : "no";
-  const intensity = clamp(Math.round(Math.abs(fit - CONVICTION_THRESHOLD) * 240 * weight), 5, 100);
+
+  /**
+   * A position held regardless of how the bill is built decides before the
+   * arithmetic runs, and decides hard — a reflex is not a preference. See
+   * BILL_TOPICS in bills.js.
+   */
+  const reflex = reflexVote(found, bill);
+  const position = reflex || (fit >= CONVICTION_THRESHOLD ? "yes" : "no");
+  const intensity = reflex
+    ? clamp(Math.round(REFLEX_INTENSITY * weight), 5, 100)
+    : clamp(Math.round(Math.abs(fit - CONVICTION_THRESHOLD) * 240 * weight), 5, 100);
 
   return {
     position,

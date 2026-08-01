@@ -263,6 +263,7 @@ export const scheduledBill = (source, extra = {}) => ({
   brief: source.brief,
   axis: source.axis,
   ...Object.fromEntries(ISSUE_AXES.map(({ id }) => [id, Number(source[id]) || 0])),
+  ...(Array.isArray(source.topics) && source.topics.length ? { topics: source.topics } : {}),
   domain: source.domain,
   fringe: Boolean(source.fringe),
   ...(Array.isArray(source.defectors) && source.defectors.length
@@ -305,6 +306,67 @@ export const FRINGE_AXIS = 0.75;
 
 /** How willing a member is to vote for something at `axis`. */
 const agreement = (memberAxis, billAxis) => 1 - Math.abs(memberAxis - billAxis) / 2;
+
+/**
+ * Actions a bill takes, from a fixed list, so a politics can hold a position on
+ * one regardless of how the bill is built.
+ *
+ * The five axes express tendencies, and a tendency is a direction with a
+ * magnitude. They cannot express "always" — and a few of the positions that
+ * define an ideology are exactly that. A Groyper opposes a mandate that
+ * platforms police speech because that mandate is how every figure in the
+ * movement was removed from the internet. There is no construction of that bill
+ * they vote for, and no set of five coordinates that reliably produces "never".
+ *
+ * Trying to get "never" out of coordinates is what moved that ideology's
+ * `liberty` three times in a day: each value was picked to make one bill come
+ * out right and broke a different reflex, because it was solving for the wrong
+ * kind of object.
+ *
+ * Every topic names an action with the direction already in it, so nothing here
+ * asks a model to infer a sign — inferring a sign is what produced a police
+ * accountability bill scored as an expansion of police power. Both directions
+ * appear wherever a bill genuinely goes either way.
+ *
+ * The list is meant to stay short. A reflex is for a position that is
+ * *definitional* to a politics and that the axes demonstrably get wrong; add one
+ * for anything less and this becomes a lookup table with five decorative
+ * coordinates attached.
+ */
+export const BILL_TOPICS = [
+  "mandate_platform_moderation",   // the state requiring platforms to police content
+  "protect_platform_speech",       // the state forbidding them to
+  "expand_surveillance",
+  "restrict_surveillance",
+  "protect_firearms",
+  "restrict_firearms",
+  "weaken_civil_rights",
+  "strengthen_civil_rights",
+  "expand_deportation",
+  "fund_incarceration",
+  "restrict_abortion",
+  "protect_abortion",
+];
+
+/** The most a single bill may claim to do. A bill about everything is about nothing. */
+export const MAX_TOPICS = 3;
+
+/**
+ * How a politics votes on this bill when it holds a reflex about it, or null.
+ *
+ * Reads the same field on an ideology, a faction or a chamber member, all of
+ * which carry `reflex` in the same shape. A bill naming no topic, or naming one
+ * nobody has a view on, returns null and every number stays exactly what it was.
+ */
+export function reflexVote(voice, bill) {
+  const held = voice?.reflex;
+  if (!held) return null;
+  for (const topic of (Array.isArray(bill?.topics) ? bill.topics : [])) {
+    const vote = held[topic];
+    if (vote === "yes" || vote === "no") return vote;
+  }
+  return null;
+}
 
 /**
  * The four issue axes, after the 8values model.
@@ -466,8 +528,13 @@ export function consensusOf(bill) {
 }
 
 /** The bar a member has to clear to vote yes, once consensus is counted. */
-const votesYes = (member, bill, consensus) =>
-  stanceFit(member, bill, consensus) >= YES_THRESHOLD;
+const votesYes = (member, bill, consensus) => {
+  // A reflex is a position held regardless of construction, so it decides
+  // before the arithmetic runs. See BILL_TOPICS.
+  const reflex = reflexVote(member, bill);
+  if (reflex) return reflex === "yes";
+  return stanceFit(member, bill, consensus) >= YES_THRESHOLD;
+};
 
 /** The most blocs one bill may turn. Two is a cross-cutting vote; four is a rewrite. */
 export const MAX_DEFECTIONS = 2;

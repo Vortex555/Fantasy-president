@@ -2,7 +2,9 @@ import { complete, aiAvailable } from "./ai/provider.js";
 import { parseModelJson } from "./ai/json.js";
 import { seeded } from "./rng.js";
 import { normalizeDomain, activeArcs, ARC_DOMAIN_IDS } from "./arcs.js";
-import { FRINGE_AXIS, CONSENSUS_TIERS, MAX_DEFECTIONS, ISSUE_AXES } from "./bills.js";
+import {
+  FRINGE_AXIS, CONSENSUS_TIERS, MAX_DEFECTIONS, ISSUE_AXES, BILL_TOPICS, MAX_TOPICS,
+} from "./bills.js";
 import { FACTIONS } from "../public/js/data/factions.js";
 import { findIdeology } from "../public/js/data/ideologies.js";
 import { STAKEHOLDERS } from "./stakeholders.js";
@@ -163,6 +165,7 @@ You MUST respond with ONLY a single JSON object (no prose, no markdown fences) w
       "because": "6-12 words on which national problem or news story produced this bill",
       "addresses": "the exact id (e.g. arc_2) of the UNRESOLVED NATIONAL PROBLEM this bill answers, or null if it answers none of them",
       "support": "one of: partyline | contested | bipartisan | unanimous",
+      "topics": [],          // OPTIONAL — up to 3 named actions this bill takes, from the list below. Most bills take none.
       "defectors": [],       // OPTIONAL — the rare bill an organised bloc breaks ranks on. See the rule below; do not forget this field exists.
       "extremist": false
     }
@@ -173,6 +176,7 @@ Rules — read them, they are the difference between a floor and a list:
 - EVERY bill must be traceable to the national situation you are given. The month's dominating story and the unresolved problems are your material. A bill that could have been scheduled in any month of any decade is a failure.
 - Congress responds to a crisis LATE, PARTIALLY and IN ITS OWN INTEREST. The honest legislative answer to a disaster is usually a narrow funding bill, a commission, a reauthorisation with a rider attached, or a messaging vote designed to make the other side vote no. Sweeping, well-designed solutions to the actual problem are the rare case, not the default.
 - "axis" is load-bearing and the engine computes the entire roll call from it. Be honest: a bipartisan disaster-relief appropriation is near 0.0; a targeted tax cut is around +0.45; nationalising an industry is -0.9. Do not push everything to the extremes to seem dramatic — a chamber where every bill is at ±0.8 has no politics in it, only noise.
+- "topics" names concrete ACTIONS a bill takes, for the handful of positions a caucus holds no matter how a bill is written. Include one only when the bill plainly does that thing. Valid values, and nothing else: ${BILL_TOPICS.join(", ")}
 - NAME THE SIDE BEFORE YOU SCORE IT. On every axis the bill touches, write the "_side" word first and then a number with the matching sign. Deciding "this restrains the police" and then writing -0.5 is the single commonest mistake made here, because the wording of these bills cuts both ways; the word is what will be believed. Omit both fields on any axis the bill is not about.
 - The five axes AFTER "axis" are what the bill is *about*, and MOST BILLS ARE 0 ON MOST OF THEM. Set only the ones the bill genuinely turns on — usually one, sometimes two, rarely three. A bill that is 0 on all four is fine and common; it is scored on "axis" alone exactly as before these existed.
     "economic"   — taxes, spending, subsidies, wages, ownership. A corporate rate cut is +0.9; a jobs guarantee is -0.85.
@@ -479,6 +483,21 @@ function issueValue(item, axis, title) {
   return wants * LABELLED_STRENGTH;
 }
 
+const TOPIC_IDS = new Set(BILL_TOPICS);
+
+/**
+ * The named actions a bill takes, out of whatever was offered.
+ *
+ * A pick-from-a-list field, which is the form this file already established as
+ * the one a small model is reliable at. Anything unrecognised is dropped rather
+ * than repaired, because a topic that matches no reflex is silent and a topic
+ * that matches the wrong one decides a vote.
+ */
+const validTopics = (raw) => (Array.isArray(raw) ? raw : [])
+  .map((t) => String(t || "").trim())
+  .filter((t, i, all) => TOPIC_IDS.has(t) && all.indexOf(t) === i)
+  .slice(0, MAX_TOPICS);
+
 const FACTION_IDS = new Set(FACTIONS.map((f) => f.id));
 
 /**
@@ -565,6 +584,11 @@ export function validateDocket(raw, state, count, { fringe = null } = {}) {
        * position, and the whole list is capped, because a model that can turn
        * four blocs at once is not annotating the roll call, it is writing it.
        */
+      /**
+       * Actions the bill takes, which a politics may hold a fixed position on
+       * however the rest of it is built. Usually empty. See BILL_TOPICS.
+       */
+      topics: validTopics(item?.topics),
       defectors: validDefectors(item?.defectors),
       domain: normalizeDomain(item?.domain),
       /**

@@ -28,6 +28,13 @@ export const FACTIONS = [
   {
     id: "progressive", party: "Democrat", name: "The Progressive Caucus",
     economic: -0.75, diplomatic: -0.4, culture: -0.65, pluralism: 0.7,
+    /**
+     * Every axis puts this bloc behind a prison-healthcare appropriation —
+     * it spends money, improves conditions and protects a marginalised group.
+     * The abolitionist objection is about where the cheque lands, and no
+     * coordinate expresses it.
+     */
+    reflex: { fund_incarceration: "no" },
     band: [-1, -0.52], discipline: 0.78,
     // Anti-war, anti-surveillance, and the reliable left half of every civil-liberties coalition.
     liberty: 0.55,

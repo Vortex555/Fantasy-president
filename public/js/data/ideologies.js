@@ -61,7 +61,7 @@ export const IDEOLOGIES = {
       fx: { labor: 12, civil_rights: 8, greens: 5, wall_street: -14 } },
     { value: "Anti-Monopoly Populist", axis: -0.55, economic: -0.6, diplomatic: 0.1, liberty: -0.2, culture: -0.2, pluralism: 0.35, sub: "+Labour, −Big business hard",
       fx: { labor: 12, big_business: -18, wall_street: -10, approval: 2 } },
-    { value: "Civil Libertarian", axis: -0.4, economic: -0.2, diplomatic: -0.3, liberty: 0.9, culture: -0.5, pluralism: 0.75, sub: "+Civil rights, −Pentagon, −Law & order",
+    { value: "Civil Libertarian", axis: -0.4, economic: -0.2, diplomatic: -0.3, liberty: 0.9, culture: -0.5, pluralism: 0.75, sub: "+Civil rights, −Pentagon, −Law & order", reflex: { restrict_surveillance: "yes", expand_surveillance: "no", strengthen_civil_rights: "yes" },
       fx: { civil_rights: 14, pentagon: -10, gun_owners: 4 } },
     { value: "Religious Left", axis: -0.35, economic: -0.6, diplomatic: -0.2, liberty: 0.1, culture: 0.4, pluralism: 0.55, sub: "+Faith, +Civil rights, unusual coalition",
       fx: { faith: 12, civil_rights: 10, labor: 5, big_business: -5 } },
@@ -101,7 +101,7 @@ export const IDEOLOGIES = {
       trait: { strength: "Ethics investigations you launch actually land.", limit: "You will never hold leadership; they know what you are.", files: "ethics" } },
 
     // --- Added: the contemporary radical left -------------------------------
-    { value: "Abolitionist Left", axis: -0.88, economic: -0.7, diplomatic: -0.4, liberty: 0.8, culture: -0.9, pluralism: 0.9, sub: "+Civil rights hard, −Police, −Stability", fringe: true,
+    { value: "Abolitionist Left", axis: -0.88, economic: -0.7, diplomatic: -0.4, liberty: 0.8, culture: -0.9, pluralism: 0.9, sub: "+Civil rights hard, −Police, −Stability", reflex: { fund_incarceration: "no", strengthen_civil_rights: "yes" }, fringe: true,
       fx: { civil_rights: 30, labor: 8, gun_owners: -20, faith: -12, stability: -16, approval: -6 },
       trait: { strength: "Movement organisations mobilise for you at a scale money cannot buy.", limit: "No law-and-order bill will ever carry your name.", files: "ethics" } },
     { value: "Tenant Organiser", axis: -0.82, economic: -0.85, diplomatic: -0.2, liberty: 0, culture: -0.5, pluralism: 0.65, sub: "+Renters, +Labour, −Property", fringe: true,
@@ -123,7 +123,7 @@ export const IDEOLOGIES = {
       fx: { gun_owners: 12, faith: 8, labor: 6, big_business: -10, stability: -6, approval: 2 } },
     { value: "Moderate Republican", axis: 0.18, economic: 0.35, diplomatic: -0.1, liberty: -0.2, culture: 0.15, pluralism: 0.15, sub: "+Swing voters, +Institutions, −Base",
       fx: { stability: 8, big_business: 6, approval: 4, faith: -8, gun_owners: -8 } },
-    { value: "Libertarian Conservative", axis: 0.5, economic: 0.9, diplomatic: -0.2, liberty: 0.9, culture: 0.1, pluralism: 0.1, sub: "+Gun owners, +Business, −Religious right",
+    { value: "Libertarian Conservative", axis: 0.5, economic: 0.9, diplomatic: -0.2, liberty: 0.9, culture: 0.1, pluralism: 0.1, sub: "+Gun owners, +Business, −Religious right", reflex: { protect_firearms: "yes", restrict_surveillance: "yes", mandate_platform_moderation: "no" },
       fx: { gun_owners: 16, big_business: 10, wall_street: 6, faith: -10 } },
     { value: "Religious Right", axis: 0.65, economic: 0.35, diplomatic: 0.4, liberty: -0.4, culture: 0.82, pluralism: -0.35, sub: "+Faith hard, −Big tech, −Secular voters",
       fx: { faith: 20, gun_owners: 6, big_business: -6, civil_rights: -10 } },
@@ -139,17 +139,17 @@ export const IDEOLOGIES = {
       fx: { labor: 10, faith: 12, gun_owners: 8, wall_street: -12, big_business: -6 } },
     { value: "Rockefeller Republican", axis: 0.1, economic: 0.4, diplomatic: -0.3, liberty: -0.2, culture: -0.2, pluralism: 0.4, sub: "+Institutions, +Civil rights, −Base",
       fx: { stability: 10, civil_rights: 10, big_business: 8, faith: -10, gun_owners: -12, approval: 2 } },
-    { value: "Constitutionalist", axis: 0.7, economic: 0.7, diplomatic: 0.5, liberty: 0.85, culture: 0.5, pluralism: -0.15, sub: "+Gun owners hard, −Federal government",
+    { value: "Constitutionalist", axis: 0.7, economic: 0.7, diplomatic: 0.5, liberty: 0.85, culture: 0.5, pluralism: -0.15, sub: "+Gun owners hard, −Federal government", reflex: { protect_firearms: "yes", restrict_surveillance: "yes", mandate_platform_moderation: "no" },
       fx: { gun_owners: 20, faith: 8, stability: -10, civil_rights: -6 } },
-    { value: "Law & Order Conservative", axis: 0.6, economic: 0.4, diplomatic: 0.5, liberty: -0.9, culture: 0.7, pluralism: -0.5, sub: "+Police, +Pentagon, −Civil rights",
+    { value: "Law & Order Conservative", axis: 0.6, economic: 0.4, diplomatic: 0.5, liberty: -0.9, culture: 0.7, pluralism: -0.5, sub: "+Police, +Pentagon, −Civil rights", reflex: { fund_incarceration: "yes", expand_surveillance: "yes" },
       fx: { gun_owners: 12, pentagon: 12, stability: 6, civil_rights: -16 } },
     { value: "Techno-Libertarian", axis: 0.35, economic: 0.85, diplomatic: -0.5, liberty: 0.7, culture: -0.4, pluralism: 0.1, sub: "+Big tech, +Markets, −Regulators, −Faith",
       fx: { big_business: 18, wall_street: 10, faith: -12, labor: -10, stability: -4 } },
 
     // --- Fringe & radical ---
-    { value: "Christian Nationalist", axis: 0.9, economic: 0.15, diplomatic: 0.8, liberty: -0.6, culture: 1, pluralism: -0.75, sub: "+Faith hard, −Secularists, −Civil rights", fringe: true,
+    { value: "Christian Nationalist", axis: 0.9, economic: 0.15, diplomatic: 0.8, liberty: -0.6, culture: 1, pluralism: -0.75, sub: "+Faith hard, −Secularists, −Civil rights", reflex: { restrict_abortion: "yes", protect_firearms: "yes", weaken_civil_rights: "yes" }, fringe: true,
       fx: { faith: 26, gun_owners: 10, civil_rights: -24, big_business: -8, stability: -12 } },
-    { value: "Nativist", axis: 0.85, economic: 0.1, diplomatic: 0.9, liberty: -0.4, culture: 0.7, pluralism: -0.85, sub: "+Base energy, −Business, −Civil rights", fringe: true,
+    { value: "Nativist", axis: 0.85, economic: 0.1, diplomatic: 0.9, liberty: -0.4, culture: 0.7, pluralism: -0.85, sub: "+Base energy, −Business, −Civil rights", reflex: { expand_deportation: "yes" }, fringe: true,
       fx: { gun_owners: 14, faith: 10, civil_rights: -26, big_business: -16, stability: -12, approval: -3 } },
     { value: "Neoreactionary", axis: 0.9, economic: 0.5, diplomatic: 0.4, liberty: -0.9, culture: 0.85, pluralism: -0.85, sub: "Rule by the competent few. −Almost everyone", fringe: true,
       fx: { wall_street: 10, big_business: 8, civil_rights: -28, labor: -18, stability: -18, approval: -8 } },
@@ -240,7 +240,7 @@ export const IDEOLOGIES = {
      * at" axis puts obscenity law and platform bans on the *same* side, and the
      * ideology wants opposite votes on them. `defectors` is the tool for those.
      */
-    { value: "Groyper", axis: 0.95, economic: 0.1, diplomatic: 0.9, liberty: 0.2, culture: 0.9, pluralism: -0.95, sub: "+Young online right hard, −Party establishment hard, −Civil rights hard", fringe: true,
+    { value: "Groyper", axis: 0.95, economic: 0.1, diplomatic: 0.9, liberty: 0.2, culture: 0.9, pluralism: -0.95, sub: "+Young online right hard, −Party establishment hard, −Civil rights hard", reflex: { mandate_platform_moderation: "no", protect_platform_speech: "yes", protect_firearms: "yes", weaken_civil_rights: "yes", expand_deportation: "yes" }, fringe: true,
       wrecker: true,
       fx: { gun_owners: 14, faith: 8, civil_rights: -32, big_business: -24, wall_street: -22, pentagon: -14, stability: -20, approval: -12 },
       trait: {
@@ -289,7 +289,7 @@ export const IDEOLOGIES = {
       fx: { labor: 28, civil_rights: 12, wall_street: -32, big_business: -28, stability: -20, approval: -6 } },
     { value: "Anarcho-Syndicalist", axis: -0.95, economic: -0.95, diplomatic: -0.3, liberty: 0.9, culture: -0.5, pluralism: 0.6, sub: "No state, no bosses. −Almost every institution", fringe: true,
       fx: { labor: 30, civil_rights: 14, wall_street: -30, big_business: -26, pentagon: -22, stability: -26 } },
-    { value: "Theocrat", axis: 0.95, economic: 0.1, diplomatic: 0.6, liberty: -0.9, culture: 1, pluralism: -0.85, sub: "Scripture as statute. −Everyone outside the church", fringe: true,
+    { value: "Theocrat", axis: 0.95, economic: 0.1, diplomatic: 0.6, liberty: -0.9, culture: 1, pluralism: -0.85, sub: "Scripture as statute. −Everyone outside the church", reflex: { restrict_abortion: "yes" }, fringe: true,
       fx: { faith: 32, civil_rights: -30, big_business: -14, greens: -8, stability: -20, approval: -8 } },
     { value: "Monarchist", axis: 0.8, economic: 0.3, diplomatic: 0.4, liberty: -0.8, culture: 1, pluralism: -0.6, sub: "Restore the crown. −The entire constitutional order", fringe: true,
       fx: { stability: -24, civil_rights: -20, faith: 12, pentagon: 8, approval: -10 } },
@@ -332,7 +332,7 @@ export const IDEOLOGIES = {
       trait: { strength: "Faith institutions and unions both open doors for you.", limit: "Civil-liberties groups campaign against you.", files: "family" } },
 
     // --- Added: radicals who belong to neither party -------------------------
-    { value: "Ethnonationalist", axis: 0.95, economic: 0, diplomatic: 0.95, liberty: -0.6, culture: 0.85, pluralism: -1, sub: "+Nativists hard, −Civil rights hard, −Stability hard", fringe: true,
+    { value: "Ethnonationalist", axis: 0.95, economic: 0, diplomatic: 0.95, liberty: -0.6, culture: 0.85, pluralism: -1, sub: "+Nativists hard, −Civil rights hard, −Stability hard", reflex: { weaken_civil_rights: "yes", expand_deportation: "yes" }, fringe: true,
       fx: { gun_owners: 18, faith: 10, civil_rights: -34, big_business: -20, wall_street: -16, stability: -26, approval: -12 },
       trait: { strength: "A committed base that no scandal disperses.", limit: "Every other bloc in the chamber organises against you personally.", files: "procedure" } },
     { value: "Climate Emergency", axis: -0.9, economic: -0.7, diplomatic: -0.6, liberty: -0.7, culture: -0.7, pluralism: 0.45, sub: "+Greens hard, −Industry, emergency powers", fringe: true,

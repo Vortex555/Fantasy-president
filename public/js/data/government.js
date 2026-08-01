@@ -153,6 +153,9 @@ export function buildChamber({ seed, chamber, seats, radical = false, states = {
        * lookup per member instead of one per member per bill.
        */
       faction: factionFor(party, ideology.value)?.id || null,
+      // Positions this politics holds whatever the bill looks like. A member
+      // without them votes differently from the card describing them.
+      reflex: ideology.reflex || null,
       fringe: Boolean(ideology.fringe),
     };
   });
