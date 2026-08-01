@@ -241,6 +241,36 @@ export const BILL_POOL = [
 export const billById = (id) => BILL_POOL.find((b) => b.id === id);
 
 /**
+ * A pool entry, in the shape the floor and the roll call read.
+ *
+ * Four separate places used to build this by hand, listing the fields they
+ * happened to know about, and every one of them silently dropped `liberty` the
+ * day it was added — so every hand-written bill in the game arrived on the floor
+ * with the second axis zeroed and the whole dimension was inert outside
+ * model-written months. A field added to a bill has to reach the vote, and one
+ * projection is the only way that stays true.
+ *
+ * `consensus` is deliberately NOT carried. Pool entries hold it as a number and
+ * `consensusOf` prefers a number over the `support` word, so copying it here
+ * would make `crisisConsensus` unable to raise a bill's consensus in an
+ * emergency — it sets `support`, and the number would outrank it. Left absent,
+ * the id lookup in `consensusOf` recovers the pool value and the override still
+ * works.
+ */
+export const scheduledBill = (source, extra = {}) => ({
+  id: source.id,
+  title: source.title,
+  brief: source.brief,
+  axis: source.axis,
+  liberty: Number(source.liberty) || 0,
+  domain: source.domain,
+  fringe: Boolean(source.fringe),
+  ...(Array.isArray(source.defectors) && source.defectors.length
+    ? { defectors: source.defectors } : {}),
+  ...extra,
+});
+
+/**
  * How often the fringe gets floor time.
  *
  * "Fringe" here is editorial rather than arithmetic, and it has to be: the
@@ -529,18 +559,12 @@ export function originateBills(state, roster = rosterFor(state)) {
     const { bill, house, senate } = picked;
 
     const sponsor = pickSponsor(roster.house, bill.axis, r);
-    out.push({
-      id: bill.id,
-      title: bill.title,
-      brief: bill.brief,
-      axis: bill.axis,
-      domain: bill.domain,
-      fringe: Boolean(bill.fringe),
+    out.push(scheduledBill(bill, {
       arrivedMonth: state.month,
       sponsor: sponsor ? `${sponsor.title} ${sponsor.name} (${sponsor.party[0]}-${sponsor.state})` : "a bipartisan group",
       sponsorIdeology: sponsor?.ideology || "",
       house, senate,
-    });
+    }));
   }
   return out;
 }

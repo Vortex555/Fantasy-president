@@ -1,6 +1,6 @@
 import { seeded, hashString, clamp, round1 } from "./rng.js";
 import { STATES } from "./states.js";
-import { BILL_POOL, billById, rollCall, FRINGE_BILLS, fringeChance, consensusOf, stanceFit, voiceFor } from "./bills.js";
+import { BILL_POOL, billById, rollCall, FRINGE_BILLS, fringeChance, consensusOf, stanceFit, voiceFor, scheduledBill } from "./bills.js";
 import { houseRaces, nationalEnvironment, runCongressionalCycle } from "./elections.js";
 import { buildCongress } from "../public/js/data/government.js";
 import { assignCommittee, earnCapital, evaluateLadder, committeeById, isWrecker } from "./committees.js";
@@ -412,10 +412,7 @@ export function fringeBillFor(state) {
   const from = fresh.length ? fresh : wanted;
   const r = seeded(`${state.rosterSeed}|fringepick|${state.term || 1}|${state.month}`);
   const chosen = from[Math.floor(r.next() * from.length)] || from[0];
-  return {
-    id: chosen.id, title: chosen.title, brief: chosen.brief,
-    axis: chosen.axis, domain: chosen.domain, fringe: true,
-  };
+  return scheduledBill(chosen, { fringe: true });
 }
 
 /**
@@ -483,10 +480,7 @@ export function floorBills(state) {
     const idx = remaining.indexOf(chosen);
     remaining.splice(idx, 1);
     remainingWeights.splice(idx, 1);
-    out.push({
-      id: chosen.id, title: chosen.title, brief: chosen.brief,
-      axis: chosen.axis, domain: chosen.domain, fringe: Boolean(chosen.fringe),
-    });
+    out.push(scheduledBill(chosen));
   }
   return seatFringe(state, out);
 }

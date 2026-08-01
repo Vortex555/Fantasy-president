@@ -1,6 +1,6 @@
 import { seeded, clamp, round1 } from "./rng.js";
 import { STATES, STATE_CODES } from "./states.js";
-import { BILL_POOL, rollCall, consensusOf } from "./bills.js";
+import { BILL_POOL, rollCall, consensusOf, scheduledBill } from "./bills.js";
 import { senateCycle, senateRaces, nationalEnvironment, runCongressionalCycle } from "./elections.js";
 import { buildCongress } from "../public/js/data/government.js";
 import {
@@ -257,10 +257,7 @@ export function floorBills(state) {
     const idx = remaining.indexOf(chosen);
     remaining.splice(idx, 1);
     remainingWeights.splice(idx, 1);
-    out.push({
-      id: chosen.id, title: chosen.title, brief: chosen.brief,
-      axis: chosen.axis, domain: chosen.domain, fringe: Boolean(chosen.fringe),
-    });
+    out.push(scheduledBill(chosen));
   }
   return seatFringe(state, out);
 }

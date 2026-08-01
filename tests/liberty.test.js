@@ -1,10 +1,10 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { stanceFit, rollCall, billById, CONSENSUS } from "../src/bills.js";
+import { stanceFit, rollCall, billById, scheduledBill, BILL_POOL, CONSENSUS } from "../src/bills.js";
 import { FACTIONS, factionFor, factionLine } from "../src/factions.js";
 import { convictionView } from "../src/conviction.js";
-import { partyLine, districtView, createHouseCareer } from "../src/house.js";
+import { partyLine, districtView, createHouseCareer, floorBills as houseFloorBills } from "../src/house.js";
 import { IDEOLOGIES, findIdeology, ideologyPosition } from "../public/js/data/ideologies.js";
 import { buildCongress } from "../public/js/data/government.js";
 import { validateDocket } from "../src/chamberAi.js";
@@ -223,4 +223,55 @@ test("the pool carries the case that exposed the gap", () => {
   assert.ok(reform && powers, "both directions, so the dimension is visible in play");
   assert.ok(reform.liberty > 0.5);
   assert.ok(powers.liberty < -0.5);
+});
+
+// ---------------------------------------------------------------------------
+// A field on a bill has to reach the vote
+// ---------------------------------------------------------------------------
+
+/**
+ * Four separate places built the on-floor shape of a pool bill by hand, listing
+ * the fields each happened to know about, and every one of them dropped
+ * `liberty` the day it was added. So a Border Enforcement Act written at -0.5
+ * arrived on the floor at 0, and the entire dimension was inert for every
+ * hand-written bill in the game — visible only in months the model wrote, and
+ * only when the model bothered to set it.
+ *
+ * Nothing failed. The bills were there, the cards drew, the roll call ran, and
+ * the second axis quietly did not exist.
+ */
+test("every pool bill reaches the floor carrying the position it was written at", () => {
+  const marked = BILL_POOL.filter((b) => b.liberty);
+  assert.ok(marked.length >= 10, "the pool should have a decent number to check");
+
+  for (const source of marked) {
+    const scheduled = scheduledBill(source);
+    assert.equal(scheduled.liberty, source.liberty,
+      `${source.id} lost its liberty position on the way to the floor`);
+    assert.equal(scheduled.axis, source.axis, `${source.id} lost its axis`);
+    assert.equal(scheduled.domain, source.domain, `${source.id} lost its domain`);
+  }
+});
+
+test("the offline House and Senate floors serve bills with both axes intact", () => {
+  const base = {
+    rosterSeed: "liberty-check",
+    congress: { houseD: 213, houseR: 222, senateD: 47, senateR: 53 },
+    scenario: { party: "Republican", ideology: "Groyper", ideologyAxis: 0.95, ideologyLiberty: 0.5 },
+    seat: { district: "WV-2", axis: 0.9, lean: 60, seniority: 1 },
+    rank: "member", term: 1, arcs: [], voteLog: [],
+  };
+
+  // Sweep months so the seeded docket size lands on something more than once.
+  let seen = 0;
+  for (let month = 1; month <= 24; month++) {
+    for (const bill of houseFloorBills({ ...base, month })) {
+      const source = BILL_POOL.find((b) => b.id === bill.id);
+      if (!source) continue;                 // a model-written or fringe insert
+      seen += 1;
+      assert.equal(bill.liberty ?? 0, source.liberty ?? 0,
+        `${bill.id} reached the House floor with the wrong liberty`);
+    }
+  }
+  assert.ok(seen > 0, "no pool bills were scheduled at all, so nothing was checked");
 });

@@ -125,7 +125,7 @@ Rules — read them, they are the difference between a floor and a list:
 - EVERY bill must be traceable to the national situation you are given. The month's dominating story and the unresolved problems are your material. A bill that could have been scheduled in any month of any decade is a failure.
 - Congress responds to a crisis LATE, PARTIALLY and IN ITS OWN INTEREST. The honest legislative answer to a disaster is usually a narrow funding bill, a commission, a reauthorisation with a rider attached, or a messaging vote designed to make the other side vote no. Sweeping, well-designed solutions to the actual problem are the rare case, not the default.
 - "axis" is load-bearing and the engine computes the entire roll call from it. Be honest: a bipartisan disaster-relief appropriation is near 0.0; a targeted tax cut is around +0.45; nationalising an industry is -0.9. Do not push everything to the extremes to seem dramatic — a chamber where every bill is at ±0.8 has no politics in it, only noise.
-- "liberty" is a SECOND and SEPARATE axis, and most bills are 0 on it. A tax rate, a childcare subsidy and a bridge say nothing about state power: leave them at 0. Use it only when the bill genuinely turns on what the government may do to a person — surveillance, warrants, policing, detention, censorship, emergency powers, gun ownership, federal pre-emption of the states. Positive restrains the state (a warrant requirement is +0.85); negative empowers it (renewing bulk collection is -0.85). It is what lets both ends of the chamber vote together against both leaderships, which is a real and common pattern that "axis" alone cannot produce — so do not simply mirror the axis here. A right-wing bill can be strongly positive and a left-wing bill strongly negative.
+- "liberty" is a SECOND and SEPARATE axis, and most bills are 0 on it. A tax rate, a childcare subsidy and a bridge say nothing about state power: leave them at 0. Use it only when the bill genuinely turns on what the government may do to a person — surveillance, warrants, policing, detention, censorship, emergency powers, gun ownership, federal pre-emption of the states. Positive restrains the state (a warrant requirement is +0.6); negative empowers it (renewing bulk collection is -0.6). Anything that builds out the coercive apparatus is negative even when it is popular and even when it is framed as safety: prison capacity and staffing, police hiring, detention beds, mandatory minimums and surveillance powers are all -0.4 to -0.7. Keep the magnitude honest — the chamber sits near -0.1 on this, so ±0.85 is a fringe position and most real bills that touch it land between 0.3 and 0.6. It is what lets both ends of the chamber vote together against both leaderships, which is a real and common pattern that "axis" alone cannot produce — so do not simply mirror the axis here. A right-wing bill can be strongly positive and a left-wing bill strongly negative.
 - "defectors" is for the rare bill whose politics the two numbers above genuinely cannot express: an organised bloc that will vote AGAINST where its own ideology sits. Leave it out entirely on almost every bill — the axes already handle the ordinary case, and a defection you did not need makes the chamber incoherent. Use it when a specific caucus has a known, concrete commitment that cuts across its own side: a farm-state bloc against its party's trade bill, a libertarian bloc against its party's police funding, a labour bloc against its party's environmental bill. At most TWO blocs per bill, and never on a bill where you cannot name the reason in a clause.
   The only valid ids are: ${FACTIONS.map((f) => f.id).join(" | ")}
   Shape: [{ "faction": "<id>", "position": "yes" | "no", "because": "under 15 words, the concrete commitment that makes them break" }]
@@ -207,7 +207,7 @@ Rules:
 - Give the REASON, not the position. "Leadership promised the agencies this renewal in exchange for the budget deal" — not "leadership supports the bill".
 - Be specific to THIS bill. A sentence that would fit any bill in the domain is a wasted line.
 - The four voices must not paraphrase each other. If two of them landed the same way, they landed there for different reasons and you should say what those are.
-- Never contradict the stated position. If a voice is against, every word you write about it must be against.
+- NEVER contradict the stated position. Read it again before each sentence. If a voice is YES you are explaining why they SUPPORT it, and the words "opposes", "rejects" and "against" must not appear. If a voice is NO you are explaining why they are AGAINST it. Getting this backwards is the single worst thing you can do here, and a line that does it is thrown away.
 - Use the district's own name. Never invent statistics, vote counts or named people.`;
 
 /**
@@ -254,6 +254,37 @@ Write the explanations. Return the JSON object.`;
 const VOICE_KEYS = ["party", "district", "bloc", "conviction"];
 
 /**
+ * Sentences that argue a side, in the plainest terms a model reaches for.
+ *
+ * Not sentiment analysis and not trying to be. These catch the case that
+ * actually happens, which is not subtle: a card marked YES printing "the
+ * Freedom Caucus opposes increased federal oversight and funding for
+ * bureaucratic expansion" directly underneath it.
+ */
+const ARGUES_AGAINST = /\b(oppos\w+|reject\w*|refus\w+|resist\w+|object(s|ed|ing)?\b|against|vote[sd]? no|will not (back|support|vote))/i;
+const ARGUES_FOR = /\b(support\w*|back(s|ed|ing)?\b|favou?r\w*|endors\w*|champion(s|ed|ing)?\b|vote[sd]? (for|yes))/i;
+
+/**
+ * Whether a sentence plainly argues the opposite of the stance it is filed under.
+ *
+ * The position check was a label check, and a label is not a meaning: the model
+ * writes for the wrong stance, the stored label still equals the computed one,
+ * and nothing retires the line. So the sentence is read rather than the label
+ * trusted.
+ *
+ * A sentence carrying both markers is left alone — "backs it despite loud
+ * opposition from the base" is coherent, not contradictory, and dropping it
+ * would cost a good line to catch nothing. Only the unambiguous case is refused,
+ * and refusing is cheap: the hand-written line takes over.
+ */
+function contradicts(text, position) {
+  const against = ARGUES_AGAINST.test(text);
+  const towards = ARGUES_FOR.test(text);
+  if (against === towards) return false;
+  return position === "yes" ? against : towards;
+}
+
+/**
  * Bills are matched by title, because that is the only field the model is asked
  * to echo and the only one it reliably does. Each line is frozen beside the
  * position it was written for, so it retires itself the moment the bill moves.
@@ -271,7 +302,9 @@ export function validateVoices(raw, bills, positions) {
     for (const who of VOICE_KEYS) {
       const text = String(item?.[who] || "").trim().slice(0, 200);
       if (!text) continue;
-      lines[who] = { position: positions[bill.id][who], text };
+      const position = positions[bill.id][who];
+      if (contradicts(text, position)) continue;
+      lines[who] = { position, text };
     }
     if (Object.keys(lines).length) out[bill.id] = lines;
   }

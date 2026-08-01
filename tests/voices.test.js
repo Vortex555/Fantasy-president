@@ -163,3 +163,61 @@ test("nonsense returns nothing rather than throwing", () => {
   assert.deepEqual(validateVoices({ voices: "words" }, bills, positions), {});
   assert.deepEqual(validateVoices({ voices: [null, 7] }, bills, positions), {});
 });
+
+// ---------------------------------------------------------------------------
+// A line that argues the other way
+// ---------------------------------------------------------------------------
+
+/**
+ * The position check was a label check, and a label is not a meaning.
+ *
+ * A prison-funding bill came back with the Freedom Caucus marked YES and the
+ * sentence "The Freedom Caucus opposes increased federal oversight and funding
+ * for bureaucratic expansion" printed underneath it. The stored position matched
+ * the computed one exactly — both said yes — so nothing retired the line. The
+ * model had simply written for the opposite stance and said so in plain words.
+ *
+ * Smaller models drop instructions under load, and "never contradict the stated
+ * position" is one of a dozen rules in that prompt. So the engine reads the
+ * sentence rather than trusting the label, and a line that argues the other way
+ * is dropped back to the hand-written one.
+ */
+test("a line that plainly argues the other way is not printed under the position", () => {
+  const out = validateVoices({ voices: [{
+    title: "Warrant Requirement Act",
+    bloc: "The Freedom Caucus opposes increased federal oversight and funding for bureaucratic expansion.",
+  }] }, [{ id: "a", title: "Warrant Requirement Act" }], { a: { bloc: "yes" } });
+  assert.equal(out.a, undefined, "a YES card must not carry a sentence about opposing it");
+});
+
+test("the same sentence under the position it actually argues is kept", () => {
+  const out = validateVoices({ voices: [{
+    title: "Warrant Requirement Act",
+    bloc: "The Freedom Caucus opposes increased federal oversight and funding for bureaucratic expansion.",
+  }] }, [{ id: "a", title: "Warrant Requirement Act" }], { a: { bloc: "no" } });
+  assert.match(out.a.bloc.text, /opposes increased federal oversight/);
+});
+
+test("it works the other way too", () => {
+  const out = validateVoices({ voices: [{
+    title: "Warrant Requirement Act", party: "Leadership strongly supports the measure.",
+  }] }, [{ id: "a", title: "Warrant Requirement Act" }], { a: { party: "no" } });
+  assert.equal(out.a, undefined);
+});
+
+test("a sentence carrying both sides is left alone, because it is probably fine", () => {
+  // "backs it despite opposition from the base" is coherent, not contradictory.
+  const out = validateVoices({ voices: [{
+    title: "Warrant Requirement Act",
+    party: "Leadership backs it despite loud opposition from the base.",
+  }] }, [{ id: "a", title: "Warrant Requirement Act" }], { a: { party: "yes" } });
+  assert.match(out.a.party.text, /backs it despite/);
+});
+
+test("an ordinary reason with no stance verb at all is kept", () => {
+  const out = validateVoices({ voices: [{
+    title: "Warrant Requirement Act",
+    district: "WV-2 grows no corn, so this reads as another region's bailout.",
+  }] }, [{ id: "a", title: "Warrant Requirement Act" }], { a: { district: "no" } });
+  assert.match(out.a.district.text, /another region/);
+});
