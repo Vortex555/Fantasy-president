@@ -332,7 +332,7 @@ export function castVote(state, bill, vote) {
   }
 
   const roster = buildCongress(next, STATES);
-  const tally = rollCall(roster.senate, bill.axis, { consensus: consensusOf(bill) });
+  const tally = rollCall(roster.senate, bill, { consensus: consensusOf(bill) });
   const swung = (next.swung || {})[bill.id] || 0;
   const yourYes = vote === "yes" ? 1 : 0;
   const yes = tally.yes + swung + yourYes;

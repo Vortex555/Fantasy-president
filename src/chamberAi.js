@@ -109,6 +109,7 @@ You MUST respond with ONLY a single JSON object (no prose, no markdown fences) w
       "title": "the name it will be known by — an Act, a Resolution, an Amendment",
       "brief": "ONE sentence, maximum 30 words, saying concretely what the bill does. Mechanisms and numbers, not aspirations.",
       "axis": number,        // where it sits ideologically, -1 (hard left) to +1 (hard right)
+      "liberty": number,     // what the state may do to a person: +1 restrains state power, -1 expands it, 0 if the bill is not about that at all
       "domain": "one of: ${DOMAINS}",
       "because": "6-12 words on which national problem or news story produced this bill",
       "addresses": "the exact id (e.g. arc_2) of the UNRESOLVED NATIONAL PROBLEM this bill answers, or null if it answers none of them",
@@ -122,6 +123,7 @@ Rules — read them, they are the difference between a floor and a list:
 - EVERY bill must be traceable to the national situation you are given. The month's dominating story and the unresolved problems are your material. A bill that could have been scheduled in any month of any decade is a failure.
 - Congress responds to a crisis LATE, PARTIALLY and IN ITS OWN INTEREST. The honest legislative answer to a disaster is usually a narrow funding bill, a commission, a reauthorisation with a rider attached, or a messaging vote designed to make the other side vote no. Sweeping, well-designed solutions to the actual problem are the rare case, not the default.
 - "axis" is load-bearing and the engine computes the entire roll call from it. Be honest: a bipartisan disaster-relief appropriation is near 0.0; a targeted tax cut is around +0.45; nationalising an industry is -0.9. Do not push everything to the extremes to seem dramatic — a chamber where every bill is at ±0.8 has no politics in it, only noise.
+- "liberty" is a SECOND and SEPARATE axis, and most bills are 0 on it. A tax rate, a childcare subsidy and a bridge say nothing about state power: leave them at 0. Use it only when the bill genuinely turns on what the government may do to a person — surveillance, warrants, policing, detention, censorship, emergency powers, gun ownership, federal pre-emption of the states. Positive restrains the state (a warrant requirement is +0.85); negative empowers it (renewing bulk collection is -0.85). It is what lets both ends of the chamber vote together against both leaderships, which is a real and common pattern that "axis" alone cannot produce — so do not simply mirror the axis here. A right-wing bill can be strongly positive and a left-wing bill strongly negative.
 - "support" is HOW CONTESTED it is, which is a different question from where it sits. It decides how far across the aisle the bill reaches, and it is the difference between a vote of 54-46 and one of 87-13.
     "partyline"  — the default and by far the commonest. One side wants it, the other does not.
     "contested"  — a normal bill that picks up some of the other side's moderates.
@@ -252,6 +254,20 @@ export function validateDocket(raw, state, count, { fringe = null } = {}) {
       title,
       brief: String(item?.brief || "").trim().slice(0, 240),
       axis: clamped,
+      /**
+       * Where it stands on state power, if it stands anywhere.
+       *
+       * The opposite rule to the axis, and deliberately. A bill *must* state a
+       * position on money — leaving it out means a dead-centre bill nobody
+       * wrote — but most legislation says nothing whatsoever about what the
+       * state may do to a person, and 0 is the honest reading of silence rather
+       * than a missing value. So this one falls back instead of dropping the
+       * bill, and at 0 every calculation behaves exactly as it did before the
+       * dimension existed. See `stanceFit` in bills.js.
+       */
+      liberty: Number.isFinite(Number(item?.liberty)) && item?.liberty !== null && item?.liberty !== ""
+        ? Math.max(-1, Math.min(1, Math.round(Number(item.liberty) * 100) / 100))
+        : 0,
       domain: normalizeDomain(item?.domain),
       /**
        * Deliberately dropped, even if the model volunteered one.

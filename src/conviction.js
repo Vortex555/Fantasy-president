@@ -1,5 +1,5 @@
 import { clamp, round1 } from "./rng.js";
-import { consensusOf } from "./bills.js";
+import { consensusOf, stanceFit } from "./bills.js";
 import { findIdeology, ideologyEffects } from "../public/js/data/ideologies.js";
 import { stakeholderById } from "./stakeholders.js";
 
@@ -27,10 +27,12 @@ import { stakeholderById } from "./stakeholders.js";
  * before deciding whether to protect you or replace you.
  */
 
-/** Where consensus widens a stance, matching partyLine and districtView. */
-const CONSENSUS_WIDENING = 0.22;
-
-const agreement = (a, b) => 1 - Math.abs(a - b) / 2;
+/**
+ * Consensus widening, the axis blend and the agreement curve all live in
+ * bills.js now — one copy, shared by the four stance cards and the roll call,
+ * because the last time two of them computed a fit separately the panel and the
+ * tally disagreed about the same vote on screen. See `stanceFit`.
+ */
 
 /**
  * How hard a fringe believer feels it.
@@ -65,9 +67,24 @@ export function convictionWeight(scenario) {
 const CONVICTION_THRESHOLD = 0.78;
 
 export function convictionView(state, bill) {
-  const mine = Number(state?.scenario?.ideologyAxis) || 0;
+  /**
+   * Both of your numbers, not just the economic one.
+   *
+   * A politics is a position on who gets what *and* a position on what the state
+   * may do about it, and reading only the first made every member of a wing
+   * interchangeable on the votes where the second is the whole question. A
+   * Constitutionalist and a Law & Order Conservative sit a tenth apart on money
+   * and at opposite poles on a warrant requirement; until this they cast the
+   * same vote on it, with the same sentence underneath.
+   */
+  const mine = {
+    axis: Number(state?.scenario?.ideologyAxis) || 0,
+    liberty: Number(state?.scenario?.ideologyLiberty)
+      || findIdeology(state?.scenario?.party, state?.scenario?.ideology)?.liberty
+      || 0,
+  };
   const weight = convictionWeight(state?.scenario);
-  const fit = agreement(mine, bill.axis) + consensusOf(bill) * CONSENSUS_WIDENING;
+  const fit = stanceFit(mine, bill, consensusOf(bill));
   const position = fit >= CONVICTION_THRESHOLD ? "yes" : "no";
   const intensity = clamp(Math.round(Math.abs(fit - CONVICTION_THRESHOLD) * 240 * weight), 5, 100);
 
