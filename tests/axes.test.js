@@ -87,13 +87,15 @@ test("a Groyper is not a libertarian with the dial turned up", () => {
   assert.ok(groyper.culture > 0.6, "it is a reaction, not a programme");
   assert.ok(groyper.economic < 0.5, "it takes no corporate money and says so");
   /**
-   * And below the Christian Nationalist on state power, which is the claim this
-   * spent a day getting wrong in both directions. Deportation belongs on
-   * `pluralism`; a moral order enforced by censorship and prosecution belongs
-   * here, because this axis is coercion and `culture` is only content.
+   * Its distance from the libertarians is on `pluralism` and `economic`, never
+   * on `liberty` — they broadly agree there and always did. Three separate
+   * attempts to encode "it is authoritarian really" on the liberty axis each
+   * made it support a mandate that platforms police speech, which is the one
+   * thing that politics exists to fight. Its authoritarianism is on `culture`
+   * and `pluralism`, where it belongs.
    */
-  assert.ok(groyper.liberty < findIdeology("Republican", "Christian Nationalist").liberty,
-    "a movement that wants blasphemy and obscenity policed is not a civil libertarian");
+  assert.ok(groyper.pluralism < -0.8 && groyper.culture > 0.8,
+    "its authoritarianism is recorded, just not on the axis about being silenced");
 });
 
 test("a neoconservative and a paleoconservative split on the axis they actually hate each other over", () => {
@@ -253,7 +255,7 @@ test("a Groyper is for a bill that weakens anti-discrimination law, and says so"
  * ideology.
  */
 test("a mis-coded bill still gets it wrong, and that is the prompt's problem", () => {
-  const miscoded = { axis: 0.8, liberty: 0.7, culture: 0.4, domain: "social", support: "contested" };
+  const miscoded = { axis: 0.8, liberty: -0.7, culture: 0.4, domain: "social", support: "contested" };
   const groyper = {
     scenario: { party: "Republican", ideology: "Groyper", ...ideologyPosition("Republican", "Groyper") },
     seat: { district: "WV-2", axis: 0.9, lean: 60 },

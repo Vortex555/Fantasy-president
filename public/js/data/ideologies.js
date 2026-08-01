@@ -214,28 +214,33 @@ export const IDEOLOGIES = {
      * order in public life. Weigh those against each other across all the bills
      * that touch state power and the balance is authoritarian.
      *
-     * Revised twice, and the middle answer was wrong for an instructive reason.
+     * Moved three times, and the reason is worth recording because it was not
+     * this number's fault.
      *
-     * It went to +0.2 on the argument that the authoritarian content had moved
-     * to axes of its own: exclusion to `pluralism`, the moral order to
-     * `culture`. Exclusion genuinely did. The moral order did not, and moving it
-     * was sleight of hand — `culture` is what the moral order *says*, and this
-     * axis is whether the state jails you for breaking it. Blasphemy law,
-     * obscenity prosecution and moral policing are censorship and coercion, and
-     * they belong here. Putting them on `culture` was exactly the conflation
-     * these two axes were separated to prevent.
+     * It went -0.25, then +0.2, then -0.75, each time to make one bill on one
+     * screen come out right. The last move followed a correct observation — that
+     * the movement wants blasphemy and obscenity prosecuted, and is louder about
+     * it than the Christian Nationalists are — and drew the wrong conclusion from
+     * it. That support is expressed by `culture`, which is +0.9 here. Charging it
+     * on this axis as well made the ideology *support* a mandate that platforms
+     * police speech, which is the single thing it exists to fight: content
+     * moderation is the mechanism by which every one of its figures was
+     * deplatformed.
      *
-     * What is left over is loud and misleading. The movement is against the
-     * agencies investigating it and the platforms banning it, and that is nearly
-     * all anyone hears it say about freedom — but it is a grievance about where
-     * the apparatus is pointed, not a limit on what it may do. Its founding
-     * fight was against the libertarian wing of its own side, and it says so.
+     * So the ambiguity was never in the ideology, it was in how bills get
+     * classified. A bill about what the moral order permits is a `culture` bill;
+     * `liberty` is for who may be silenced, searched or detained. Coded that way,
+     * `culture` carries the obscenity vote on its own and this axis is free to be
+     * what the politics actually is — against the state's power over speech,
+     * because that power keeps landing on them.
      *
-     * So it sits below the Christian Nationalist, which wants the same order
-     * enforced with less enthusiasm for the enforcing, and above the integralists
-     * and monarchists, who have a worked-out doctrine of it rather than a mood.
+     * What no scalar holds is that they want it landing on everyone else. That
+     * is relational rather than positional and no axis can express it, including
+     * the one someone will eventually propose for it: a "who is coercion pointed
+     * at" axis puts obscenity law and platform bans on the *same* side, and the
+     * ideology wants opposite votes on them. `defectors` is the tool for those.
      */
-    { value: "Groyper", axis: 0.95, economic: 0.1, diplomatic: 0.9, liberty: -0.75, culture: 0.9, pluralism: -0.95, sub: "+Young online right hard, −Party establishment hard, −Civil rights hard", fringe: true,
+    { value: "Groyper", axis: 0.95, economic: 0.1, diplomatic: 0.9, liberty: 0.2, culture: 0.9, pluralism: -0.95, sub: "+Young online right hard, −Party establishment hard, −Civil rights hard", fringe: true,
       wrecker: true,
       fx: { gun_owners: 14, faith: 8, civil_rights: -32, big_business: -24, wall_street: -22, pentagon: -14, stability: -20, approval: -12 },
       trait: {

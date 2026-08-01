@@ -85,24 +85,26 @@ test("and against one that expands it", () => {
  * so it votes for the warrant bill after all, and the ugly part of the politics
  * is carried where it belongs instead of smuggled onto this axis.
  */
-test("a Groyper is authoritarian, and only sounds otherwise about the FBI", () => {
+test("a Groyper is against being silenced, which is all this axis says", () => {
   /**
-   * Asserted on the axis values themselves, not on a fit.
-   *
-   * A fit blends in the partisan composite, and a Groyper sits at +0.95 against
-   * a warrant bill written at -0.1 — so it scores below the police caucus on
-   * that bill for reasons that have nothing to do with state power. Twice now a
-   * fit-based assertion here has measured the composite and been read as
-   * measuring this axis. When the claim is about the axis, test the axis.
+   * Positive, after three attempts to make it negative. Every one of them was
+   * reasoning from a real observation — the movement wants blasphemy and
+   * obscenity prosecuted — and every one put the conclusion on the wrong axis.
+   * `culture` carries that at +0.9. What this axis answers for is who may be
+   * silenced, and there the movement is the most deplatformed constituency in
+   * the game and votes accordingly.
    */
   const liberty = (name) => findIdeology("Republican", name).liberty;
+  assert.ok(liberty("Groyper") > 0);
+  assert.ok(liberty("Constitutionalist") - liberty("Groyper") > 0.5,
+    "though it holds the position out of grievance, not principle");
 
-  assert.ok(liberty("Groyper") < liberty("Christian Nationalist"),
-    "it wants blasphemy and obscenity policed, and is louder about it than they are");
-  assert.ok(liberty("Groyper") > liberty("Law & Order Conservative"),
-    "though it hates the federal agencies in a way the police caucus does not");
-  assert.ok(liberty("Constitutionalist") - liberty("Groyper") > 1,
-    "and it is nowhere near the people who hold the position on principle");
+  // The case that decided it: a mandate that platforms police content.
+  const platforms = { axis: 0.2, liberty: -0.6, domain: "social", support: "contested" };
+  assert.equal(convictionView({
+    scenario: { party: "Republican", ideology: "Groyper", ...ideologyPosition("Republican", "Groyper") },
+    seat: { district: "WV-2", axis: 0.9, lean: 60 },
+  }, platforms).position, "no", "content moderation is how every one of its figures was banned");
 });
 
 test("and it is still nobody's libertarian, on the axes that actually divide them", () => {

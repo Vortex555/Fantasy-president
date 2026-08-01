@@ -69,7 +69,7 @@ import {
 import { detonationEvent, activeArcs } from "./arcs.js";
 import { thenAndNow, turningPoints, series } from "./chronicle.js";
 import { convictionView, traitFor } from "./conviction.js";
-import { factionLine, ownBloc, factionRoll } from "./factions.js";
+import { factionLine, ownBloc, factionRoll, defectionsOn } from "./factions.js";
 import { coalitionStanding, foundingBlocs } from "./coalition.js";
 import { billImpact, describeProfile, profileRows, nationalProfile } from "./demographics.js";
 import {
@@ -721,6 +721,9 @@ app.post("/api/house/floor", async (req, res) => {
         conviction: convictionView(state, bill),
         // And the bloc you sit with, which whips harder than the caucus does.
         bloc: factionLine(state, bill),
+        // Whose votes have come loose, including blocs that are not the
+        // player's — which is most of them. See defectionsOn.
+        defections: defectionsOn(state, bill),
         // And who in the seat actually wins or loses by it.
         impact: billImpact(state.people, bill, yearOf(state)),
         // What this member's rank lets them do to it before anybody votes.
@@ -1116,6 +1119,9 @@ app.post("/api/senate/floor", async (req, res) => {
         district: senateStateView(state, bill),
         conviction: convictionView(state, bill),
         bloc: factionLine(state, bill),
+        // Whose votes have come loose, including blocs that are not the
+        // player's — which is most of them. See defectionsOn.
+        defections: defectionsOn(state, bill),
         impact: billImpact(state.people, bill, yearOf(state)),
         yours: inYourDomain(state, bill),
         whip: whipCount(state, bill),

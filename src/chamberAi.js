@@ -163,7 +163,7 @@ You MUST respond with ONLY a single JSON object (no prose, no markdown fences) w
       "because": "6-12 words on which national problem or news story produced this bill",
       "addresses": "the exact id (e.g. arc_2) of the UNRESOLVED NATIONAL PROBLEM this bill answers, or null if it answers none of them",
       "support": "one of: partyline | contested | bipartisan | unanimous",
-      "defectors": [],       // OPTIONAL and usually empty — see the rule below
+      "defectors": [],       // OPTIONAL — the rare bill an organised bloc breaks ranks on. See the rule below; do not forget this field exists.
       "extremist": false
     }
   ]
@@ -182,6 +182,7 @@ Rules — read them, they are the difference between a floor and a list:
                      police hiring, prison beds, detention capacity, mandatory minimums, bulk collection, new surveillance authorities  ->  NEGATIVE (-0.4 to -0.7), even when framed as safety.
                      body cameras, use-of-force limits, oversight boards, consent decrees, de-escalation mandates, warrant requirements, ending qualified immunity  ->  POSITIVE (+0.4 to +0.6).
                    "Stricter oversight OF the police" is positive. "Stricter enforcement BY the police" is negative. The words look alike and mean opposite things.
+                   CODE BY THE QUESTION THE BILL ASKS, NOT THE MECHANISM IT USES. A bill about what the moral order permits — obscenity, blasphemy, drugs, gambling, what may be taught — is a "culture" bill first, even though it is enforced by prosecutors; put the weight there and leave "liberty" small. Reserve "liberty" for who may be SILENCED, SEARCHED OR DETAINED: platform speech mandates, surveillance, policing, detention, due process. Those two get confused constantly and they divide the chamber completely differently.
                    It is NOT "is there a regulation". A bill that deregulates an industry is "economic", not liberty. A bill that narrows who a civil-rights law protects is "pluralism", not liberty, however much its sponsors call it a liberty bill — the state declining to protect one person from another is not the state letting a person alone. Set liberty on such a bill only if it ALSO genuinely changes what police or courts may do to somebody, and then only weakly.
     "culture"    — religion in public life, family and gender, speech, education content, monuments. Positive is tradition, negative is progress.
     "pluralism"  — WHO the law protects, which is a different question from the moral order. Anti-discrimination law, voting access, immigration status and minority protections live here. Positive widens protection; negative narrows it. A bill creating exemptions from anti-discrimination law is strongly negative even when its mechanism is a religious liberty one, and set "liberty" for the mechanism only if that is genuinely also what it is about.

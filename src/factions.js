@@ -159,6 +159,40 @@ export function factionLine(state, bill) {
 }
 
 /**
+ * Every bloc that broke ranks on this bill, not only the player's own.
+ *
+ * `factionLine` answers "where does *my* caucus stand", so a defection anywhere
+ * else moved the roll call and appeared nowhere — with eight factions, seven
+ * defections in eight were invisible. The player watched the tally shift and was
+ * told nothing, which is the one thing a member on the floor would certainly
+ * know: whose votes have just come loose.
+ *
+ * Sized from the real roster, because a bloc breaking ranks is worth exactly the
+ * seats it can withhold.
+ */
+export function defectionsOn(state, bill) {
+  const claimed = Array.isArray(bill?.defectors) ? bill.defectors : [];
+  if (!claimed.length) return [];
+
+  const roll = factionRoll(state);
+  const mine = factionOf(state.scenario)?.id;
+  return claimed
+    .map((d) => {
+      const row = roll.find((f) => f.id === d.faction);
+      if (!row) return null;
+      return {
+        id: row.id,
+        name: row.name,
+        members: row.members,
+        position: d.position,
+        because: d.because || null,
+        yours: row.id === mine,
+      };
+    })
+    .filter(Boolean);
+}
+
+/**
  * What defying your own bloc costs.
  *
  * Steeper than crossing party leadership, and deliberately so. A caucus of two

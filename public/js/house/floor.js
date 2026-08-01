@@ -490,6 +490,30 @@ function impactBlock(bill) {
 }
 
 /**
+ * Whose votes have come loose.
+ *
+ * A bloc breaking from its own politics moved the roll call and said nothing —
+ * `factionLine` only ever reported the player's own caucus, so with eight
+ * factions seven defections in eight happened off-screen. This is the one thing
+ * a member standing on the floor would certainly know.
+ *
+ * The player's own bloc is skipped: it already has a card of its own, and saying
+ * it twice reads as two separate defections.
+ */
+function defectionNote(bill) {
+  const others = (bill.defections || []).filter((d) => !d.yours);
+  if (!others.length) return "";
+  return `<div class="whipbox" style="margin-top:12px">
+    <div class="whipbox__head"><span class="eyebrow">⚡ Breaking ranks</span></div>
+    ${others.map((d) => `<p class="hint" style="margin:6px 0 0">
+      <b>${escapeHtml(d.name)}</b> is voting ${d.position.toUpperCase()} — ${d.members} seat${
+        d.members === 1 ? "" : "s"} against where its own politics would put it.${
+        d.because ? ` ${escapeHtml(d.because.replace(/^./, (c) => c.toUpperCase()))}.` : ""}
+    </p>`).join("")}
+  </div>`;
+}
+
+/**
  * When all three of them disagree.
  *
  * The mode used to be a two-way bind: your caucus against your district. Adding
@@ -642,6 +666,7 @@ function billCard(bill) {
       </div>` : ""}
     </div>
     ${impactBlock(bill)}
+    ${defectionNote(bill)}
     ${threeWayNote(bill)}
     <p class="hint" style="margin:12px 0 0">${escapeHtml(bill.district.pressureNote || "")}</p>
 
