@@ -85,30 +85,24 @@ test("and against one that expands it", () => {
  * so it votes for the warrant bill after all, and the ugly part of the politics
  * is carried where it belongs instead of smuggled onto this axis.
  */
-test("a Groyper is against the agencies, and that is all this axis says", () => {
-  assert.ok(findIdeology("Republican", "Groyper").liberty > 0);
-
+test("a Groyper is authoritarian, and only sounds otherwise about the FBI", () => {
   /**
-   * Stated as a comparison rather than a vote, because a vote is not this axis's
-   * to decide alone. `surveillance_reform` is partisan-left at -0.1 and a
-   * Groyper sits at +0.95, so the composite pulls hard the other way and they
-   * come out against it on balance — which is a fair reading of a member who
-   * wants the FBI defunded but will not hand the other side a win.
+   * Asserted on the axis values themselves, not on a fit.
    *
-   * What this axis is responsible for is the ordering, and the ordering is the
-   * thing the old value got wrong: against a warrant requirement, a Groyper must
-   * be warmer than the law-and-order right and cooler than a doctrinaire
-   * libertarian. Under the double-counted -0.25 it sat below both.
+   * A fit blends in the partisan composite, and a Groyper sits at +0.95 against
+   * a warrant bill written at -0.1 — so it scores below the police caucus on
+   * that bill for reasons that have nothing to do with state power. Twice now a
+   * fit-based assertion here has measured the composite and been read as
+   * measuring this axis. When the claim is about the axis, test the axis.
    */
-  const fitFor = (ideology) => convictionView({
-    scenario: { party: "Republican", ideology, ...ideologyPosition("Republican", ideology) },
-    seat: { district: "WV-2", axis: 0.9, lean: 60 },
-  }, PRIVACY).fit;
+  const liberty = (name) => findIdeology("Republican", name).liberty;
 
-  assert.ok(fitFor("Groyper") > fitFor("Law & Order Conservative"),
-    "a movement built on hating the federal agencies is not the police caucus");
-  assert.ok(fitFor("Constitutionalist") > fitFor("Groyper"),
-    "and it is not the Fourth Amendment caucus either");
+  assert.ok(liberty("Groyper") < liberty("Christian Nationalist"),
+    "it wants blasphemy and obscenity policed, and is louder about it than they are");
+  assert.ok(liberty("Groyper") > liberty("Law & Order Conservative"),
+    "though it hates the federal agencies in a way the police caucus does not");
+  assert.ok(liberty("Constitutionalist") - liberty("Groyper") > 1,
+    "and it is nowhere near the people who hold the position on principle");
 });
 
 test("and it is still nobody's libertarian, on the axes that actually divide them", () => {

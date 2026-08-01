@@ -86,14 +86,13 @@ test("a Groyper is not a libertarian with the dial turned up", () => {
   assert.ok(groyper.culture > 0.6, "it is a reaction, not a programme");
   assert.ok(groyper.economic < 0.5, "it takes no corporate money and says so");
   /**
-   * Note what is NOT asserted: that its `liberty` is negative.
-   *
-   * It was, and that was a double-count. The case for a negative value was that
-   * the movement wants the state deporting, policing its enemies and enforcing a
-   * moral order — and every one of those now sits on `pluralism` or `culture`.
-   * Charging it here as well made the ideology oppose bills narrowing civil
-   * rights protections, which is the opposite of the whole point of it.
+   * And below the Christian Nationalist on state power, which is the claim this
+   * spent a day getting wrong in both directions. Deportation belongs on
+   * `pluralism`; a moral order enforced by censorship and prosecution belongs
+   * here, because this axis is coercion and `culture` is only content.
    */
+  assert.ok(groyper.liberty < findIdeology("Republican", "Christian Nationalist").liberty,
+    "a movement that wants blasphemy and obscenity policed is not a civil libertarian");
 });
 
 test("a neoconservative and a paleoconservative split on the axis they actually hate each other over", () => {
@@ -217,8 +216,19 @@ test("it separates a traditionalism that protects people from one that does not"
 });
 
 test("a Groyper is for a bill that weakens anti-discrimination law, and says so", () => {
+  /**
+   * Coded the way the docket prompt asks for it: the substance is `pluralism`,
+   * and `liberty` is weak because the state declining to protect one person from
+   * another is not the state letting a person alone.
+   *
+   * The fixture used to carry `liberty: 0.7` — the model's own reading, lifted
+   * straight out of a live floor — and passed only because the ideology had been
+   * bent to +0.2 to survive it. Compensating for a mis-coded bill by mis-coding
+   * an ideology fixes one screen and corrupts every other vote that ideology
+   * ever casts. See the next test for what that mis-coding still costs.
+   */
   const bill = {
-    axis: 0.8, liberty: 0.7, culture: 0.4, pluralism: -0.8,
+    axis: 0.8, liberty: 0.2, culture: 0.4, pluralism: -0.8,
     domain: "social", support: "contested",
   };
   const seatFor = (ideology) => ({
@@ -228,6 +238,28 @@ test("a Groyper is for a bill that weakens anti-discrimination law, and says so"
   assert.equal(convictionView(seatFor("Groyper"), bill).position, "yes",
     "the engine read this as a liberty question and got the politics backwards");
   assert.equal(convictionView(seatFor("Rockefeller Republican"), bill).position, "no");
+});
+
+/**
+ * The cost of the honest value, stated rather than hidden.
+ *
+ * A model that reads "religious exemption" as a liberty bill and leaves
+ * `pluralism` at 0 — which qwen2.5:14b did on a live floor — will put a Groyper
+ * against a bill narrowing civil rights protections, because on that coding the
+ * only axis speaking is the one they genuinely disagree on. That is a bill
+ * classification failure and the fix belongs in the prompt, which now says so
+ * outright. It is recorded here so nobody quietly "fixes" it again by moving the
+ * ideology.
+ */
+test("a mis-coded bill still gets it wrong, and that is the prompt's problem", () => {
+  const miscoded = { axis: 0.8, liberty: 0.7, culture: 0.4, domain: "social", support: "contested" };
+  const groyper = {
+    scenario: { party: "Republican", ideology: "Groyper", ...ideologyPosition("Republican", "Groyper") },
+    seat: { district: "WV-2", axis: 0.9, lean: 60 },
+  };
+  assert.equal(convictionView(groyper, miscoded).position, "no");
+  assert.equal(convictionView(groyper, { ...miscoded, liberty: 0.2, pluralism: -0.8 }).position, "yes",
+    "the same bill classified correctly comes out right");
 });
 
 test("and a bill that says nothing about it is scored as though the axis were not there", () => {

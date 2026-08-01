@@ -125,7 +125,7 @@ export const IDEOLOGIES = {
       fx: { stability: 8, big_business: 6, approval: 4, faith: -8, gun_owners: -8 } },
     { value: "Libertarian Conservative", axis: 0.5, economic: 0.9, diplomatic: -0.2, liberty: 0.9, culture: 0.1, pluralism: 0.1, sub: "+Gun owners, +Business, −Religious right",
       fx: { gun_owners: 16, big_business: 10, wall_street: 6, faith: -10 } },
-    { value: "Religious Right", axis: 0.65, economic: 0.35, diplomatic: 0.4, liberty: -0.4, culture: 0.95, pluralism: -0.35, sub: "+Faith hard, −Big tech, −Secular voters",
+    { value: "Religious Right", axis: 0.65, economic: 0.35, diplomatic: 0.4, liberty: -0.4, culture: 0.82, pluralism: -0.35, sub: "+Faith hard, −Big tech, −Secular voters",
       fx: { faith: 20, gun_owners: 6, big_business: -6, civil_rights: -10 } },
     { value: "Neoconservative", axis: 0.5, economic: 0.6, diplomatic: -0.55, liberty: -0.7, culture: 0.4, pluralism: -0.1, sub: "+Pentagon, +Wall St, −Populists",
       fx: { pentagon: 18, wall_street: 12, big_business: 8, labor: -8, approval: -2 } },
@@ -214,22 +214,28 @@ export const IDEOLOGIES = {
      * order in public life. Weigh those against each other across all the bills
      * that touch state power and the balance is authoritarian.
      *
-     * Revised upward once `pluralism` existed, because -0.25 was double-counting.
+     * Revised twice, and the middle answer was wrong for an instructive reason.
      *
-     * The reasoning for a negative value was that the movement wants the state
-     * doing more: mass deportation, policing of its enemies, a moral order
-     * enforced in public life. Every one of those now lives on an axis of its
-     * own — exclusion on `pluralism`, moral order on `culture` — so charging
-     * them here as well counted the same authoritarianism twice, and left the
-     * ideology opposing bills it would obviously vote for.
+     * It went to +0.2 on the argument that the authoritarian content had moved
+     * to axes of its own: exclusion to `pluralism`, the moral order to
+     * `culture`. Exclusion genuinely did. The moral order did not, and moving it
+     * was sleight of hand — `culture` is what the moral order *says*, and this
+     * axis is whether the state jails you for breaking it. Blasphemy law,
+     * obscenity prosecution and moral policing are censorship and coercion, and
+     * they belong here. Putting them on `culture` was exactly the conflation
+     * these two axes were separated to prevent.
      *
-     * What is left on this axis alone is the part about state coercion of the
-     * person, and there the movement's loudest legislative demands really are
-     * anti-state: get the federal agencies off us, stop the platforms banning
-     * us. Modestly positive, and the ugly half of the politics is now carried
-     * where it belongs rather than smuggled in here.
+     * What is left over is loud and misleading. The movement is against the
+     * agencies investigating it and the platforms banning it, and that is nearly
+     * all anyone hears it say about freedom — but it is a grievance about where
+     * the apparatus is pointed, not a limit on what it may do. Its founding
+     * fight was against the libertarian wing of its own side, and it says so.
+     *
+     * So it sits below the Christian Nationalist, which wants the same order
+     * enforced with less enthusiasm for the enforcing, and above the integralists
+     * and monarchists, who have a worked-out doctrine of it rather than a mood.
      */
-    { value: "Groyper", axis: 0.95, economic: 0.1, diplomatic: 0.9, liberty: 0.2, culture: 0.85, pluralism: -0.95, sub: "+Young online right hard, −Party establishment hard, −Civil rights hard", fringe: true,
+    { value: "Groyper", axis: 0.95, economic: 0.1, diplomatic: 0.9, liberty: -0.75, culture: 0.9, pluralism: -0.95, sub: "+Young online right hard, −Party establishment hard, −Civil rights hard", fringe: true,
       wrecker: true,
       fx: { gun_owners: 14, faith: 8, civil_rights: -32, big_business: -24, wall_street: -22, pentagon: -14, stability: -20, approval: -12 },
       trait: {
@@ -258,8 +264,6 @@ export const IDEOLOGIES = {
       fx: { gun_owners: 18, big_business: 14, wall_street: 10, labor: -14, pentagon: -8 } },
     { value: "Green", axis: -0.65, economic: -0.6, diplomatic: -0.6, liberty: 0, culture: -0.6, pluralism: 0.6, sub: "+Environmentalists hard, −Fossil fuels, −Heavy industry",
       fx: { greens: 24, civil_rights: 8, big_business: -16, labor: -6 } },
-    { value: "Social Democrat", axis: -0.6, economic: -0.75, diplomatic: -0.3, liberty: 0, culture: -0.3, pluralism: 0.6, sub: "+Labour, +Civil rights, −Wall St",
-      fx: { labor: 14, civil_rights: 10, greens: 6, wall_street: -16 } },
     { value: "Technocrat", axis: 0.05, economic: 0.1, diplomatic: -0.5, liberty: -0.5, culture: -0.6, pluralism: 0.15, sub: "+Institutions, +Business, −Mass appeal",
       fx: { stability: 14, big_business: 10, wall_street: 6, approval: -6 } },
     { value: "Georgist", axis: -0.3, economic: -0.2, diplomatic: -0.2, liberty: 0.1, culture: -0.2, pluralism: 0.3, sub: "Tax the land, untax the work. −Landlords, −Wall St",
@@ -280,11 +284,9 @@ export const IDEOLOGIES = {
       fx: { labor: 28, civil_rights: 12, wall_street: -32, big_business: -28, stability: -20, approval: -6 } },
     { value: "Anarcho-Syndicalist", axis: -0.95, economic: -0.95, diplomatic: -0.3, liberty: 0.9, culture: -0.5, pluralism: 0.6, sub: "No state, no bosses. −Almost every institution", fringe: true,
       fx: { labor: 30, civil_rights: 14, wall_street: -30, big_business: -26, pentagon: -22, stability: -26 } },
-    { value: "Christian Nationalist", axis: 0.9, economic: 0.15, diplomatic: 0.8, liberty: -0.6, culture: 1, pluralism: -0.75, sub: "+Faith hard, −Secularists, −Civil rights", fringe: true,
-      fx: { faith: 26, gun_owners: 10, civil_rights: -24, stability: -12 } },
     { value: "Theocrat", axis: 0.95, economic: 0.1, diplomatic: 0.6, liberty: -0.9, culture: 1, pluralism: -0.85, sub: "Scripture as statute. −Everyone outside the church", fringe: true,
       fx: { faith: 32, civil_rights: -30, big_business: -14, greens: -8, stability: -20, approval: -8 } },
-    { value: "Monarchist", axis: 0.8, economic: 0.3, diplomatic: 0.4, liberty: -0.8, culture: 0.95, pluralism: -0.6, sub: "Restore the crown. −The entire constitutional order", fringe: true,
+    { value: "Monarchist", axis: 0.8, economic: 0.3, diplomatic: 0.4, liberty: -0.8, culture: 1, pluralism: -0.6, sub: "Restore the crown. −The entire constitutional order", fringe: true,
       fx: { stability: -24, civil_rights: -20, faith: 12, pentagon: 8, approval: -10 } },
     { value: "Accelerationist", axis: 0.5, economic: 0.5, diplomatic: -0.2, liberty: 0.4, culture: -0.5, pluralism: -0.2, sub: "Break it faster. −Stability, −Everything downstream", fringe: true,
       fx: { big_business: 10, stability: -30, labor: -14, civil_rights: -12, approval: -8 } },
