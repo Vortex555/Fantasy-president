@@ -1,7 +1,7 @@
 import { clamp, round1 } from "./rng.js";
 import { buildCongress } from "../public/js/data/government.js";
 import { STATES } from "./states.js";
-import { stanceFit, defectionOn } from "./bills.js";
+import { stanceFit, defectionOn, voiceFor } from "./bills.js";
 import {
   FACTIONS, factionById, factionFor,
 } from "../public/js/data/factions.js";
@@ -148,9 +148,9 @@ export function factionLine(state, bill) {
     fit: round1(fit),
     intensity,
     discipline: faction.discipline,
-    reason: position === "yes"
+    reason: voiceFor(bill, "bloc", position) || (position === "yes"
       ? `${faction.name} is whipping for it.`
-      : `${faction.name} has decided this is the hill.`,
+      : `${faction.name} has decided this is the hill.`),
   };
 }
 

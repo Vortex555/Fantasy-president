@@ -181,6 +181,110 @@ Schedule exactly ${count} bill${count === 1 ? "" : "s"} for this month's floor i
   return validateDocket(parseModelJson(resp.text), state, count, { fringe });
 }
 
+// ---------------------------------------------------------------------------
+// Why each of them stands where they stand
+// ---------------------------------------------------------------------------
+
+const VOICES_SYSTEM = `You write one-line explanations for the floor screen of "Fantasy President," a serious, non-partisan political strategy game in which the player holds a single seat in the United States Congress.
+
+Before every vote the player sees four voices and which way each of them has come down. YOU ARE NOT DECIDING WHICH WAY ANYBODY VOTES. Those positions are already fixed and are given to you. Your only job is to say, in one sentence each, WHY that voice landed where it did.
+
+The four voices:
+- "party"      — the player's own leadership. Institutional, vote-counting, thinking about the majority.
+- "district"   — the seat that elects them. Parochial, concrete, about jobs and prices and who lives there.
+- "bloc"       — the organised caucus the player sits in. Ideological, disciplined, willing to lose.
+- "conviction" — the player themselves, and what they have said in public for years.
+
+You MUST respond with ONLY a single JSON object (no prose, no markdown fences):
+{
+  "voices": [
+    { "title": "the bill's exact title as given", "party": "...", "district": "...", "bloc": "...", "conviction": "..." }
+  ]
+}
+
+Rules:
+- ONE sentence per voice. Under 20 words. No preamble, no "they believe that".
+- Give the REASON, not the position. "Leadership promised the agencies this renewal in exchange for the budget deal" — not "leadership supports the bill".
+- Be specific to THIS bill. A sentence that would fit any bill in the domain is a wasted line.
+- The four voices must not paraphrase each other. If two of them landed the same way, they landed there for different reasons and you should say what those are.
+- Never contradict the stated position. If a voice is against, every word you write about it must be against.
+- Use the district's own name. Never invent statistics, vote counts or named people.`;
+
+/**
+ * The engine hands over the positions; the model hands back the sentences.
+ *
+ * The one call in the mode that is purely cosmetic, and deliberately so. It runs
+ * once when the month's calendar is settled and its output is frozen onto the
+ * bills, so a repainted floor screen shows the same words and no number anywhere
+ * depends on it. If it fails, is unconfigured or returns nonsense, every card
+ * falls back to the hand-written line and the mode plays exactly as before.
+ */
+export async function voicesFromModel(state, bills, positions) {
+  const live = bills.filter((b) => positions[b.id]);
+  if (!live.length) return {};
+
+  const described = live.map((b) => {
+    const p = positions[b.id];
+    return `- "${b.title}" — ${b.brief || "no summary"}\n`
+      + `    party: ${p.party.toUpperCase()} | district: ${p.district.toUpperCase()} | `
+      + `bloc (${p.blocName || "their caucus"}): ${p.bloc.toUpperCase()} | conviction: ${p.conviction.toUpperCase()}`;
+  }).join("\n");
+
+  const user = `${memberSummary(state)}
+
+THIS MONTH'S BILLS, AND WHERE EACH VOICE HAS ALREADY COME DOWN:
+${described}
+
+Write the explanations. Return the JSON object.`;
+
+  const resp = await complete({
+    system: VOICES_SYSTEM,
+    messages: [{ role: "user", content: user }],
+    tier: "judge",
+    /**
+     * Twelve sentences on a three-bill month, and the first cut of this capped
+     * at 700 — which truncated the JSON after the first bill and silently
+     * dropped the other two back to the hand-written lines. The failure mode is
+     * invisible precisely because the fallback is good, so the ceiling is set
+     * well clear of four voices on the largest docket the mode ever schedules.
+     */
+    maxTokens: 1600,
+    json: true,
+    cache: true,
+  });
+
+  logUsage("voices", resp.model, resp.usage);
+  return validateVoices(parseModelJson(resp.text), live, positions);
+}
+
+/** The four cards the floor actually draws. Anything else is discarded. */
+const VOICE_KEYS = ["party", "district", "bloc", "conviction"];
+
+/**
+ * Bills are matched by title, because that is the only field the model is asked
+ * to echo and the only one it reliably does. Each line is frozen beside the
+ * position it was written for, so it retires itself the moment the bill moves.
+ */
+export function validateVoices(raw, bills, positions) {
+  const list = Array.isArray(raw?.voices) ? raw.voices : [];
+  const byTitle = new Map(bills.map((b) => [String(b.title || "").trim().toLowerCase(), b]));
+  const out = {};
+
+  for (const item of list) {
+    const bill = byTitle.get(String(item?.title || "").trim().toLowerCase());
+    if (!bill || !positions[bill.id] || out[bill.id]) continue;
+
+    const lines = {};
+    for (const who of VOICE_KEYS) {
+      const text = String(item?.[who] || "").trim().slice(0, 200);
+      if (!text) continue;
+      lines[who] = { position: positions[bill.id][who], text };
+    }
+    if (Object.keys(lines).length) out[bill.id] = lines;
+  }
+  return out;
+}
+
 /**
  * The month the fringe gets a slot.
  *

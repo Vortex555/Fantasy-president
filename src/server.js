@@ -60,7 +60,7 @@ import { drawEvent, shouldUsePool } from "./eventPool.js";
 import { actOnBill } from "./bills.js";
 import { claudeAvailable, claudeTurn, claudeVoices, claudeOpening, claudeAdvisor, claudeDebate } from "./claude.js";
 import {
-  docketFromModel, situationFromModel, falloutFromModel, staffReply, staffOf,
+  docketFromModel, voicesFromModel, situationFromModel, falloutFromModel, staffReply, staffOf,
 } from "./chamberAi.js";
 import {
   nationCard, setSituation, situationFromPool, wantsWrittenSituation,
@@ -553,6 +553,44 @@ app.post("/api/house/districts", (req, res) => {
  * Which is why this returns the state as well: the client is the only thing
  * holding the save, and it has to keep the docket that was just written.
  */
+
+/**
+ * One line per voice per bill, written once and frozen.
+ *
+ * Last thing before the calendar is final, and after `crisisConsensus`, because
+ * consensus moves the stances and an explanation written against the wrong ones
+ * would be retired on arrival.
+ *
+ * Every position handed over is the engine's own. The model is told where the
+ * four voices landed and asked only to say why, so nothing here can move a
+ * number — and because the whole call is cosmetic, every failure is swallowed
+ * and the hand-written lines take over. See `voicesFromModel`.
+ */
+async function describeVoices(state, bills) {
+  if (!bills.length || !USING_AI || !wantsWrittenSituation(state, USING_AI)) return bills;
+
+  const positions = {};
+  for (const bill of bills) {
+    const bloc = factionLine(state, bill);
+    positions[bill.id] = {
+      party: partyLine(state, bill).position,
+      district: districtView(state, bill).position,
+      conviction: convictionView(state, bill).position,
+      bloc: bloc?.position || "no",
+      blocName: bloc?.name || null,
+    };
+  }
+
+  try {
+    const voices = await voicesFromModel(state, bills, positions);
+    return bills.map((b) => (voices[b.id] ? { ...b, voices: voices[b.id] } : b));
+  } catch (err) {
+    console.error("The floor's explanations failed; the written lines stand in:", err.message);
+    recordModelFailure(err.message);
+    return bills;
+  }
+}
+
 async function ensureDocket(state, { size, offline }) {
   const term = state.term || 1;
   const kept = state.docket;
@@ -600,6 +638,7 @@ async function ensureDocket(state, { size, offline }) {
      */
     bills = attributeSponsors(state, bills);
     bills = crisisConsensus(state, bills);
+    bills = await describeVoices(state, bills);
   }
 
   const next = { ...state, docket: { term, month: state.month, bills, written } };

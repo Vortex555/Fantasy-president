@@ -387,6 +387,25 @@ export const defectionOn = (bill, factionId) =>
     .find((d) => d?.faction === factionId) || null;
 
 /**
+ * The written line for one of the four stance cards, if there is one.
+ *
+ * The cards carried fixed strings that fired identically whatever the bill did:
+ * a position computed with some care, then explained by a sentence chosen from a
+ * set of two. So the model writes the sentence — told the positions the engine
+ * derived, never asked for them — once, when the month's calendar is settled.
+ *
+ * Keyed to the stance it was written for, which is the whole safety property.
+ * An explanation for the opposite vote is worse than no explanation, and a bill
+ * amended in committee moves: its old sentences simply stop matching and the
+ * hand-written ones take over again. Nothing has to remember to clear them.
+ */
+export function voiceFor(bill, who, position) {
+  const line = bill?.voices?.[who];
+  if (!line || typeof line.text !== "string" || !line.text) return null;
+  return line.position === position ? line.text : null;
+}
+
+/**
  * Which members of a defecting bloc actually follow the whip.
  *
  * Not all of them, and that is the point — a bloc is not a switch. Discipline

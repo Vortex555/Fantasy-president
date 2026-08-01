@@ -1,5 +1,5 @@
 import { clamp, round1 } from "./rng.js";
-import { consensusOf, stanceFit } from "./bills.js";
+import { consensusOf, stanceFit, voiceFor } from "./bills.js";
 import { findIdeology, ideologyEffects } from "../public/js/data/ideologies.js";
 import { stakeholderById } from "./stakeholders.js";
 
@@ -94,9 +94,9 @@ export function convictionView(state, bill) {
     intensity,
     ideology: state?.scenario?.ideology || "your own politics",
     fringe: weight > 1,
-    reason: position === "yes"
+    reason: voiceFor(bill, "conviction", position) || (position === "yes"
       ? `This is what you came here to do.`
-      : `You have spent your career arguing against this.`,
+      : `You have spent your career arguing against this.`),
   };
 }
 

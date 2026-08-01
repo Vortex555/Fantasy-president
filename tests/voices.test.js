@@ -1,0 +1,165 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+
+import { voiceFor } from "../src/bills.js";
+import { partyLine, districtView } from "../src/house.js";
+import { convictionView } from "../src/conviction.js";
+import { factionLine } from "../src/factions.js";
+import { validateVoices } from "../src/chamberAi.js";
+import { chairAction } from "../src/committees.js";
+
+/**
+ * Who says what, and why.
+ *
+ * The four stance cards carried fixed strings — "the caucus is for it", "you
+ * have spent your career arguing against this" — that fired identically whatever
+ * the bill did. The position was computed with some care and then explained with
+ * a sentence chosen from a set of two.
+ *
+ * So the model writes the sentence. It is emphatically not asked which way
+ * anybody votes: it is *told* the positions the engine derived and asked to say
+ * why, once, when the month's calendar is settled. The text is frozen on the
+ * bill next to the position it was written for, and used only while that
+ * position still holds — which makes it self-invalidating, since a bill amended
+ * in committee moves and its old explanation stops matching.
+ */
+
+const state = (o = {}) => ({
+  scenario: {
+    party: "Republican", ideology: "Groyper",
+    ideologyAxis: 0.95, ideologyLiberty: 0.5, presidentName: "T",
+  },
+  seat: { district: "WV-2", axis: 0.9, lean: 60 },
+  caucus: "Republican",
+  ...o,
+});
+
+const BILL = {
+  id: "v1", title: "Warrant Requirement Act",
+  axis: -0.1, liberty: 0.58, domain: "justice", support: "contested",
+};
+
+// ---------------------------------------------------------------------------
+// The lookup itself
+// ---------------------------------------------------------------------------
+
+test("a frozen line is used only while the position it was written for holds", () => {
+  const bill = { ...BILL, voices: { party: { position: "no", text: "Leadership promised the agencies." } } };
+  assert.equal(voiceFor(bill, "party", "no"), "Leadership promised the agencies.");
+  assert.equal(voiceFor(bill, "party", "yes"), null,
+    "an explanation for the opposite vote is worse than no explanation");
+});
+
+test("a bill with nothing frozen on it asks for nothing", () => {
+  assert.equal(voiceFor(BILL, "party", "no"), null);
+  assert.equal(voiceFor(undefined, "party", "no"), null);
+  assert.equal(voiceFor({ voices: { party: "a bare string" } }, "party", "no"), null);
+});
+
+// ---------------------------------------------------------------------------
+// Each card prefers it, and falls back cleanly
+// ---------------------------------------------------------------------------
+
+test("every stance card uses the written line when there is one", () => {
+  const s = state();
+  const positions = {
+    party: partyLine(s, BILL).position,
+    district: districtView(s, BILL).position,
+    conviction: convictionView(s, BILL).position,
+    bloc: factionLine(s, BILL).position,
+  };
+  const bill = {
+    ...BILL,
+    voices: {
+      party: { position: positions.party, text: "Leadership gave the agencies its word." },
+      district: { position: positions.district, text: "WV-2 has other things on its mind." },
+      conviction: { position: positions.conviction, text: "You have said this for years." },
+      bloc: { position: positions.bloc, text: "They have wanted this since the last reauthorisation." },
+    },
+  };
+  assert.equal(partyLine(s, bill).reason, "Leadership gave the agencies its word.");
+  assert.equal(districtView(s, bill).reason, "WV-2 has other things on its mind.");
+  assert.equal(convictionView(s, bill).reason, "You have said this for years.");
+  assert.equal(factionLine(s, bill).reason, "They have wanted this since the last reauthorisation.");
+});
+
+test("with nothing written, the hand-written lines are exactly what they were", () => {
+  const s = state();
+  assert.equal(convictionView(s, BILL).reason, "This is what you came here to do.");
+  assert.match(factionLine(s, BILL).reason, /whipping for it/);
+  assert.match(districtView(s, BILL).reason, /WV-2/);
+  assert.ok(partyLine(s, BILL).reason.length > 0);
+});
+
+test("the positions are the engine's, whatever the model wrote", () => {
+  const s = state();
+  const plain = convictionView(s, BILL);
+  const dressed = convictionView(s, {
+    ...BILL,
+    voices: { conviction: { position: "no", text: "a line for the opposite vote" } },
+  });
+  assert.equal(dressed.position, plain.position, "prose must never move a stance");
+  assert.equal(dressed.reason, plain.reason, "and a mismatched line is not used");
+});
+
+// ---------------------------------------------------------------------------
+// Amending a bill retires its explanations
+// ---------------------------------------------------------------------------
+
+test("a bill amended past its own explanation stops using it", () => {
+  const s = state();
+  const before = convictionView(s, BILL).position;
+  const bill = { ...BILL, voices: { conviction: { position: before, text: "written for the old bill" } } };
+
+  const chair = state({
+    rank: "chair", committee: "judiciary", month: 4, term: 1,
+    leadership: 40, committeeLog: [],
+    scenario: { ...state().scenario, ideologyAxis: -0.9, ideologyLiberty: -0.9 },
+  });
+  const moved = chairAction(chair, bill, "amend").result.bill;
+  const after = convictionView(s, moved);
+  if (after.position !== before) {
+    assert.notEqual(after.reason, "written for the old bill",
+      "the committee moved the bill and the old sentence outlived it");
+  }
+});
+
+// ---------------------------------------------------------------------------
+// The engine trusts the prose as little as it trusts everything else
+// ---------------------------------------------------------------------------
+
+const bills = [{ id: "a", title: "Warrant Requirement Act" }, { id: "b", title: "Tariff Restoration Act" }];
+const positions = {
+  a: { party: "no", district: "no", conviction: "yes", bloc: "yes" },
+  b: { party: "yes", district: "yes", conviction: "no", bloc: "no" },
+};
+
+test("lines are matched to bills by title and attached with their position", () => {
+  const out = validateVoices({ voices: [
+    { title: "Warrant Requirement Act", party: "Leadership gave its word.", conviction: "You have said this for years." },
+  ] }, bills, positions);
+  assert.equal(out.a.party.text, "Leadership gave its word.");
+  assert.equal(out.a.party.position, "no", "frozen beside the stance it explains");
+  assert.equal(out.a.conviction.position, "yes");
+  assert.equal(out.b, undefined);
+});
+
+test("a line for a bill that is not on the floor is discarded", () => {
+  const out = validateVoices({ voices: [{ title: "Some Other Act", party: "x" }] }, bills, positions);
+  assert.deepEqual(out, {});
+});
+
+test("an unknown voice is ignored and empty text is not frozen", () => {
+  const out = validateVoices({ voices: [
+    { title: "Tariff Restoration Act", lobbyists: "not a card on the screen", party: "   ", district: "Real." },
+  ] }, bills, positions);
+  assert.equal(out.b.lobbyists, undefined);
+  assert.equal(out.b.party, undefined);
+  assert.equal(out.b.district.text, "Real.");
+});
+
+test("nonsense returns nothing rather than throwing", () => {
+  assert.deepEqual(validateVoices(null, bills, positions), {});
+  assert.deepEqual(validateVoices({ voices: "words" }, bills, positions), {});
+  assert.deepEqual(validateVoices({ voices: [null, 7] }, bills, positions), {});
+});

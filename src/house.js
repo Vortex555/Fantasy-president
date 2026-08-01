@@ -1,6 +1,6 @@
 import { seeded, hashString, clamp, round1 } from "./rng.js";
 import { STATES } from "./states.js";
-import { BILL_POOL, billById, rollCall, FRINGE_BILLS, fringeChance, consensusOf, stanceFit } from "./bills.js";
+import { BILL_POOL, billById, rollCall, FRINGE_BILLS, fringeChance, consensusOf, stanceFit, voiceFor } from "./bills.js";
 import { houseRaces, nationalEnvironment, runCongressionalCycle } from "./elections.js";
 import { buildCongress } from "../public/js/data/government.js";
 import { assignCommittee, earnCapital, evaluateLadder, committeeById, isWrecker } from "./committees.js";
@@ -587,9 +587,9 @@ export function partyLine(state, bill) {
     position,
     fit: round1(fit),
     intensity: clamp(intensity, 5, 100),
-    reason: position === "yes"
+    reason: voiceFor(bill, "party", position) || (position === "yes"
       ? intensity > 45 ? "A leadership priority. They are counting this one." : "The caucus is for it."
-      : intensity > 45 ? "Leadership is whipping hard against it." : "The caucus is against, without much passion.",
+      : intensity > 45 ? "Leadership is whipping hard against it." : "The caucus is against, without much passion."),
   };
 }
 
@@ -632,9 +632,9 @@ export function districtView(state, bill) {
     fit: round1(fit),
     intensity: clamp(intensity, 5, 100),
     pressure,
-    reason: position === "yes"
+    reason: voiceFor(bill, "district", position) || (position === "yes"
       ? `${state.seat.district} wants this.`
-      : `${state.seat.district} will not thank you for it.`,
+      : `${state.seat.district} will not thank you for it.`),
     pressureNote: pressure === "base"
       ? "Your district sits further out than the caucus does. The pressure here is a primary."
       : pressure === "hostile"
