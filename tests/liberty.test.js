@@ -26,9 +26,22 @@ import { STATES } from "../src/states.js";
  * state power carries 0 and every calculation behaves exactly as it did before.
  */
 
+/**
+ * Read from the ideology table rather than hand-supplied.
+ *
+ * This used to pass `ideologyLiberty: 0.5` inline, so it pinned a number the
+ * test itself had chosen and went on passing when the table underneath it was
+ * changed to the opposite sign. A fixture that supplies the value under test
+ * proves nothing about the data.
+ */
+const positionOf = (party, ideology) => {
+  const found = findIdeology(party, ideology);
+  return { ideologyAxis: found.axis, ideologyLiberty: found.liberty };
+};
+
 const seat = (o = {}) => createHouseCareer({
   office: "house", presidentName: "M", party: "Republican", startYear: 2025,
-  ideology: "Groyper", ideologyAxis: 0.95, ideologyLiberty: 0.5,
+  ideology: "Groyper", ...positionOf("Republican", "Groyper"),
   district: "WV-2", events: "classic", ...o,
 });
 
@@ -56,10 +69,36 @@ test("and against one that expands it", () => {
   assert.equal(factionLine(seat(), POWERS).position, "no");
 });
 
-test("a Groyper votes their own politics on surveillance, not their party's", () => {
-  const you = convictionView(seat(), PRIVACY);
-  assert.equal(you.position, "yes");
-  assert.equal(you.reason, "This is what you came here to do.");
+/**
+ * Corrects what this file first claimed.
+ *
+ * It asserted a Groyper votes for a warrant requirement, on the reasoning that
+ * the movement is loudly against the agencies investigating it. That is true of
+ * the movement and it is not a liberty position — it is a grievance about who
+ * the state is pointed at. Coded as +0.5 it made the ideology read as
+ * libertarianism turned up, which is close to the inverse of a politics whose
+ * founding fight was against the libertarian wing of its own side.
+ *
+ * So the member and their own bloc now come apart here, which is the honest
+ * result: the Freedom Caucus whips for the warrant requirement, and the Groyper
+ * sitting in it does not care for warrants when the target is somebody else.
+ */
+test("a Groyper is not a civil libertarian, whatever their caucus is", () => {
+  const state = seat();
+  assert.ok(findIdeology("Republican", "Groyper").liberty < 0,
+    "its anti-statism is selective, and the single number has to answer for all of it");
+  assert.equal(convictionView(state, PRIVACY).position, "no");
+  assert.equal(factionLine(state, PRIVACY).position, "yes",
+    "the bloc still whips for it, which is the disagreement worth having");
+});
+
+test("and it is nobody's libertarian, however far right it sits", () => {
+  const groyper = findIdeology("Republican", "Groyper");
+  for (const name of ["Libertarian Conservative", "Constitutionalist", "Techno-Libertarian"]) {
+    const lib = findIdeology("Republican", name);
+    assert.ok(lib.liberty - groyper.liberty > 0.8,
+      `${name} and a Groyper should not be neighbours on state power`);
+  }
 });
 
 test("leadership is the one on the other side, which is the real shape of the fight", () => {

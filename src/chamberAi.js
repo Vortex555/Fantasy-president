@@ -2,7 +2,7 @@ import { complete, aiAvailable } from "./ai/provider.js";
 import { parseModelJson } from "./ai/json.js";
 import { seeded } from "./rng.js";
 import { normalizeDomain, activeArcs, ARC_DOMAIN_IDS } from "./arcs.js";
-import { FRINGE_AXIS, CONSENSUS_TIERS, MAX_DEFECTIONS } from "./bills.js";
+import { FRINGE_AXIS, CONSENSUS_TIERS, MAX_DEFECTIONS, ISSUE_AXES } from "./bills.js";
 import { FACTIONS } from "../public/js/data/factions.js";
 import { nationSummary, absoluteMonth, steerDomain, recentNewsSubjects } from "./nation.js";
 import { committeeById, rankById, chamberOf } from "./committees.js";
@@ -110,7 +110,10 @@ You MUST respond with ONLY a single JSON object (no prose, no markdown fences) w
       "title": "the name it will be known by — an Act, a Resolution, an Amendment",
       "brief": "ONE sentence, maximum 30 words, saying concretely what the bill does. Mechanisms and numbers, not aspirations.",
       "axis": number,        // where it sits ideologically, -1 (hard left) to +1 (hard right)
-      "liberty": number,     // what the state may do to a person: +1 restrains state power, -1 expands it, 0 if the bill is not about that at all
+      "economic": number,    // -1 equality (redistribute) … +1 markets (growth, lower taxes, deregulation)
+      "diplomatic": number,  // -1 globe (alliances, trade, integration) … +1 nation (sovereignty, tariffs, borders)
+      "liberty": number,     // -1 authority (state power over the person) … +1 liberty (restrains it)
+      "culture": number,     // -1 progress (social change) … +1 tradition (the settled moral order)
       "domain": "one of: ${DOMAINS}",
       "because": "6-12 words on which national problem or news story produced this bill",
       "addresses": "the exact id (e.g. arc_2) of the UNRESOLVED NATIONAL PROBLEM this bill answers, or null if it answers none of them",
@@ -125,7 +128,13 @@ Rules — read them, they are the difference between a floor and a list:
 - EVERY bill must be traceable to the national situation you are given. The month's dominating story and the unresolved problems are your material. A bill that could have been scheduled in any month of any decade is a failure.
 - Congress responds to a crisis LATE, PARTIALLY and IN ITS OWN INTEREST. The honest legislative answer to a disaster is usually a narrow funding bill, a commission, a reauthorisation with a rider attached, or a messaging vote designed to make the other side vote no. Sweeping, well-designed solutions to the actual problem are the rare case, not the default.
 - "axis" is load-bearing and the engine computes the entire roll call from it. Be honest: a bipartisan disaster-relief appropriation is near 0.0; a targeted tax cut is around +0.45; nationalising an industry is -0.9. Do not push everything to the extremes to seem dramatic — a chamber where every bill is at ±0.8 has no politics in it, only noise.
-- "liberty" is a SECOND and SEPARATE axis, and most bills are 0 on it. A tax rate, a childcare subsidy and a bridge say nothing about state power: leave them at 0. Use it only when the bill genuinely turns on what the government may do to a person — surveillance, warrants, policing, detention, censorship, emergency powers, gun ownership, federal pre-emption of the states. Positive restrains the state (a warrant requirement is +0.6); negative empowers it (renewing bulk collection is -0.6). Anything that builds out the coercive apparatus is negative even when it is popular and even when it is framed as safety: prison capacity and staffing, police hiring, detention beds, mandatory minimums and surveillance powers are all -0.4 to -0.7. Keep the magnitude honest — the chamber sits near -0.1 on this, so ±0.85 is a fringe position and most real bills that touch it land between 0.3 and 0.6. It is what lets both ends of the chamber vote together against both leaderships, which is a real and common pattern that "axis" alone cannot produce — so do not simply mirror the axis here. A right-wing bill can be strongly positive and a left-wing bill strongly negative.
+- The four axes AFTER "axis" are what the bill is *about*, and MOST BILLS ARE 0 ON MOST OF THEM. Set only the ones the bill genuinely turns on — usually one, sometimes two, rarely three. A bill that is 0 on all four is fine and common; it is scored on "axis" alone exactly as before these existed.
+    "economic"   — taxes, spending, subsidies, wages, ownership. A corporate rate cut is +0.9; a jobs guarantee is -0.85.
+    "diplomatic" — sovereignty against integration, NOT hawkishness. Tariffs, immigration enforcement and withdrawing from a treaty are positive; alliances, trade deals and foreign aid are negative. A neoconservative is on the *negative* side of this despite being a hawk, and a paleoconservative is on the positive side despite wanting the troops home. That is the split it exists to draw.
+    "liberty"    — warrants, policing, detention, censorship, surveillance, emergency powers. Positive restrains the state; negative empowers it. Anything that builds out coercive capacity is negative even when framed as safety: prison beds, police hiring and mandatory minimums are -0.4 to -0.7.
+    "culture"    — religion in public life, family and gender, speech, education content, monuments. Positive is tradition, negative is progress.
+  Keep magnitudes honest. The chamber's median sits near 0 on all four, so ±0.85 is a fringe position and most real bills that touch an axis land between 0.3 and 0.6. The strongest single claim decides how much of the vote leaves ordinary partisanship, so inflating one number quietly overrides the whole rest of the chamber.
+
 - "defectors" is for the rare bill whose politics the two numbers above genuinely cannot express: an organised bloc that will vote AGAINST where its own ideology sits. Leave it out entirely on almost every bill — the axes already handle the ordinary case, and a defection you did not need makes the chamber incoherent. Use it when a specific caucus has a known, concrete commitment that cuts across its own side: a farm-state bloc against its party's trade bill, a libertarian bloc against its party's police funding, a labour bloc against its party's environmental bill. At most TWO blocs per bill, and never on a bill where you cannot name the reason in a clause.
   The only valid ids are: ${FACTIONS.map((f) => f.id).join(" | ")}
   Shape: [{ "faction": "<id>", "position": "yes" | "no", "because": "under 15 words, the concrete commitment that makes them break" }]
@@ -356,6 +365,11 @@ function votedSubjects(state) {
  * reads. Anything malformed is dropped rather than repaired into a bill nobody
  * meant to write, and if that leaves nothing the caller falls back to the pool.
  */
+/** An issue-axis value the model volunteered, or 0 if it said nothing usable. */
+const clampedIssue = (raw) => (Number.isFinite(Number(raw)) && raw !== null && raw !== ""
+  ? Math.max(-1, Math.min(1, Math.round(Number(raw) * 100) / 100))
+  : 0);
+
 const FACTION_IDS = new Set(FACTIONS.map((f) => f.id));
 
 /**
@@ -419,19 +433,17 @@ export function validateDocket(raw, state, count, { fringe = null } = {}) {
       brief: String(item?.brief || "").trim().slice(0, 240),
       axis: clamped,
       /**
-       * Where it stands on state power, if it stands anywhere.
+       * Where the bill stands on each of the four, if it stands anywhere.
        *
        * The opposite rule to the axis, and deliberately. A bill *must* state a
-       * position on money — leaving it out means a dead-centre bill nobody
-       * wrote — but most legislation says nothing whatsoever about what the
-       * state may do to a person, and 0 is the honest reading of silence rather
-       * than a missing value. So this one falls back instead of dropping the
-       * bill, and at 0 every calculation behaves exactly as it did before the
-       * dimension existed. See `stanceFit` in bills.js.
+       * position on the partisan spectrum — leaving it out means a dead-centre
+       * bill nobody wrote — but most legislation says nothing whatsoever about
+       * sovereignty or state power or the moral order, and 0 is the honest
+       * reading of silence rather than a missing value. So these fall back
+       * instead of dropping the bill, and at 0 an axis takes none of the vote.
+       * See `stanceFit` in bills.js.
        */
-      liberty: Number.isFinite(Number(item?.liberty)) && item?.liberty !== null && item?.liberty !== ""
-        ? Math.max(-1, Math.min(1, Math.round(Number(item.liberty) * 100) / 100))
-        : 0,
+      ...Object.fromEntries(ISSUE_AXES.map(({ id }) => [id, clampedIssue(item?.[id])])),
       /**
        * Blocs the model says break from where their own politics would put them.
        *
@@ -440,11 +452,9 @@ export function validateDocket(raw, state, count, { fringe = null } = {}) {
        * value is frozen and every downstream calculation stays a function of it.
        *
        * Trusted no further than anything else it volunteers. An invented caucus
-       * is dropped rather than believed, because a defection naming a bloc that
-       * does not exist would sit on the bill forever matching nothing; a
-       * position that is not a vote is not a position; and the whole list is
-       * capped, because a model that can turn four blocs at once is not
-       * annotating the roll call, it is writing it.
+       * is dropped rather than believed, a position that is not a vote is not a
+       * position, and the whole list is capped, because a model that can turn
+       * four blocs at once is not annotating the roll call, it is writing it.
        */
       defectors: validDefectors(item?.defectors),
       domain: normalizeDomain(item?.domain),

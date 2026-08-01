@@ -109,7 +109,11 @@ export function factionLine(state, bill) {
    * odds with its own most extreme members, which is the entire reason a whip
    * has a job.
    */
-  const centre = { axis: (faction.band[0] + faction.band[1]) / 2, liberty: faction.liberty };
+  const centre = {
+    axis: (faction.band[0] + faction.band[1]) / 2,
+    economic: faction.economic, diplomatic: faction.diplomatic,
+    liberty: faction.liberty, culture: faction.culture,
+  };
   const fit = stanceFit(centre, bill);
 
   /**

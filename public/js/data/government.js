@@ -3,6 +3,7 @@
 import { seeded } from "./rng.js";
 import { IDEOLOGIES, mainstreamIdeologies, fringeIdeologies } from "./ideologies.js";
 import { factionFor } from "./factions.js";
+import { ISSUE_KEYS } from "./ideologies.js";
 
 /**
  * The people who actually hold office.
@@ -143,7 +144,7 @@ export function buildChamber({ seed, chamber, seats, radical = false, states = {
       // What the state may do to a person, which the roll call reads beside
       // the axis. A member without it is invisible to half of every bill
       // that is actually about state power. See `stanceFit` in bills.js.
-      liberty: ideology.liberty ?? 0,
+      ...Object.fromEntries(ISSUE_KEYS.map((k) => [k, ideology[k] ?? 0])),
       /**
        * The bloc this member sits in, stamped once rather than looked up.
        *
@@ -218,8 +219,10 @@ export function cabinetIdeology(seed, memberId, party, radical) {
   const bench = caucusBench(party === "Independent" ? "Republican" : party, radical);
   const r = seeded(`${seed}|cabinet|${memberId}`);
   const chosen = r.weighted(bench.items, bench.weights);
-  return { ideology: chosen.value, axis: chosen.axis, liberty: chosen.liberty ?? 0,
-    fringe: Boolean(chosen.fringe) };
+  return {
+    ideology: chosen.value, axis: chosen.axis, fringe: Boolean(chosen.fringe),
+    ...Object.fromEntries(ISSUE_KEYS.map((k) => [k, chosen[k] ?? 0])),
+  };
 }
 
 /** A caucus broken down by ideology, most numerous first. */

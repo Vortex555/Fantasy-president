@@ -49,6 +49,7 @@ import {
 } from "./senate.js";
 import { historicalHouseVerdict } from "./houseVerdict.js";
 import { STATES } from "./states.js";
+import { ISSUE_KEYS, issueKey } from "../public/js/data/ideologies.js";
 import { attachQuotes } from "./personas.js";
 import { applyDeployment, editFirstLady, FIRST_LADY_CAUSES } from "./firstLady.js";
 import { INSTITUTIONS, candidatesFor, appoint, dismiss } from "./institutions.js";
@@ -1521,9 +1522,14 @@ function sanitizeScenario(s) {
     ideology: str(s?.ideology, "", 60),
     // Where that ideology sits on the spectrum, and how hard it splits a room.
     ideologyAxis: Math.max(-1, Math.min(1, Number(s?.ideologyAxis) || 0)),
-    // And where it stands on what the state may do to a person, which is the
-    // separate question the spectrum kept being asked to answer. See stanceFit.
-    ideologyLiberty: Math.max(-1, Math.min(1, Number(s?.ideologyLiberty) || 0)),
+    /**
+     * And the four issue axes, which are what make the ideology chosen at
+     * creation mean something at every roll call rather than only placing the
+     * character on a line. See ISSUE_AXES in bills.js.
+     */
+    ...Object.fromEntries(ISSUE_KEYS.map((id) => [
+      issueKey(id), Math.max(-1, Math.min(1, Number(s?.[issueKey(id)]) || 0)),
+    ])),
     ideologyIntensity: Math.max(0.5, Math.min(2.5, Number(s?.ideologyIntensity) || 1)),
     style: str(s?.style, "", 60),
     era: str(s?.era, "The present day, 2025.", 400),

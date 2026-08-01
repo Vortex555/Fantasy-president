@@ -93,7 +93,21 @@ const PARTY_ANCHOR = { Democrat: -0.35, Republican: 0.45 };
  * could never draw: leadership alone on one side, and both ends of the chamber
  * together on the other.
  */
-const PARTY_LIBERTY = { Democrat: -0.3, Republican: -0.25 };
+/**
+ * Where each party's *leadership* sits on the four.
+ *
+ * Both negative on `liberty`, and that is not a thumb on the scale — it is the
+ * most reliably bipartisan fact about a legislature. Leadership is the wing that
+ * has to govern, so it is the wing that reauthorises the programme, funds the
+ * agency and votes down the warrant amendment, whichever party holds the gavel.
+ * Both lean `globe` for the same reason: running the government means keeping
+ * the alliances and the trade deals, and the insurgents on both flanks are the
+ * ones who do not have to.
+ */
+const PARTY_ISSUES = {
+  Democrat:   { economic: -0.4, diplomatic: -0.45, liberty: -0.3,  culture: -0.35 },
+  Republican: { economic:  0.6, diplomatic: -0.15, liberty: -0.25, society:  0.45 },
+};
 
 /**
  * Which caucus a member actually sits in.
@@ -573,7 +587,7 @@ export function partyLine(state, bill) {
    * "leadership: NO" and then pass 95-5 — the two halves of the same screen
    * disagreeing about the same vote.
    */
-  const fit = stanceFit({ axis: anchor, liberty: PARTY_LIBERTY[caucusOf(state.scenario)] ?? 0 }, bill);
+  const fit = stanceFit({ axis: anchor, ...(PARTY_ISSUES[caucusOf(state.scenario)] || {}) }, bill);
   const position = fit >= 0.72 ? "yes" : "no";
   const intensity = Math.round(Math.abs(fit - 0.72) * 240);
 
@@ -609,7 +623,10 @@ export function districtView(state, bill) {
    * it. Which is also true to how the pressure feels: surveillance is a caucus
    * and conscience fight, and almost never a doorstep one.
    */
-  const fit = stanceFit({ axis: state.seat.axis, liberty: null }, bill);
+  const fit = stanceFit({
+    axis: state.seat.axis,
+    economic: null, diplomatic: null, liberty: null, society: null,
+  }, bill);
   const position = fit >= 0.72 ? "yes" : "no";
   const intensity = Math.round(Math.abs(fit - 0.72) * 240);
 

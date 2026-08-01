@@ -1,6 +1,8 @@
 import { clamp, round1 } from "./rng.js";
 import { consensusOf, stanceFit, voiceFor } from "./bills.js";
-import { findIdeology, ideologyEffects } from "../public/js/data/ideologies.js";
+import {
+  findIdeology, ideologyEffects, ISSUE_KEYS, issueKey,
+} from "../public/js/data/ideologies.js";
 import { stakeholderById } from "./stakeholders.js";
 
 /**
@@ -77,12 +79,12 @@ export function convictionView(state, bill) {
    * and at opposite poles on a warrant requirement; until this they cast the
    * same vote on it, with the same sentence underneath.
    */
-  const mine = {
-    axis: Number(state?.scenario?.ideologyAxis) || 0,
-    liberty: Number(state?.scenario?.ideologyLiberty)
-      || findIdeology(state?.scenario?.party, state?.scenario?.ideology)?.liberty
-      || 0,
-  };
+  const found = findIdeology(state?.scenario?.party, state?.scenario?.ideology);
+  const mine = { axis: Number(state?.scenario?.ideologyAxis) || 0 };
+  for (const id of ISSUE_KEYS) {
+    const carried = Number(state?.scenario?.[issueKey(id)]);
+    mine[id] = Number.isFinite(carried) && carried !== 0 ? carried : (found?.[id] ?? 0);
+  }
   const weight = convictionWeight(state?.scenario);
   const fit = stanceFit(mine, bill, consensusOf(bill));
   const position = fit >= CONVICTION_THRESHOLD ? "yes" : "no";

@@ -64,45 +64,45 @@ export const CONSENSUS_TIERS = Object.keys(CONSENSUS);
  */
 export const BILL_POOL = [
   // --- Left ---------------------------------------------------------------
-  { id: "nationalise_rail", axis: -0.92, domain: "economy",
+  { id: "nationalise_rail", axis: -0.92, economic: -0.9, diplomatic: 0.3, culture: 0, domain: "economy",
     title: "Rail Nationalisation Act",
     brief: "Takes the freight and passenger networks into public ownership at assessed value, with a federal operating authority.",
     fx: { approval: -1, labor: 14, wall_street: -16, big_business: -14, economy: { debt: 1.4, gdpGrowth: -0.2 } } },
-  { id: "wealth_tax", axis: -0.82, domain: "economy",
+  { id: "wealth_tax", axis: -0.82, economic: -0.9, diplomatic: 0, culture: 0, domain: "economy",
     title: "Extreme Wealth Tax Act",
     brief: "An annual levy on net worth above fifty million dollars, collected by a new Treasury division.",
     fx: { approval: 1.5, labor: 12, wall_street: -20, big_business: -12, economy: { debt: -1.6 } } },
-  { id: "jobs_guarantee", axis: -0.72, domain: "economy",
+  { id: "jobs_guarantee", axis: -0.72, economic: -0.85, diplomatic: 0, culture: 0, domain: "economy",
     title: "Federal Jobs Guarantee",
     brief: "Guarantees a public-option job at a living wage to any adult who wants one, administered through the states.",
     fx: { approval: 2, labor: 16, wall_street: -10, economy: { unemployment: -1.1, debt: 2.2, inflation: 0.4 } },
     society: { poverty: -1.4, unrest: -6 } },
-  { id: "green_transition", axis: -0.62, domain: "health",
+  { id: "green_transition", axis: -0.62, economic: -0.5, diplomatic: -0.3, culture: -0.4, domain: "health",
     title: "National Decarbonisation Act",
     brief: "Sunsets fossil generation on a ten-year clock and funds the replacement grid.",
     fx: { approval: 0.5, greens: 18, labor: -6, big_business: -10, economy: { debt: 1.8, gdpGrowth: -0.2 } } },
-  { id: "universal_care", axis: -0.55, domain: "health",
+  { id: "universal_care", axis: -0.55, economic: -0.8, diplomatic: 0, culture: 0, domain: "health",
     title: "Universal Coverage Act",
     brief: "Extends federal health coverage to every resident, funded by payroll and premium reform.",
     fx: { approval: 2.5, labor: 12, civil_rights: 8, big_business: -8, economy: { debt: 2.4 } },
     society: { uninsured: -6, lifeExpectancy: 0.4 } },
-  { id: "union_rights", axis: -0.48, domain: "economy",
+  { id: "union_rights", axis: -0.48, economic: -0.8, diplomatic: 0.2, culture: 0, domain: "economy",
     consensus: CONSENSUS.partyline,
     title: "Organising Rights Restoration Act",
     brief: "Bans captive-audience meetings, permits card-check recognition and penalises retaliatory dismissal.",
     fx: { approval: 0.5, labor: 18, big_business: -12, wall_street: -6 } },
-  { id: "voting_rights", axis: -0.42, liberty: 0.4, domain: "justice",
+  { id: "voting_rights", axis: -0.42, economic: 0, diplomatic: 0, liberty: 0.4, culture: -0.4, domain: "justice",
     consensus: CONSENSUS.partyline,
     title: "Voting Access Act",
     brief: "Sets a federal floor for early voting, mail ballots and same-day registration.",
     fx: { approval: 1, civil_rights: 16, faith: -5, gun_owners: -4 } },
-  { id: "childcare", axis: -0.35, domain: "social",
+  { id: "childcare", axis: -0.35, economic: -0.6, diplomatic: 0, culture: -0.2, domain: "social",
     consensus: CONSENSUS.contested,
     title: "Universal Childcare Act",
     brief: "Caps childcare costs at seven per cent of household income, with federal top-up payments.",
     fx: { approval: 3, labor: 8, faith: 4, economy: { debt: 1.2 } },
     society: { poverty: -0.8 } },
-  { id: "housing_supply", axis: -0.18, domain: "social",
+  { id: "housing_supply", axis: -0.18, economic: 0.2, diplomatic: 0, culture: 0, domain: "social",
     consensus: CONSENSUS.contested,
     title: "Housing Supply Act",
     brief: "Ties federal transport money to local permitting reform and funds two million new units.",
@@ -110,25 +110,25 @@ export const BILL_POOL = [
     society: { homeownership: 1.2 } },
 
   // --- Centre -------------------------------------------------------------
-  { id: "infrastructure", axis: -0.05, domain: "economy",
+  { id: "infrastructure", axis: -0.05, economic: 0, diplomatic: 0.2, culture: 0, domain: "economy",
     // Roads and bridges buy votes in every district.
     consensus: CONSENSUS.bipartisan,
     title: "Bridges and Ports Act",
     brief: "A decade of federal spending on roads, bridges, ports and water systems, split by formula.",
     fx: { approval: 3.5, labor: 10, big_business: 8, economy: { gdpGrowth: 0.4, debt: 1.6, unemployment: -0.3 } } },
-  { id: "chips_research", axis: 0.02, domain: "economy",
+  { id: "chips_research", axis: 0.02, economic: 0, diplomatic: 0.6, culture: 0, domain: "economy",
     // Onshoring is one of the few things both sides want.
     consensus: CONSENSUS.bipartisan,
     title: "Domestic Manufacturing Act",
     brief: "Subsidises advanced manufacturing onshore, with clawbacks for firms that offshore afterwards.",
     fx: { approval: 2.5, big_business: 10, labor: 8, economy: { gdpGrowth: 0.3, debt: 1.1 } } },
-  { id: "veterans_care", axis: 0.08, domain: "security",
+  { id: "veterans_care", axis: 0.08, economic: -0.2, diplomatic: 0.3, culture: 0.2, domain: "security",
     // Nobody is recorded against veterans' care.
     consensus: CONSENSUS.unanimous,
     title: "Veterans Care Expansion",
     brief: "Expands service-connected coverage and funds the backlog of pending claims.",
     fx: { approval: 3, pentagon: 12, faith: 5, economy: { debt: 0.6 } } },
-  { id: "opioid_response", axis: 0.12, domain: "health",
+  { id: "opioid_response", axis: 0.12, economic: -0.3, diplomatic: 0, culture: 0, domain: "health",
     // Rural clinics are not a partisan question.
     consensus: CONSENSUS.bipartisan,
     title: "Rural Health and Recovery Act",
@@ -152,20 +152,20 @@ export const BILL_POOL = [
    * where warrant amendments actually land and the only place a player's own
    * vote is worth anything.
    */
-  { id: "surveillance_reform", axis: -0.1, liberty: 0.58, domain: "justice",
+  { id: "surveillance_reform", axis: -0.1, economic: 0, diplomatic: 0, liberty: 0.58, culture: 0, domain: "justice",
     consensus: CONSENSUS.contested,
     title: "Warrant Requirement Act",
     brief: "Requires a judicial warrant before federal agencies may query Americans' communications, and forces disclosure of data breaches.",
     fx: { approval: 2, civil_rights: 14, gun_owners: 8, pentagon: -16, big_business: -8 },
     society: { crime: 3 } },
-  { id: "surveillance_powers", axis: 0.2, liberty: -0.58, domain: "justice",
+  { id: "surveillance_powers", axis: 0.2, economic: 0, diplomatic: 0.2, liberty: -0.58, culture: 0.2, domain: "justice",
     consensus: CONSENSUS.contested,
     title: "Intelligence Authorities Reauthorisation",
     brief: "Renews bulk collection authorities for five years and extends them to data bought from commercial brokers.",
     fx: { approval: -1, pentagon: 18, big_business: 8, civil_rights: -20, gun_owners: -10 },
     society: { crime: -6, unrest: 4 } },
 
-  { id: "budget_deal", axis: 0.18, domain: "economy",
+  { id: "budget_deal", axis: 0.18, economic: 0.3, diplomatic: 0, culture: 0, domain: "economy",
     // It is a compromise by construction.
     consensus: CONSENSUS.bipartisan,
     title: "Bipartisan Budget Compromise",
@@ -173,66 +173,66 @@ export const BILL_POOL = [
     fx: { approval: 1.5, wall_street: 8, big_business: 6, labor: -6, economy: { debt: -1.2 } } },
 
   // --- Right --------------------------------------------------------------
-  { id: "border_enforcement", axis: 0.38, liberty: -0.5, domain: "security",
+  { id: "border_enforcement", axis: 0.38, economic: 0, diplomatic: 0.8, liberty: -0.5, culture: 0.4, domain: "security",
     consensus: CONSENSUS.contested,
     title: "Border Enforcement Act",
     brief: "Funds physical barriers, detention capacity and eight thousand additional agents.",
     fx: { approval: 1, gun_owners: 10, faith: 8, civil_rights: -14, economy: { debt: 0.8 } },
     society: { unrest: 5, population: -0.2 } },
-  { id: "tax_cuts", axis: 0.45, domain: "economy",
+  { id: "tax_cuts", axis: 0.45, economic: 0.9, diplomatic: 0, culture: 0, domain: "economy",
     title: "Growth and Investment Act",
     brief: "Cuts corporate and top marginal rates and makes prior expensing provisions permanent.",
     fx: { approval: 0.5, wall_street: 18, big_business: 16, labor: -10, economy: { gdpGrowth: 0.4, debt: 2.6 } } },
-  { id: "deregulation", axis: 0.52, liberty: 0.3, domain: "economy",
+  { id: "deregulation", axis: 0.52, economic: 0.8, diplomatic: 0, liberty: 0.3, culture: 0, domain: "economy",
     title: "Regulatory Relief Act",
     brief: "Requires two rules repealed for each new one and strips agencies of independent rulemaking.",
     fx: { approval: -0.5, big_business: 16, wall_street: 12, greens: -16, economy: { gdpGrowth: 0.3 } } },
-  { id: "defence_buildup", axis: 0.55, liberty: -0.15, domain: "security",
+  { id: "defence_buildup", axis: 0.55, economic: 0.2, diplomatic: 0.5, liberty: -0.15, culture: 0.2, domain: "security",
     consensus: CONSENSUS.contested,
     title: "Defence Modernisation Act",
     brief: "A shipbuilding and munitions expansion with a five-year procurement floor.",
     fx: { approval: 1, pentagon: 18, big_business: 8, economy: { debt: 2.2, gdpGrowth: 0.2 } } },
-  { id: "school_choice", axis: 0.6, liberty: 0.25, domain: "social",
+  { id: "school_choice", axis: 0.6, economic: 0.5, diplomatic: 0, liberty: 0.25, culture: 0.6, domain: "social",
     title: "Education Freedom Act",
     brief: "Converts federal education funding into portable accounts families can spend anywhere.",
     fx: { approval: 0, faith: 16, labor: -14, economy: {} },
     society: { literacy: -0.4 } },
-  { id: "crime_bill", axis: 0.65, liberty: -0.8, domain: "justice",
+  { id: "crime_bill", axis: 0.65, economic: 0, diplomatic: 0.2, liberty: -0.8, culture: 0.5, domain: "justice",
     consensus: CONSENSUS.contested,
     title: "Public Order Act",
     brief: "Mandatory minimums for armed offences and a federal grant programme for police hiring.",
     fx: { approval: 1.5, gun_owners: 12, pentagon: 6, civil_rights: -18 },
     society: { crime: -22, unrest: 4 } },
-  { id: "entitlement_reform", axis: 0.72, domain: "economy",
+  { id: "entitlement_reform", axis: 0.72, economic: 0.8, diplomatic: 0, culture: 0.2, domain: "economy",
     title: "Entitlement Solvency Act",
     brief: "Raises the retirement age on a schedule and means-tests the upper benefit tier.",
     fx: { approval: -4, wall_street: 14, labor: -16, faith: -6, economy: { debt: -3.2 } },
     society: { poverty: 1.1 } },
 
   // --- Fringe: only a radicalised chamber writes these ---------------------
-  { id: "abolish_fed", axis: 0.88, liberty: 0.25, domain: "economy", fringe: true,
+  { id: "abolish_fed", axis: 0.88, economic: 0.7, diplomatic: 0.4, liberty: 0.25, culture: 0.2, domain: "economy", fringe: true,
     title: "Federal Reserve Abolition Act",
     brief: "Winds up the central bank and returns monetary authority to Treasury and the states.",
     fx: { approval: -3, wall_street: -24, big_business: -14, gun_owners: 10, economy: { inflation: 2.4, gdpGrowth: -0.8 } } },
-  { id: "national_faith", axis: 0.92, liberty: -0.6, domain: "social", fringe: true,
+  { id: "national_faith", axis: 0.92, economic: 0, diplomatic: 0.5, liberty: -0.6, culture: 0.95, domain: "social", fringe: true,
     title: "National Religious Heritage Act",
     brief: "Establishes scriptural instruction in federally funded schools and a national day of observance.",
     fx: { approval: -4, faith: 24, civil_rights: -26, big_business: -8 },
     society: { unrest: 12 } },
-  { id: "abolish_income_tax", axis: 0.95, liberty: 0.2, domain: "economy", fringe: true,
+  { id: "abolish_income_tax", axis: 0.95, economic: 0.9, diplomatic: 0.3, liberty: 0.2, culture: 0.2, domain: "economy", fringe: true,
     title: "Income Tax Repeal Act",
     brief: "Repeals the federal income tax outright and funds the government from tariffs and excise.",
     fx: { approval: 2, wall_street: 10, big_business: 12, labor: -12, economy: { debt: 5.5, inflation: 1.2 } } },
-  { id: "seize_industry", axis: -0.95, liberty: -0.3, domain: "economy", fringe: true,
+  { id: "seize_industry", axis: -0.95, economic: -0.95, diplomatic: 0.3, liberty: -0.3, culture: 0, domain: "economy", fringe: true,
     title: "Commanding Heights Act",
     brief: "Brings energy, pharmaceuticals and heavy industry under public ownership and workers' councils.",
     fx: { approval: -4, labor: 26, wall_street: -30, big_business: -28, economy: { gdpGrowth: -1.2, debt: 3.4 } },
     society: { unrest: 14 } },
-  { id: "max_income", axis: -0.88, liberty: -0.15, domain: "economy", fringe: true,
+  { id: "max_income", axis: -0.88, economic: -0.9, diplomatic: 0, liberty: -0.15, culture: 0, domain: "economy", fringe: true,
     title: "Maximum Income Act",
     brief: "Caps total compensation at a fixed multiple of the federal minimum wage.",
     fx: { approval: -1, labor: 22, wall_street: -28, big_business: -22, economy: { gdpGrowth: -0.6 } } },
-  { id: "degrowth_act", axis: -0.85, liberty: -0.3, domain: "health", fringe: true,
+  { id: "degrowth_act", axis: -0.85, economic: -0.6, diplomatic: -0.3, liberty: -0.3, culture: -0.3, domain: "health", fringe: true,
     title: "Planetary Limits Act",
     brief: "Sets a declining statutory cap on national energy and material throughput.",
     fx: { approval: -6, greens: 26, labor: -14, big_business: -24, economy: { gdpGrowth: -1.6 } } },
@@ -262,7 +262,7 @@ export const scheduledBill = (source, extra = {}) => ({
   title: source.title,
   brief: source.brief,
   axis: source.axis,
-  liberty: Number(source.liberty) || 0,
+  ...Object.fromEntries(ISSUE_AXES.map(({ id }) => [id, Number(source[id]) || 0])),
   domain: source.domain,
   fringe: Boolean(source.fringe),
   ...(Array.isArray(source.defectors) && source.defectors.length
@@ -307,63 +307,123 @@ export const FRINGE_AXIS = 0.75;
 const agreement = (memberAxis, billAxis) => 1 - Math.abs(memberAxis - billAxis) / 2;
 
 /**
- * The second axis: what the state may do to a person.
+ * The four issue axes, after the 8values model.
  *
- * Everything in the chamber used to be one number between −1 and 1, which meant
- * the room could only ever be ordered by how far out each voice sat. A single
- * axis cannot express the commonest cross-cutting fight a real legislature has —
- * both ends voting together against both leaderships — because monotone ordering
- * puts the ends at opposite poles by construction.
+ * Everything in the chamber used to be one number between −1 and 1, so the room
+ * could only ever be ordered by how far out each voice sat — and monotone
+ * ordering cannot express a legislature where both ends vote together against
+ * both leaderships. Adding state power fixed that for one kind of fight and made
+ * the next gap plain: a Groyper and a Libertarian Conservative still came out
+ * neighbours, because what separates them is not money and not quite state power
+ * either. It is nation against globe, and tradition against progress.
  *
- * Surveillance is where that broke visibly. A bill limiting government
- * surveillance reads as "moderate" on the economic axis, so the engine placed
- * the Freedom Caucus against it — the bloc that in life whips hardest *for* it,
- * and has done in every FISA fight of the last decade. The same error runs the
- * other way on the left, where an anti-war progressive was scored as a reliable
- * vote for the security state.
- *
- * `liberty` is that dimension. +1 is "the state may not"; −1 is "the state
- * must". It is orthogonal to money on purpose: a Civil Libertarian and a
- * Constitutionalist disagree about everything except this.
+ * `axis` survives all four and is not one of them. A district has a single
+ * partisan lean and there is no way to get four numbers out of it, so the
+ * composite stays the thing every voice has, and these are the richer
+ * description used only where a bill stakes a claim on them.
  */
-const positionOf = (bill) => (typeof bill === "number"
-  ? { axis: bill, liberty: 0 }
-  : { axis: Number(bill?.axis) || 0, liberty: Number(bill?.liberty) || 0 });
+export const ISSUE_AXES = [
+  { id: "economic", low: "equality", high: "markets",
+    of: "who gets what — redistribution against growth" },
+  { id: "diplomatic", low: "globe", high: "nation",
+    of: "the country against the world — sovereignty against integration" },
+  { id: "liberty", low: "authority", high: "liberty",
+    of: "what the state may do to a person" },
+  /**
+   * 8values calls this axis Society. It cannot be called that here: a bill
+   * already carries `society`, the block of national statistics it moves, and
+   * an axis sharing that name resolves to 0 through `Number({...})` without
+   * anybody noticing — which is precisely how `liberty` spent a day inert.
+   */
+  { id: "culture", low: "progress", high: "tradition",
+    of: "the moral order — how much of it is settled" },
+];
 
 /**
- * How much of this bill is about state power at all.
+ * How much of a vote the four may take between them.
  *
- * The dimension is deliberately sparse. A tax cut, a childcare subsidy and a
- * bridge say nothing about what the state may do to a person, and for those the
- * weight is zero and every number in the game is exactly what it was before this
- * existed. Only a bill that stakes out a position is scored on it, and then in
- * proportion to how hard it stakes it — which is why adding this could not
- * retune a single existing outcome.
+ * Never all of it. Below this the partisan composite always keeps a share, so a
+ * seat's own politics and a caucus's anchor cannot be argued away entirely by a
+ * bill that shouts loudly enough on four issues at once. Set above every
+ * magnitude the pool actually uses, so no existing bill is changed by the cap
+ * existing.
  */
-export const libertyWeight = (bill) => Math.abs(positionOf(bill).liberty);
+export const ISSUE_WEIGHT_CAP = 0.9;
+
+const valueOn = (source, id) => {
+  const raw = source?.[id];
+  return typeof raw === "number" && Number.isFinite(raw) ? raw : 0;
+};
+
+/** What a bill claims, per axis, and how hard. Absent is 0 and 0 is silent. */
+const claimsOf = (bill) => (typeof bill === "number"
+  ? { axis: bill, claims: [] }
+  : {
+      axis: valueOn(bill, "axis"),
+      claims: ISSUE_AXES
+        .map(({ id }) => ({ id, value: valueOn(bill, id) }))
+        .filter((c) => c.value !== 0),
+    });
 
 /**
- * Where a voice lands on a bill, across both axes plus consensus.
+ * Where a voice lands on a bill, across every axis it has a view on.
  *
  * The single place any of it is computed. The caucus card, the district card,
  * the bloc card, the player's own conviction card and the roll call all call
  * here, because the last time two of them computed the same fit separately the
  * panel and the tally disagreed about the same vote on screen.
  *
- * `voice.liberty` of `null` means "has no view on state power" — which is not
- * the same as a neutral view, and is the honest answer for a congressional
- * district. A seat's partisan lean tells you nothing about where its voters
- * stand on surveillance, so rather than invent a number the seat is scored on
- * the economic axis alone and the dimension simply does not reach it.
+ * Sparse on purpose, and the property is load-bearing: a bill says nothing on an
+ * axis by leaving it at 0, and then that axis takes none of the weight. A tax
+ * cut is scored exactly as it was before any of this existed. Where a bill does
+ * stake claims, they share the weight in proportion to how hard each is staked,
+ * capped so the composite always keeps its say — which is what stops four loud
+ * claims from adding up to more than a whole vote.
+ *
+ * A `null` on a voice means "has no view on this", which is not the same as a
+ * neutral view and is the honest answer for a congressional district. That axis
+ * simply does not reach it, and its share returns to the composite.
  */
 export function stanceFit(voice, bill, consensus = consensusOf(bill)) {
-  const position = positionOf(bill);
-  const onAxis = agreement(Number(voice?.axis) || 0, position.axis);
-  // A voice with no stated position on state power is judged on money alone.
-  const care = voice?.liberty == null ? 0 : libertyWeight(bill);
-  const onLiberty = agreement(Number(voice?.liberty) || 0, position.liberty);
-  return (1 - care) * onAxis + care * onLiberty + consensus * CONSENSUS_PULL;
+  const { axis, claims } = claimsOf(bill);
+  const onAxis = agreement(valueOn(voice, "axis"), axis);
+
+  // Only the axes this voice actually holds an opinion on.
+  const heard = claims.filter(({ id }) => voice?.[id] !== null && voice?.[id] !== undefined);
+  if (!heard.length) return onAxis + consensus * CONSENSUS_PULL;
+
+  /**
+   * How issue-coded the bill is, taken from its strongest claim rather than the
+   * sum of them.
+   *
+   * Summing was the obvious reading and it is wrong. Four axes at a modest 0.5
+   * each add to 2.0, saturate the cap, and leave the partisan composite holding
+   * a tenth of the vote — so a radicalised chamber, which coheres precisely
+   * because its members share a composite, came apart on every fringe bill in
+   * the pool. Taking the strongest claim says the sensible thing instead: a bill
+   * is as much about its subject as its loudest note, and no louder for having
+   * several.
+   *
+   * It also leaves the single-axis case untouched, since the maximum of one
+   * number is that number.
+   */
+  const loudest = Math.max(...heard.map((c) => Math.abs(c.value)));
+  const demand = heard.reduce((sum, c) => sum + Math.abs(c.value), 0);
+  const share = Math.min(loudest, ISSUE_WEIGHT_CAP);
+  let issues = 0;
+  for (const c of heard) {
+    issues += (Math.abs(c.value) / demand) * share * agreement(valueOn(voice, c.id), c.value);
+  }
+  return (1 - share) * onAxis + issues + consensus * CONSENSUS_PULL;
 }
+
+/** How much of this bill is about anything other than ordinary partisanship. */
+export const issueWeight = (bill) => {
+  const { claims } = claimsOf(bill);
+  if (!claims.length) return 0;
+  return Math.min(Math.max(...claims.map((c) => Math.abs(c.value))), ISSUE_WEIGHT_CAP);
+};
+
 
 /**
  * How far consensus can stretch the window.
