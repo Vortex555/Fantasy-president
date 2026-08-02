@@ -51,7 +51,7 @@ test("every topic names an action with its direction already in it", () => {
   // never has to infer a sign — the failure mode that produced a police
   // accountability bill scored as an expansion of police power.
   assert.ok(BILL_TOPICS.includes("mandate_platform_moderation"));
-  assert.ok(BILL_TOPICS.includes("protect_platform_speech"));
+  assert.ok(BILL_TOPICS.includes("forbid_platform_removals"));
 });
 
 test("a reflex is only ever stated as a vote, never as a number", () => {
@@ -215,7 +215,7 @@ test("every topic the model is offered comes with a definition", () => {
   for (const t of BILL_TOPICS) {
     assert.ok(TOPIC_MEANINGS[t] && TOPIC_MEANINGS[t].length > 20, `${t} has no usable definition`);
   }
-  assert.notEqual(TOPIC_MEANINGS.mandate_platform_moderation, TOPIC_MEANINGS.protect_platform_speech);
+  assert.notEqual(TOPIC_MEANINGS.mandate_platform_moderation, TOPIC_MEANINGS.forbid_platform_removals);
   assert.match(TOPIC_MEANINGS.mandate_platform_moderation, /hate speech|harassment/,
     "the case that was mis-tagged should be named in the definition");
 });

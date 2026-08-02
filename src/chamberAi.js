@@ -145,7 +145,7 @@ You MUST respond with ONLY a single JSON object (no prose, no markdown fences) w
   "bills": [
     {
       "title": "the name it will be known by — an Act, a Resolution, an Amendment",
-      "brief": "ONE sentence, maximum 30 words, saying concretely what the bill does. Mechanisms and numbers, not aspirations.",
+      "brief": "ONE sentence, maximum 30 words, saying concretely what the bill DOES: mechanisms, thresholds, numbers. A bill cannot support, oppose, believe or see anything — if your sentence contains 'opposes', 'supports' or 'aims to', you have written a position instead of a provision. Never state two provisions that pull against each other.",
       "axis": number,        // where it sits ideologically, -1 (hard left) to +1 (hard right)
       // For each of the five axes: name the SIDE in words, then score it.
       // Leave both out entirely on axes the bill is not about — most bills are
@@ -330,7 +330,15 @@ const VOICE_KEYS = ["party", "district", "bloc", "conviction"];
  * Freedom Caucus opposes increased federal oversight and funding for
  * bureaucratic expansion" directly underneath it.
  */
-const ARGUES_AGAINST = /\b(oppos\w+|reject\w*|refus\w+|resist\w+|object(s|ed|ing)?\b|against|vote[sd]? no|will not (back|support|vote))/i;
+/**
+ * `against` on its own was in here and was eating good lines. "Tolpa has
+ * campaigned against the platforms since being removed from them" is a correct
+ * reason to vote FOR a bill restraining platforms, and the guard threw it away
+ * because a member can be against a third party while being for the bill about
+ * it. Every other verb here takes the bill as its object; this one did not, so
+ * it now has to name it.
+ */
+const ARGUES_AGAINST = /\b(oppos\w+|reject\w*|refus\w+|resist\w+|object(s|ed|ing)?\b|vote[sd]? no|will not (back|support|vote)|against (it|this|the (bill|act|measure|legislation|proposal)))/i;
 const ARGUES_FOR = /\b(support\w*|back(s|ed|ing)?\b|favou?r\w*|endors\w*|champion(s|ed|ing)?\b|vote[sd]? (for|yes))/i;
 
 /**
@@ -388,8 +396,21 @@ export function validateVoices(raw, bills, positions) {
       const text = String(item?.[who] || "").trim().slice(0, 200);
       if (!text) continue;
       const position = positions[bill.id][who];
-      if (contradicts(text, position)) continue;
-      if (who === "conviction" && defersToAnother(text)) continue;
+
+      /**
+       * A refused line falls back to a hand-written one, which reads as the
+       * feature simply being off. Three guards run here and none of them said
+       * anything, so a card sitting on its template was indistinguishable from a
+       * card the model never wrote — and there was no way to tell an over-eager
+       * guard from a quiet model. Say which, and why.
+       */
+      const refused = contradicts(text, position) ? "argues the opposite of its own position"
+        : (who === "conviction" && defersToAnother(text)) ? "defers to another voice"
+        : null;
+      if (refused) {
+        console.warn(`[voice] dropped ${who} on "${bill.title}" — ${refused}: "${text.slice(0, 80)}"`);
+        continue;
+      }
       lines[who] = { position, text };
     }
     if (Object.keys(lines).length) out[bill.id] = lines;

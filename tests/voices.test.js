@@ -277,3 +277,36 @@ test("and the other three cards may name institutions freely", () => {
   }] }, bills, positions);
   assert.equal(Object.keys(out.a).length, 3, "only the conviction card is held to this");
 });
+
+// ---------------------------------------------------------------------------
+// A guard that eats good sentences is worse than no guard
+// ---------------------------------------------------------------------------
+
+/**
+ * "Tolpa has campaigned against the platforms since being removed from them" is
+ * a correct reason to vote FOR a bill that restrains platforms, and the
+ * contradiction guard threw it away — because `against` was in the pattern on
+ * its own, and a member can be against a third party while being for the bill
+ * about it. Cards kept falling back to their hand-written lines and it read as
+ * the model simply not writing them.
+ */
+test("being against somebody is not being against the bill", () => {
+  const bills = [{ id: "a", title: "T" }];
+  const keep = [
+    ["conviction", "yes", "Tolpa has campaigned against the platforms since being removed from them."],
+    ["district", "yes", "WV-2 has been angry at the coal regulators for a decade."],
+    ["party", "yes", "Leadership has been fighting against the agencies over this since spring."],
+  ];
+  for (const [who, position, text] of keep) {
+    const out = validateVoices({ voices: [{ title: "T", [who]: text }] }, bills, { a: { [who]: position } });
+    assert.ok(out.a?.[who], `wrongly dropped: "${text}"`);
+  }
+});
+
+test("but naming the bill itself still trips it", () => {
+  const bills = [{ id: "a", title: "T" }];
+  for (const text of ["They are against the bill on principle.", "Leadership will vote against it."]) {
+    const out = validateVoices({ voices: [{ title: "T", conviction: text }] }, bills, { a: { conviction: "yes" } });
+    assert.equal(out.a, undefined, `should have been refused: "${text}"`);
+  }
+});

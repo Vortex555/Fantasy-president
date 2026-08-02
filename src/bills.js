@@ -335,7 +335,15 @@ const agreement = (memberAxis, billAxis) => 1 - Math.abs(memberAxis - billAxis) 
  */
 export const TOPIC_MEANINGS = {
   mandate_platform_moderation: "requires platforms to remove or restrict content, including hate speech and harassment",
-  protect_platform_speech: "forbids platforms from removing content, or penalises them for doing so",
+  /**
+   * Named for the action, not the value, after the value-shaped name inverted a
+   * vote. "protect_platform_speech" reads equally as protecting speech *on*
+   * platforms — users, anti-deplatforming — and protecting *platforms'* own
+   * editorial freedom, which is its opposite. A bill declining to regulate tech
+   * companies was tagged with it and a Groyper's reflex enforced the wrong
+   * reading at full strength. A model weights the name over the gloss.
+   */
+  forbid_platform_removals: "stops platforms removing users or content, or penalises them for doing so — an anti-deplatforming bill",
   expand_surveillance: "widens what agencies may collect, monitor or query",
   restrict_surveillance: "requires warrants, narrows collection, or sunsets an authority",
   protect_firearms: "removes or blocks restrictions on owning or carrying weapons",
@@ -360,7 +368,7 @@ export const BILL_TOPICS = Object.keys(TOPIC_MEANINGS);
  * rather than authored, so the omission cannot recur.
  */
 export const TOPIC_MIRRORS = {
-  mandate_platform_moderation: "protect_platform_speech",
+  mandate_platform_moderation: "forbid_platform_removals",
   expand_surveillance: "restrict_surveillance",
   restrict_firearms: "protect_firearms",
   weaken_civil_rights: "strengthen_civil_rights",

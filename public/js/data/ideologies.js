@@ -240,7 +240,7 @@ export const IDEOLOGIES = {
      * at" axis puts obscenity law and platform bans on the *same* side, and the
      * ideology wants opposite votes on them. `defectors` is the tool for those.
      */
-    { value: "Groyper", axis: 0.95, economic: 0.1, diplomatic: 0.9, liberty: 0.2, culture: 0.9, pluralism: -0.95, sub: "+Young online right hard, −Party establishment hard, −Civil rights hard", reflex: { mandate_platform_moderation: "no", protect_platform_speech: "yes", protect_firearms: "yes", weaken_civil_rights: "yes", expand_deportation: "yes" }, fringe: true,
+    { value: "Groyper", axis: 0.95, economic: 0.1, diplomatic: 0.9, liberty: 0.2, culture: 0.9, pluralism: -0.95, sub: "+Young online right hard, −Party establishment hard, −Civil rights hard", reflex: { mandate_platform_moderation: "no", forbid_platform_removals: "yes", protect_firearms: "yes", weaken_civil_rights: "yes", expand_deportation: "yes" }, fringe: true,
       wrecker: true,
       fx: { gun_owners: 14, faith: 8, civil_rights: -32, big_business: -24, wall_street: -22, pentagon: -14, stability: -20, approval: -12 },
       trait: {
