@@ -333,20 +333,45 @@ const agreement = (memberAxis, billAxis) => 1 - Math.abs(memberAxis - billAxis) 
  * for anything less and this becomes a lookup table with five decorative
  * coordinates attached.
  */
-export const BILL_TOPICS = [
-  "mandate_platform_moderation",   // the state requiring platforms to police content
-  "protect_platform_speech",       // the state forbidding them to
-  "expand_surveillance",
-  "restrict_surveillance",
-  "protect_firearms",
-  "restrict_firearms",
-  "weaken_civil_rights",
-  "strengthen_civil_rights",
-  "expand_deportation",
-  "fund_incarceration",
-  "restrict_abortion",
-  "protect_abortion",
-];
+export const TOPIC_MEANINGS = {
+  mandate_platform_moderation: "requires platforms to remove or restrict content, including hate speech and harassment",
+  protect_platform_speech: "forbids platforms from removing content, or penalises them for doing so",
+  expand_surveillance: "widens what agencies may collect, monitor or query",
+  restrict_surveillance: "requires warrants, narrows collection, or sunsets an authority",
+  protect_firearms: "removes or blocks restrictions on owning or carrying weapons",
+  restrict_firearms: "adds checks, bans, registries or confiscation",
+  weaken_civil_rights: "narrows who anti-discrimination law protects, or creates exemptions from it",
+  strengthen_civil_rights: "widens who it protects, or stiffens enforcement",
+  expand_deportation: "increases removals, detention capacity or immigration enforcement",
+  fund_incarceration: "appropriates money to prisons or prison staffing, for any purpose",
+  restrict_abortion: "bans, limits or adds conditions to it",
+  protect_abortion: "guarantees access or blocks restrictions",
+};
+
+export const BILL_TOPICS = Object.keys(TOPIC_MEANINGS);
+
+/**
+ * Topics that are the same question pointed the other way.
+ *
+ * A politics that will never vote to restrict firearms will always vote to
+ * protect them, and stating both is duplication that someone will eventually
+ * half-do — as I did, giving a Groyper `weaken_civil_rights` and forgetting the
+ * mirror, so a bill tagged the other way lost the reflex entirely. Derived
+ * rather than authored, so the omission cannot recur.
+ */
+export const TOPIC_MIRRORS = {
+  mandate_platform_moderation: "protect_platform_speech",
+  expand_surveillance: "restrict_surveillance",
+  restrict_firearms: "protect_firearms",
+  weaken_civil_rights: "strengthen_civil_rights",
+  restrict_abortion: "protect_abortion",
+};
+
+const mirrorOf = (topic) => TOPIC_MIRRORS[topic]
+  || Object.keys(TOPIC_MIRRORS).find((k) => TOPIC_MIRRORS[k] === topic)
+  || null;
+
+const flip = (vote) => (vote === "yes" ? "no" : vote === "no" ? "yes" : null);
 
 /** The most a single bill may claim to do. A bill about everything is about nothing. */
 export const MAX_TOPICS = 3;
@@ -362,8 +387,11 @@ export function reflexVote(voice, bill) {
   const held = voice?.reflex;
   if (!held) return null;
   for (const topic of (Array.isArray(bill?.topics) ? bill.topics : [])) {
-    const vote = held[topic];
-    if (vote === "yes" || vote === "no") return vote;
+    const stated = held[topic];
+    if (stated === "yes" || stated === "no") return stated;
+    // A position on the same question pointed the other way is the same position.
+    const opposite = held[mirrorOf(topic)];
+    if (opposite === "yes" || opposite === "no") return flip(opposite);
   }
   return null;
 }

@@ -3,7 +3,7 @@ import { parseModelJson } from "./ai/json.js";
 import { seeded } from "./rng.js";
 import { normalizeDomain, activeArcs, ARC_DOMAIN_IDS } from "./arcs.js";
 import {
-  FRINGE_AXIS, CONSENSUS_TIERS, MAX_DEFECTIONS, ISSUE_AXES, BILL_TOPICS, MAX_TOPICS,
+  FRINGE_AXIS, CONSENSUS_TIERS, MAX_DEFECTIONS, ISSUE_AXES, BILL_TOPICS, MAX_TOPICS, TOPIC_MEANINGS,
 } from "./bills.js";
 import { FACTIONS } from "../public/js/data/factions.js";
 import { findIdeology } from "../public/js/data/ideologies.js";
@@ -176,7 +176,8 @@ Rules — read them, they are the difference between a floor and a list:
 - EVERY bill must be traceable to the national situation you are given. The month's dominating story and the unresolved problems are your material. A bill that could have been scheduled in any month of any decade is a failure.
 - Congress responds to a crisis LATE, PARTIALLY and IN ITS OWN INTEREST. The honest legislative answer to a disaster is usually a narrow funding bill, a commission, a reauthorisation with a rider attached, or a messaging vote designed to make the other side vote no. Sweeping, well-designed solutions to the actual problem are the rare case, not the default.
 - "axis" is load-bearing and the engine computes the entire roll call from it. Be honest: a bipartisan disaster-relief appropriation is near 0.0; a targeted tax cut is around +0.45; nationalising an industry is -0.9. Do not push everything to the extremes to seem dramatic — a chamber where every bill is at ±0.8 has no politics in it, only noise.
-- "topics" names concrete ACTIONS a bill takes, for the handful of positions a caucus holds no matter how a bill is written. Include one only when the bill plainly does that thing. Valid values, and nothing else: ${BILL_TOPICS.join(", ")}
+- "topics" names concrete ACTIONS a bill takes, for the handful of positions a caucus holds no matter how a bill is written. A wrong topic is worse than none at all — it decides those members' votes outright — so include one ONLY when the bill plainly does that exact thing, and read the pairs carefully, because several are the same subject pointed opposite ways. Valid values and nothing else:
+${Object.entries(TOPIC_MEANINGS).map(([k, v]) => `    ${k} — ${v}`).join("\n")}
 - NAME THE SIDE BEFORE YOU SCORE IT. On every axis the bill touches, write the "_side" word first and then a number with the matching sign. Deciding "this restrains the police" and then writing -0.5 is the single commonest mistake made here, because the wording of these bills cuts both ways; the word is what will be believed. Omit both fields on any axis the bill is not about.
 - The five axes AFTER "axis" are what the bill is *about*, and MOST BILLS ARE 0 ON MOST OF THEM. Set only the ones the bill genuinely turns on — usually one, sometimes two, rarely three. A bill that is 0 on all four is fine and common; it is scored on "axis" alone exactly as before these existed.
     "economic"   — taxes, spending, subsidies, wages, ownership. A corporate rate cut is +0.9; a jobs guarantee is -0.85.

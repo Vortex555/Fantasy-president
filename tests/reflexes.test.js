@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { BILL_TOPICS, reflexVote, rollCall, CONSENSUS } from "../src/bills.js";
+import { BILL_TOPICS, TOPIC_MEANINGS, reflexVote, rollCall, CONSENSUS } from "../src/bills.js";
 import { IDEOLOGIES, findIdeology, ideologyPosition } from "../public/js/data/ideologies.js";
 import { FACTIONS } from "../public/js/data/factions.js";
 import { convictionView } from "../src/conviction.js";
@@ -183,4 +183,39 @@ test("real topics survive, and a bill naming none carries an empty list", () => 
 test("no bill claims more topics than a bill plausibly has", () => {
   const many = docket({ topics: [...BILL_TOPICS] });
   assert.ok(many.topics.length <= 3, "a bill that is about everything is about nothing");
+});
+
+// ---------------------------------------------------------------------------
+// The same question, pointed the other way
+// ---------------------------------------------------------------------------
+
+/**
+ * A politics that will never vote to restrict firearms will always vote to
+ * protect them. Stating both is duplication somebody will eventually half-do —
+ * as I did, giving a Groyper `weaken_civil_rights` and forgetting the mirror, so
+ * a bill tagged `strengthen_civil_rights` lost the reflex entirely and fell back
+ * to arithmetic on the one subject the ideology is least ambiguous about.
+ */
+test("a reflex covers the mirror of its own topic", () => {
+  const groyper = findIdeology("Republican", "Groyper");
+  assert.equal(groyper.reflex.weaken_civil_rights, "yes");
+  assert.equal(groyper.reflex.strengthen_civil_rights, undefined, "not stated");
+  assert.equal(reflexVote(groyper, { topics: ["strengthen_civil_rights"] }), "no",
+    "and yet answered, because it is the same question inverted");
+
+  assert.equal(reflexVote(groyper, { topics: ["restrict_firearms"] }), "no");
+  const civil = findIdeology("Democrat", "Civil Libertarian");
+  assert.equal(reflexVote(civil, { topics: ["weaken_civil_rights"] }), "no");
+});
+
+test("every topic the model is offered comes with a definition", () => {
+  // The two that caused this: a bill mandating moderation was tagged as one
+  // protecting speech, and the reflex enforced the inversion at full strength.
+  // Bare ids are confusable; the prompt now ships meanings.
+  for (const t of BILL_TOPICS) {
+    assert.ok(TOPIC_MEANINGS[t] && TOPIC_MEANINGS[t].length > 20, `${t} has no usable definition`);
+  }
+  assert.notEqual(TOPIC_MEANINGS.mandate_platform_moderation, TOPIC_MEANINGS.protect_platform_speech);
+  assert.match(TOPIC_MEANINGS.mandate_platform_moderation, /hate speech|harassment/,
+    "the case that was mis-tagged should be named in the definition");
 });
