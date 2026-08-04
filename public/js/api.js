@@ -71,6 +71,10 @@ export const moveVacate = (state, favours) =>
 export const callHearing = (state, arcId, compel) =>
   post("/api/chamber/hearing", { state, arcId, compel });
 
+/** The half of the job that happens at home. */
+export const doCasework = (state, effort) => post("/api/chamber/casework", { state, effort });
+export const askEarmark = (state) => post("/api/chamber/earmark", { state });
+
 export const houseVote = (state, bill, vote) => post("/api/house/vote", { state, bill, vote });
 
 export const houseSponsor = (state, title, axis, domain, favours = 0) =>

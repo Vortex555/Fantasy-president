@@ -51,6 +51,9 @@ import { historicalHouseVerdict } from "./houseVerdict.js";
 import { STATES } from "./states.js";
 import { hearingTargets, holdHearing, resetHearings, canHold, canCompel } from "./oversight.js";
 import {
+  doCasework, resetCasework, requestEarmark, canEarmark, resetEarmarks, MAX_CASEWORK,
+} from "./district.js";
+import {
   shelvedBills, petitionCeiling, launchPetition, signPetition, advancePetition,
   DISCHARGE_THRESHOLD, vacateCount, moveToVacate, resolveVacancy,
 } from "./procedure.js";
@@ -775,6 +778,17 @@ app.post("/api/house/floor", async (req, res) => {
         targets: hearingTargets(state),
         profile: Math.round((state.profile ?? 0) * 10) / 10,
       },
+      /**
+       * The half of the job that happens at home, and the only lever on the
+       * district that is not a consequence of how you voted. See district.js.
+       */
+      district: {
+        doneThisMonth: Boolean(state.caseworkThisMonth),
+        maxEffort: MAX_CASEWORK,
+        canEarmark: canEarmark(state),
+        earmarkUsed: Boolean(state.earmarkThisTerm),
+        cases: Math.round(state.casework ?? 0),
+      },
       // The country the calendar was written out of, so the floor can show it.
       nation: nationCard(state),
       written,
@@ -978,12 +992,36 @@ app.post("/api/chamber/hearing", memberOnly((req, res, state) => {
   }
 }));
 
+/** The half of the job that happens at home. */
+app.post("/api/chamber/casework", memberOnly((req, res, state) => {
+  try {
+    const out = doCasework(state, Number(req.body?.effort) || 1);
+    if (out.rejected) return res.status(400).json({ error: out.note });
+    res.json(out);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "The office could not take it on." });
+  }
+}));
+
+/** Money with your name on the paperwork. */
+app.post("/api/chamber/earmark", memberOnly((req, res, state) => {
+  try {
+    const out = requestEarmark(state);
+    if (out.rejected) return res.status(400).json({ error: out.note });
+    res.json(out);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "The project could not be written in." });
+  }
+}));
+
 app.post("/api/house/advance", async (req, res) => {
   try {
     const { state } = req.body || {};
     if (!state || state.office !== "house") return res.status(400).json({ error: "A House career is required." });
     const moved = advancePetition(state);
-    const chair = resolveVacancy(resetHearings(moved.state));
+    const chair = resolveVacancy(resetCasework(resetHearings(moved.state)));
     const out = advanceHouseMonth(chair.state);
     if (chair.note) out.vacancyNote = chair.note;
     // A signature drive is a month-by-month thing, so its news rides along with
@@ -1322,7 +1360,7 @@ app.post("/api/senate/advance", async (req, res) => {
     const { state } = req.body || {};
     if (!state || state.office !== "senate") return res.status(400).json({ error: "A Senate career is required." });
     const moved = advancePetition(state);
-    const chair = resolveVacancy(resetHearings(moved.state));
+    const chair = resolveVacancy(resetCasework(resetHearings(moved.state)));
     const out = advanceSenateMonth(chair.state);
     if (chair.note) out.vacancyNote = chair.note;
     // A signature drive is a month-by-month thing, so its news rides along with

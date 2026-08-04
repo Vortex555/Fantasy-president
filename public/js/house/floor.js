@@ -7,7 +7,7 @@ import {
   houseFloor, houseVote, houseAdvance, houseSponsor, houseCommittee, houseWhip, houseArticles,
   senateFloor, senateVote, senateFilibuster, senateAdvance,
   senateSponsor, senateCommittee, senateWhip, senateArticles, senateConfirm,
-  filePetition, pushPetition, moveVacate, callHearing,
+  filePetition, pushPetition, moveVacate, callHearing, doCasework, askEarmark,
 } from "../api.js";
 import {
   nationCard, falloutBlock, staffCard, wireStaff, resetStaffLogIfNewMonth,
@@ -155,6 +155,7 @@ function paint() {
           <p style="margin:10px 0 0">${escapeHtml(pendingCycle.ladder.note)}</p>
         </div>` : ""}
 
+    ${districtCard(board)}
     ${hearingCard(board)}
     ${vacateCard(board)}
     ${petitionCard(board)}
@@ -206,6 +207,7 @@ function paint() {
   wirePetition();
   wireVacate();
   wireHearing();
+  wireDistrict();
   if (board.canSponsor) wireSponsor();
   wireStaff();
   const country = $("seeCountry");
@@ -307,6 +309,52 @@ function wireArticles() {
  * in the mode, and it only reads that way if you can see all three pressures at
  * once.
  */
+/**
+ * The half of the job nobody writes a story about.
+ *
+ * Every other action in the mode happens in Washington, and the district existed
+ * only as a number that judged you — approval moved when you voted and could not
+ * be worked on directly. Casework is what congressional offices actually spend
+ * most of their staff time on, and its cost is the honest one: days at home are
+ * days not in the building.
+ */
+function districtCard(board) {
+  const d = board.district;
+  if (!d) return "";
+  const seat = G.state.seat?.district || "your seat";
+
+  return `<div class="card" id="districtCard">
+    <div class="card__head">
+      <span class="eyebrow">🏠 Back in ${escapeHtml(seat)}</span>
+      <span class="hint">${d.cases} case${d.cases === 1 ? "" : "s"} worked</span>
+    </div>
+    ${d.doneThisMonth ? `<p class="hint" style="margin:6px 0 0">
+      Your office has done what it can this month. The queue is not infinite and
+      neither are your staff.
+    </p>` : `
+      <p class="hint" style="margin:6px 0 12px">
+        Benefits stuck for fourteen months, a passport for a funeral, a disability
+        claim denied over a typo. It buys goodwill from people who disagree with
+        every vote you cast — and days at home are days you are not in the room
+        when the favours are handed out.
+      </p>
+      <div class="whipbox__act">
+        <input type="range" min="1" max="${d.maxEffort}" value="1" data-case-range />
+        <span class="hint" data-case-label>1 day a week in the district</span>
+        <button class="btn btn--sm" data-case-go>Work the casework</button>
+      </div>`}
+    ${d.canEarmark ? `<div class="gavel" style="margin-top:14px">
+      <span class="eyebrow">💰 A project for the district</span>
+      <p class="hint" style="margin:6px 0 10px">
+        ${d.earmarkUsed
+          ? "You have had your project this Congress. Asking twice is how members stop getting one."
+          : "A bridge, a clinic, a water main — with your name on the paperwork. The money is allocated by people who will want something back."}
+      </p>
+      ${d.earmarkUsed ? "" : `<button class="btn btn--sm" data-earmark>Ask for it</button>`}
+    </div>` : ""}
+  </div>`;
+}
+
 /**
  * The gavel used as a platform rather than a veto.
  *
@@ -915,6 +963,36 @@ const countBlock = (count, spend) => `<div class="whipbox">
   <p class="hint" style="margin:6px 0 0">${escapeHtml(count.note)}</p>
   ${spend}
 </div>`;
+
+/** Casework and the project. */
+function wireDistrict() {
+  const card = $("districtCard");
+  if (!card) return;
+  const run = async (fn, busy) => {
+    loader(true, busy);
+    try {
+      const data = await fn();
+      G.state = data.state;
+      saveCareer();
+      alert(data.note);
+      renderFloor(handlers);
+    } catch (err) {
+      alert(err.message);
+    } finally { loader(false); }
+  };
+
+  const range = card.querySelector("[data-case-range]");
+  if (range) {
+    const label = card.querySelector("[data-case-label]");
+    range.oninput = () => {
+      label.textContent = `${range.value} day${range.value === "1" ? "" : "s"} a week in the district`;
+    };
+    card.querySelector("[data-case-go]").onclick =
+      () => run(() => doCasework(G.state, Number(range.value)), "Your office is making calls…");
+  }
+  const ear = card.querySelector("[data-earmark]");
+  if (ear) ear.onclick = () => run(() => askEarmark(G.state), "You are asking for it…");
+}
 
 /** Calling a witness. */
 function wireHearing() {
