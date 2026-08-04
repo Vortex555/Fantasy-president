@@ -49,6 +49,7 @@ import {
 } from "./senate.js";
 import { historicalHouseVerdict } from "./houseVerdict.js";
 import { STATES } from "./states.js";
+import { hearingTargets, holdHearing, resetHearings, canHold, canCompel } from "./oversight.js";
 import {
   shelvedBills, petitionCeiling, launchPetition, signPetition, advancePetition,
   DISCHARGE_THRESHOLD, vacateCount, moveToVacate, resolveVacancy,
@@ -767,6 +768,13 @@ app.post("/api/house/floor", async (req, res) => {
       // What denying a majority is worth, and whether the chair is empty.
       vacate: vacateCount(state, 0),
       vacancy: state.vacancy || 0,
+      // The gavel used as a platform rather than a veto. See oversight.js.
+      hearings: {
+        canHold: canHold(state), canCompel: canCompel(state),
+        heldThisMonth: Boolean(state.heardThisMonth),
+        targets: hearingTargets(state),
+        profile: Math.round((state.profile ?? 0) * 10) / 10,
+      },
       // The country the calendar was written out of, so the floor can show it.
       nation: nationCard(state),
       written,
@@ -958,12 +966,24 @@ app.post("/api/chamber/vacate", memberOnly((req, res, state) => {
   }
 }));
 
+/** Calling a witness, which passes nothing and makes you somebody. */
+app.post("/api/chamber/hearing", memberOnly((req, res, state) => {
+  try {
+    const out = holdHearing(state, String(req.body?.arcId || ""), { compel: req.body?.compel === true });
+    if (out.rejected) return res.status(400).json({ error: out.note });
+    res.json(out);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "The committee could not sit." });
+  }
+}));
+
 app.post("/api/house/advance", async (req, res) => {
   try {
     const { state } = req.body || {};
     if (!state || state.office !== "house") return res.status(400).json({ error: "A House career is required." });
     const moved = advancePetition(state);
-    const chair = resolveVacancy(moved.state);
+    const chair = resolveVacancy(resetHearings(moved.state));
     const out = advanceHouseMonth(chair.state);
     if (chair.note) out.vacancyNote = chair.note;
     // A signature drive is a month-by-month thing, so its news rides along with
@@ -1302,7 +1322,7 @@ app.post("/api/senate/advance", async (req, res) => {
     const { state } = req.body || {};
     if (!state || state.office !== "senate") return res.status(400).json({ error: "A Senate career is required." });
     const moved = advancePetition(state);
-    const chair = resolveVacancy(moved.state);
+    const chair = resolveVacancy(resetHearings(moved.state));
     const out = advanceSenateMonth(chair.state);
     if (chair.note) out.vacancyNote = chair.note;
     // A signature drive is a month-by-month thing, so its news rides along with

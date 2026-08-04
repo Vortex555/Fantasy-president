@@ -7,7 +7,7 @@ import {
   houseFloor, houseVote, houseAdvance, houseSponsor, houseCommittee, houseWhip, houseArticles,
   senateFloor, senateVote, senateFilibuster, senateAdvance,
   senateSponsor, senateCommittee, senateWhip, senateArticles, senateConfirm,
-  filePetition, pushPetition, moveVacate,
+  filePetition, pushPetition, moveVacate, callHearing,
 } from "../api.js";
 import {
   nationCard, falloutBlock, staffCard, wireStaff, resetStaffLogIfNewMonth,
@@ -155,6 +155,7 @@ function paint() {
           <p style="margin:10px 0 0">${escapeHtml(pendingCycle.ladder.note)}</p>
         </div>` : ""}
 
+    ${hearingCard(board)}
     ${vacateCard(board)}
     ${petitionCard(board)}
     ${board.articles ? articlesCard(board.articles) : ""}
@@ -204,6 +205,7 @@ function paint() {
   for (const b of pending) wireBill(b);
   wirePetition();
   wireVacate();
+  wireHearing();
   if (board.canSponsor) wireSponsor();
   wireStaff();
   const country = $("seeCountry");
@@ -305,6 +307,52 @@ function wireArticles() {
  * in the mode, and it only reads that way if you can see all three pressures at
  * once.
  */
+/**
+ * The gavel used as a platform rather than a veto.
+ *
+ * A chairmanship was worth burying a bill and amending one — both of them powers
+ * over legislation somebody else wrote. A hearing passes nothing and moves no
+ * votes, and produces the only thing the chamber never generated: being known by
+ * people who cannot name their own member. Which is what every race above this
+ * one is decided on.
+ */
+function hearingCard(board) {
+  const h = board.hearings;
+  if (!h?.canHold) return "";
+
+  return `<div class="card" id="hearingCard">
+    <div class="card__head">
+      <span class="eyebrow">🎤 Your committee</span>
+      <span class="hint">National profile ${h.profile}</span>
+    </div>
+    ${h.heldThisMonth ? `<p class="hint" style="margin:6px 0 0">
+      Your committee has sat this month. There is a calendar for these too.
+    </p>` : !h.targets.length ? `<p class="hint" style="margin:6px 0 0">
+      Nothing in your jurisdiction is worth a camera this month. A hearing into a
+      problem nobody is thinking about is an empty room with the lights on.
+    </p>` : `
+      <p class="hint" style="margin:6px 0 12px">
+        A hearing changes no law and no vote. It makes you somebody the country has
+        heard of, which is what the races above this one are decided on.
+      </p>
+      <div class="rows">
+        ${h.targets.map((t) => `<div class="career office" style="cursor:default">
+          <span class="office__text">
+            <span class="office__title">${escapeHtml(t.title)}</span>
+            <span class="office__lede">Severity ${t.severity}${
+              t.ownSide ? " · your own party's administration, and they will know" : ""}</span>
+          </span>
+          <span class="btn-row" style="gap:6px">
+            <button class="btn btn--sm" data-hear="${escapeHtml(t.id)}">Take evidence</button>
+            ${h.canCompel
+              ? `<button class="btn btn--danger btn--sm" data-hear="${escapeHtml(t.id)}" data-compel="1">Subpoena</button>`
+              : ""}
+          </span>
+        </div>`).join("")}
+      </div>`}
+  </div>`;
+}
+
 /**
  * Removing the Speaker.
  *
@@ -867,6 +915,26 @@ const countBlock = (count, spend) => `<div class="whipbox">
   <p class="hint" style="margin:6px 0 0">${escapeHtml(count.note)}</p>
   ${spend}
 </div>`;
+
+/** Calling a witness. */
+function wireHearing() {
+  const card = $("hearingCard");
+  if (!card) return;
+  card.onclick = async (e) => {
+    const btn = e.target.closest("[data-hear]");
+    if (!btn) return;
+    loader(true, "The committee is coming to order…");
+    try {
+      const data = await callHearing(G.state, btn.dataset.hear, btn.dataset.compel === "1");
+      G.state = data.state;
+      saveCareer();
+      alert(data.note);
+      renderFloor(handlers);
+    } catch (err) {
+      alert(err.message);
+    } finally { loader(false); }
+  };
+}
 
 /** The motion, and what it costs to lose. */
 function wireVacate() {

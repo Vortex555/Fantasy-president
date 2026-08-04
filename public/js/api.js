@@ -67,6 +67,10 @@ export const pushPetition = (state, favours) =>
 export const moveVacate = (state, favours) =>
   post("/api/chamber/vacate", { state, favours });
 
+/** Calling a witness: the gavel used as a platform. */
+export const callHearing = (state, arcId, compel) =>
+  post("/api/chamber/hearing", { state, arcId, compel });
+
 export const houseVote = (state, bill, vote) => post("/api/house/vote", { state, bill, vote });
 
 export const houseSponsor = (state, title, axis, domain, favours = 0) =>

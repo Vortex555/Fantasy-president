@@ -1,5 +1,6 @@
 import { clamp, round1 } from "./rng.js";
 import { STATES } from "./states.js";
+import { profileEarned } from "./oversight.js";
 
 /**
  * One political career, across every office it passes through.
@@ -290,6 +291,18 @@ export function earnRecognition(career, state) {
   if (rankHeight >= NATIONAL_RANK) {
     next.recognition.national = Math.max(next.recognition.national, round1(rankHeight * PER_RANK));
   }
+
+  /**
+   * And the committee room, which is the slow road to the same place.
+   *
+   * A Speakership is the fast way to be known by people who cannot name their
+   * own member, and most careers never get one — so before this, a member who
+   * spent four terms televising an administration's failures arrived at a
+   * statewide race as anonymous as one who had never spoken. A term of hearings
+   * is worth less than a gavel and is worth something, which is the honest
+   * relationship between them. See oversight.js.
+   */
+  next.recognition.national = Math.max(next.recognition.national, profileEarned(state));
   return next;
 }
 
