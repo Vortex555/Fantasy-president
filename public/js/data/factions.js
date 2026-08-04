@@ -27,6 +27,8 @@ export const FACTIONS = [
   // --- Democratic ----------------------------------------------------------
   {
     id: "progressive", party: "Democrat", name: "The Progressive Caucus",
+    // Would rather lose a vote than water a bill down, including against its own leadership.
+    restive: true,
     economic: -0.75, diplomatic: -0.4, culture: -0.65, pluralism: 0.7,
     /**
      * Every axis puts this bloc behind a prison-healthcare appropriation —
@@ -84,6 +86,8 @@ export const FACTIONS = [
   },
   {
     id: "liberty", party: "Republican", name: "The Liberty Caucus",
+    // Votes against its own leadership's budget on principle and enjoys it.
+    restive: true,
     economic: 0.85, diplomatic: -0.1, culture: 0.1, pluralism: 0.05,
     /**
      * Empty by design: this bloc is populated entirely through `OVERRIDES`.
@@ -102,6 +106,8 @@ export const FACTIONS = [
   },
   {
     id: "freedom", party: "Republican", name: "The Freedom Caucus",
+    // Organised to say no, and the only bloc that has ever actually removed a Speaker.
+    restive: true,
     economic: 0.25, diplomatic: 0.8, culture: 0.75, pluralism: -0.55,
     /**
      * Was [0.72, 1], which no mainstream ideology could reach — the bench tops

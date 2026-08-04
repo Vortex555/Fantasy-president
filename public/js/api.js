@@ -63,6 +63,10 @@ export const filePetition = (state, billId, favours) =>
 export const pushPetition = (state, favours) =>
   post("/api/chamber/petition", { state, action: "sign", favours });
 
+/** Moving against your own Speaker. */
+export const moveVacate = (state, favours) =>
+  post("/api/chamber/vacate", { state, favours });
+
 export const houseVote = (state, bill, vote) => post("/api/house/vote", { state, bill, vote });
 
 export const houseSponsor = (state, title, axis, domain, favours = 0) =>

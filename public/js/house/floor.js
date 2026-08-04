@@ -7,7 +7,7 @@ import {
   houseFloor, houseVote, houseAdvance, houseSponsor, houseCommittee, houseWhip, houseArticles,
   senateFloor, senateVote, senateFilibuster, senateAdvance,
   senateSponsor, senateCommittee, senateWhip, senateArticles, senateConfirm,
-  filePetition, pushPetition,
+  filePetition, pushPetition, moveVacate,
 } from "../api.js";
 import {
   nationCard, falloutBlock, staffCard, wireStaff, resetStaffLogIfNewMonth,
@@ -155,6 +155,7 @@ function paint() {
           <p style="margin:10px 0 0">${escapeHtml(pendingCycle.ladder.note)}</p>
         </div>` : ""}
 
+    ${vacateCard(board)}
     ${petitionCard(board)}
     ${board.articles ? articlesCard(board.articles) : ""}
     ${board.nomination ? nominationCard(board.nomination) : ""}
@@ -202,6 +203,7 @@ function paint() {
   if (board.nomination) wireNomination();
   for (const b of pending) wireBill(b);
   wirePetition();
+  wireVacate();
   if (board.canSponsor) wireSponsor();
   wireStaff();
   const country = $("seeCountry");
@@ -303,6 +305,48 @@ function wireArticles() {
  * in the mode, and it only reads that way if you can see all three pressures at
  * once.
  */
+/**
+ * Removing the Speaker.
+ *
+ * The only place a bloc's ability to deny a majority turns into something it can
+ * spend. Both numbers are on the card because the decision is entirely in them:
+ * the other party votes for the chaos almost to a member, and the twenty-odd
+ * names that decide it come off your own side — a handful of people willing to
+ * move against their own Speaker while the rest of their caucus watches.
+ */
+function vacateCard(board) {
+  if (board.vacancy) {
+    return `<div class="card card--alarm">
+      <span class="eyebrow">🪑 The chair is empty</span>
+      <p style="margin:8px 0 0">
+        No Speaker, so no calendar. Nothing is scheduled and nothing can be for
+        another ${board.vacancy} month${board.vacancy === 1 ? "" : "s"} — and every member
+        is being asked daily who they could live with.
+      </p>
+    </div>`;
+  }
+  const v = board.vacate;
+  if (!v || !v.total) return "";
+  const short = v.threshold - v.yes;
+
+  return `<div class="card" id="vacateCard">
+    <span class="eyebrow">🪑 Motion to vacate the chair</span>
+    <p class="hint" style="margin:6px 0 10px">
+      Privileged, so it cannot be buried — but it is your own Speaker, and the
+      building never forgets who moved it.
+    </p>
+    <p class="hint" style="margin:0 0 10px">
+      <b>${v.yes}</b> of ${v.threshold} today. The other party supplies ${v.minorityYes};
+      ${v.rebels} of your own would go with you${short > 0 ? `, which is ${short} short` : ""}.
+    </p>
+    <div class="whipbox__act">
+      <input type="range" min="0" max="${Math.floor(G.state.capital ?? 0)}" value="0" data-vac-range />
+      <span class="hint" data-vac-label>Call in 0 favours</span>
+      <button class="btn btn--danger btn--sm" data-vac-go>Move it</button>
+    </div>
+  </div>`;
+}
+
 /**
  * The one lever on the calendar a member without a gavel has.
  *
@@ -823,6 +867,30 @@ const countBlock = (count, spend) => `<div class="whipbox">
   <p class="hint" style="margin:6px 0 0">${escapeHtml(count.note)}</p>
   ${spend}
 </div>`;
+
+/** The motion, and what it costs to lose. */
+function wireVacate() {
+  const card = $("vacateCard");
+  if (!card) return;
+  const range = card.querySelector("[data-vac-range]");
+  const label = card.querySelector("[data-vac-label]");
+  range.oninput = () => {
+    label.textContent = `Call in ${range.value} favour${range.value === "1" ? "" : "s"}`;
+  };
+  card.querySelector("[data-vac-go]").onclick = async () => {
+    if (!confirm("Move to vacate the chair? Win or lose, your own leadership will know it was you.")) return;
+    loader(true, "The clerk is reading the motion…");
+    try {
+      const data = await moveVacate(G.state, Number(range.value));
+      G.state = data.state;
+      saveCareer();
+      alert(data.note);
+      renderFloor(handlers);
+    } catch (err) {
+      alert(err.message);
+    } finally { loader(false); }
+  };
+}
 
 /** The shelf and the signature drive. */
 function wirePetition() {

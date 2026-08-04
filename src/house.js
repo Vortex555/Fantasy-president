@@ -361,6 +361,16 @@ export function seedCongress(scenario) {
  * writes the bills, it does not get to decide how busy the chamber is.
  */
 export function docketSize(state) {
+  /**
+   * No Speaker, no calendar.
+   *
+   * A chamber that cannot elect a presiding officer cannot schedule anything,
+   * which is the entire cost of moving to vacate: months of no votes, no
+   * favours earned and no record made, paid by everyone including the member
+   * who moved it. See resolveVacancy in procedure.js.
+   */
+  if (state.vacancy > 0) return 0;
+
   const r = seeded(`${state.rosterSeed}|floor|${state.term || 1}|${state.month}`);
   return state.rank === "speaker"
     ? (r.chance(0.5) ? 3 : 4)

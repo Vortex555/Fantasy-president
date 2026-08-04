@@ -2,6 +2,8 @@ import { clamp, round1, seeded } from "./rng.js";
 import { STATES } from "./states.js";
 import { buildCongress } from "../public/js/data/government.js";
 import { BILL_POOL, rollCall, consensusOf, scheduledBill } from "./bills.js";
+import { ownBloc, factionOf } from "./factions.js";
+import { factionById } from "../public/js/data/factions.js";
 
 /**
  * What a member does when they cannot get a vote.
@@ -256,5 +258,198 @@ export function advancePetition(state) {
       ? `${gained} more signed the discharge petition. ${signatures} of ${p.needed}.`
       : `Nobody else signed. It is stuck at ${signatures} of ${p.needed}, and everyone `
         + `who was ever going to sign already has.`,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Removing the Speaker
+// ---------------------------------------------------------------------------
+
+/**
+ * What denying a majority actually buys.
+ *
+ * A bloc's power in this mode was entirely negative and entirely invisible.
+ * `canDenyMajority` said whether your caucus could withhold enough votes to sink
+ * a bill leadership wanted, and there was nowhere to spend that — no lever
+ * anywhere turned "we could stop you" into "so give us something". The motion to
+ * vacate is that lever: the one move in the building where a faction of thirty
+ * decides who runs a chamber of four hundred and thirty-five.
+ *
+ * It stopped being theoretical in October 2023, and the arithmetic of that day
+ * is the arithmetic here. The minority votes for the chaos almost to a member —
+ * removing the other party's Speaker is free politics — and the last twenty-odd
+ * names come off your own side. You cannot do it alone, and you cannot do it
+ * without the people who spend every other day opposing you.
+ */
+
+/** Filing it costs banked favours, and the motion is privileged whatever happens. */
+export const VACATE_COST = 10;
+
+/** What it does to your standing with the people you just tried to remove. */
+export const VACATE_DRAG = 18;
+export const VACATE_LOSS_DRAG = 34;
+
+/** And what your own wing makes of a member willing to do it. */
+export const VACATE_BLOC_GAIN = 16;
+
+/** How long a chamber sits without a Speaker. Three weeks in 2023; three months here. */
+export const VACANCY_MONTHS = 2;
+
+/** How readily the other party votes to remove a Speaker who is not theirs. */
+const MINORITY_APPETITE = 0.93;
+
+/**
+ * Which of your own side would vote to vacate.
+ *
+ * Distance from the party's own anchor, because the members who move against a
+ * Speaker are the ones who were never at home under them. Favours move this and
+ * nothing else — the minority needs no persuading and cannot be persuaded of
+ * anything else.
+ */
+/**
+ * Who moves against a Speaker: the organised flanks, marked on the caucuses
+ * themselves.
+ *
+ * Two earlier cuts measured distance from the party anchor and both were wrong.
+ * The mainstream Republican bench runs 0.1 to 0.7 around an anchor of 0.45, so a
+ * wide threshold found five restive members in a chamber of 222 and a narrow one
+ * found everybody. Worse, the members it found were *moderates* — the bench is
+ * skewed, so distance-from-centre caught Rockefeller Republicans and missed the
+ * Freedom Caucus entirely, and a Main Street member came out whipping a
+ * rebellion better than the people who organise them.
+ *
+ * A caucus organised to defy its own leadership is a fact about the caucus, so
+ * it is written on the caucus. See `restive` in factions.js.
+ */
+
+/**
+ * How much of a restive caucus actually goes.
+ *
+ * Not most of it. In October 2023 eight Republicans voted to vacate out of a
+ * Freedom Caucus several times that size — moving against your own Speaker is a
+ * thing a handful of people do while the rest of their caucus watches. Counting
+ * the restive blocs wholesale made the motion carry unaided from any starting
+ * position, which is the opposite of what it should feel like.
+ *
+ * You get more of your own room than of somebody else's, because you are in it.
+ */
+const YOUR_BLOC_RATE = 0.22;
+const OTHER_RESTIVE_RATE = 0.1;
+
+export function vacateCount(state, favours = 0) {
+  const roster = buildCongress(state, STATES)[chamberOf(state)] || [];
+  const mine = state.caucus || state.scenario?.party;
+
+  /**
+   * Your own bloc moves for one of its own.
+   *
+   * Without this the count came out identical whoever filed it, which makes the
+   * ideology chosen at creation irrelevant on the one motion it should matter
+   * most for. A member of the caucus that organised the rebellion can whip it;
+   * somebody from the party's centre of gravity is asking strangers.
+   */
+  const myBloc = factionOf(state.scenario)?.id || null;
+
+  let minorityYes = 0;
+  let rebels = 0;
+  for (const m of roster) {
+    if (m.party !== mine) {
+      minorityYes += 1;
+      continue;
+    }
+    if (!factionById(m.faction)?.restive) continue;
+    rebels += (myBloc && m.faction === myBloc) ? YOUR_BLOC_RATE : OTHER_RESTIVE_RATE;
+  }
+  minorityYes = Math.round(minorityYes * MINORITY_APPETITE);
+  rebels += favourPush(Math.max(0, Number(favours) || 0)) / 4;
+
+  const yes = Math.round(minorityYes + rebels);
+  const threshold = Math.floor(roster.length / 2) + 1;
+  return {
+    yes, no: roster.length - yes, threshold, passes: yes >= threshold,
+    minorityYes, rebels: Math.round(rebels), total: roster.length,
+  };
+}
+
+/** Move it, and live with the count. */
+export function moveToVacate(state, favours = 0) {
+  const c = state.congress || {};
+  const mine = state.caucus || state.scenario?.party;
+  const holdsChair = chamberOf(state) === "senate"
+    ? (mine === "Republican" ? c.senateR > c.senateD : c.senateD > c.senateR)
+    : (mine === "Republican" ? c.houseR > c.houseD : c.houseD > c.houseR);
+
+  if (!holdsChair) {
+    return { rejected: true, note: "The chair belongs to the other party. Moving to vacate it is their fight, not yours." };
+  }
+  if (state.vacancy) return { rejected: true, note: "There is no Speaker to remove." };
+  if ((state.capital ?? 0) < VACATE_COST) {
+    return { rejected: true, note: `A privileged motion costs ${VACATE_COST} favours to get anybody to second. You are owed too little.` };
+  }
+
+  const spend = Math.max(0, Math.min(Number(favours) || 0, (state.capital ?? 0) - VACATE_COST));
+  const count = vacateCount(state, spend);
+  const bloc = clamp(round1((state.bloc ?? 62) + VACATE_BLOC_GAIN));
+
+  if (!count.passes) {
+    return {
+      state: {
+        ...state,
+        capital: round1(Math.max(0, (state.capital ?? 0) - VACATE_COST - spend)),
+        leadership: clamp(round1(state.leadership - VACATE_LOSS_DRAG)),
+        bloc: clamp(round1((state.bloc ?? 62) + VACATE_BLOC_GAIN * 0.4)),
+      },
+      passed: false, count,
+      note: `The motion failed, ${count.yes} to ${count.no}. The Speaker survives, knows exactly `
+        + `who moved it, and has four hundred and thirty-four other people to be generous to.`,
+    };
+  }
+
+  return {
+    state: {
+      ...state,
+      capital: round1(Math.max(0, (state.capital ?? 0) - VACATE_COST - spend)),
+      leadership: clamp(round1(state.leadership - VACATE_DRAG)),
+      bloc,
+      vacancy: VACANCY_MONTHS,
+    },
+    passed: true, count,
+    note: `The chair is vacant, ${count.yes} to ${count.no}. Nothing is scheduled and nothing `
+      + `can be until somebody can hold a majority, which is now a question rather than a fact.`,
+  };
+}
+
+/**
+ * A month of no Speaker, and what the chamber looks like when it finds one.
+ *
+ * The paralysis is the cost — no calendar, no votes, no favours earned — and the
+ * payoff is who ends up holding the gavel. Whoever it is got there by being
+ * acceptable to the people who removed the last one, so a member from a bloc
+ * large enough to do it again starts the new regime on far better terms than
+ * they ended the old one.
+ */
+export function resolveVacancy(state) {
+  if (!state.vacancy) return { state, note: null };
+
+  const left = state.vacancy - 1;
+  if (left > 0) {
+    return {
+      state: { ...state, vacancy: left },
+      note: `Another month with no Speaker. Nothing is scheduled, nothing is voted on, `
+        + `and every member is being asked daily who they could live with.`,
+    };
+  }
+
+  const bloc = ownBloc(state);
+  const leverage = bloc?.canDenyMajority ? 22 : 8;
+  return {
+    state: {
+      ...state,
+      vacancy: 0,
+      leadership: clamp(round1(state.leadership + leverage)),
+    },
+    note: `The chamber has a Speaker again. They got there by being somebody your wing `
+      + `could live with, and they know it — which is worth more to you than the last one `
+      + `ever was.`,
   };
 }

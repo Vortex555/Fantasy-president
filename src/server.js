@@ -51,7 +51,7 @@ import { historicalHouseVerdict } from "./houseVerdict.js";
 import { STATES } from "./states.js";
 import {
   shelvedBills, petitionCeiling, launchPetition, signPetition, advancePetition,
-  DISCHARGE_THRESHOLD,
+  DISCHARGE_THRESHOLD, vacateCount, moveToVacate, resolveVacancy,
 } from "./procedure.js";
 import { ISSUE_KEYS, issueKey } from "../public/js/data/ideologies.js";
 import { attachQuotes } from "./personas.js";
@@ -764,6 +764,9 @@ app.post("/api/house/floor", async (req, res) => {
       })),
       petition: state.petition || null,
       dischargeNeeded: DISCHARGE_THRESHOLD(state),
+      // What denying a majority is worth, and whether the chair is empty.
+      vacate: vacateCount(state, 0),
+      vacancy: state.vacancy || 0,
       // The country the calendar was written out of, so the floor can show it.
       nation: nationCard(state),
       written,
@@ -943,12 +946,26 @@ app.post("/api/chamber/petition", memberOnly((req, res, state) => {
   }
 }));
 
+/** Moving against your own Speaker. */
+app.post("/api/chamber/vacate", memberOnly((req, res, state) => {
+  try {
+    const out = moveToVacate(state, Number(req.body?.favours) || 0);
+    if (out.rejected) return res.status(400).json({ error: out.note });
+    res.json(out);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "The motion could not be offered." });
+  }
+}));
+
 app.post("/api/house/advance", async (req, res) => {
   try {
     const { state } = req.body || {};
     if (!state || state.office !== "house") return res.status(400).json({ error: "A House career is required." });
     const moved = advancePetition(state);
-    const out = advanceHouseMonth(moved.state);
+    const chair = resolveVacancy(moved.state);
+    const out = advanceHouseMonth(chair.state);
+    if (chair.note) out.vacancyNote = chair.note;
     // A signature drive is a month-by-month thing, so its news rides along with
     // the month rather than needing a screen of its own.
     if (moved.note) out.petitionNote = moved.note;
@@ -1285,7 +1302,9 @@ app.post("/api/senate/advance", async (req, res) => {
     const { state } = req.body || {};
     if (!state || state.office !== "senate") return res.status(400).json({ error: "A Senate career is required." });
     const moved = advancePetition(state);
-    const out = advanceSenateMonth(moved.state);
+    const chair = resolveVacancy(moved.state);
+    const out = advanceSenateMonth(chair.state);
+    if (chair.note) out.vacancyNote = chair.note;
     // A signature drive is a month-by-month thing, so its news rides along with
     // the month rather than needing a screen of its own.
     if (moved.note) out.petitionNote = moved.note;
