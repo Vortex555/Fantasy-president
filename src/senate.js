@@ -8,7 +8,7 @@ import {
   driftPresident, electionIndex, isElectionMonth, applyCycle, floorPool, votedThisCongress,
   seatFringe, closeTheMonth,
 } from "./house.js";
-import { assignCommittee, earnCapital, evaluateLadder, committeeById, isWrecker } from "./committees.js";
+import { assignCommittee, earnCapital, evaluateLadder, committeeById } from "./committees.js";
 import { emptyArticles, tickArticles } from "./articles.js";
 import { nextChoices } from "./career.js";
 import { emptyNomination, tickNomination } from "./confirmations.js";
@@ -157,9 +157,7 @@ export function createSenateCareer(scenario) {
     confirmations: [],
     president: buildPresident(scenario),
     approval: clamp(Math.round(48 + fit * 16 + r.between(-4, 4))),
-    leadership: isWrecker(scenario)
-      ? clamp(Math.round(16 + r.between(-6, 6)))
-      : clamp(Math.round(52 + r.between(-8, 8))),
+    leadership: clamp(Math.round(52 + r.between(-8, 8))),
     // How often you vote like the person you said you were, and the blocs your
     // ideology brought with you. See conviction.js and coalition.js.
     integrity: INTEGRITY_START,
@@ -167,15 +165,7 @@ export function createSenateCareer(scenario) {
     convictionKept: 0,
     convictionWeight: 0,
     // Your standing with the wing of the party you actually sit in.
-    /**
-     * The other half of a wrecker's arrangement.
-     *
-     * Leadership standing is crushed and bloc standing is enormous, and those
-     * are the same fact: the wing adores this member *because* it goes after the
-     * establishment. Every other ideology trades between its caucus and its
-     * wing; this one has already made the trade and cannot untrade it.
-     */
-    bloc: isWrecker(scenario) ? 92 : BLOC_START,
+    bloc: BLOC_START,
     coalition: buildCoalition(scenario),
     /**
      * The people of the whole state, and who they were at the oath. A senator

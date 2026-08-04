@@ -3,7 +3,7 @@ import { STATES } from "./states.js";
 import { BILL_POOL, billById, rollCall, FRINGE_BILLS, fringeChance, consensusOf, stanceFit, voiceFor, scheduledBill } from "./bills.js";
 import { houseRaces, nationalEnvironment, runCongressionalCycle } from "./elections.js";
 import { buildCongress } from "../public/js/data/government.js";
-import { assignCommittee, earnCapital, evaluateLadder, committeeById, isWrecker } from "./committees.js";
+import { assignCommittee, earnCapital, evaluateLadder, committeeById } from "./committees.js";
 import { emptyArticles, tickArticles } from "./articles.js";
 import { nextChoices } from "./career.js";
 import { seedNation, advanceNation, absoluteMonth } from "./nation.js";
@@ -266,15 +266,7 @@ function buildCareer(scenario) {
     convictionKept: 0,
     convictionWeight: 0,
     // Your standing with the wing of the party you actually sit in.
-    /**
-     * The other half of a wrecker's arrangement.
-     *
-     * Leadership standing is crushed and bloc standing is enormous, and those
-     * are the same fact: the wing adores this member *because* it goes after the
-     * establishment. Every other ideology trades between its caucus and its
-     * wing; this one has already made the trade and cannot untrade it.
-     */
-    bloc: isWrecker(scenario) ? 92 : BLOC_START,
+    bloc: BLOC_START,
     /**
      * The people you represent, and who they were the day you were sworn in.
      *
@@ -299,14 +291,7 @@ function buildCareer(scenario) {
     // And the blocs your ideology actually brought with you. See coalition.js.
     coalition: buildCoalition(scenario),
     approval,
-    /**
-     * A wrecker starts at war with their own side rather than merely to the
-     * right of it. Everyone else negotiates a relationship with leadership; this
-     * one arrived to end careers there. See isWrecker in committees.js.
-     */
-    leadership: isWrecker(scenario)
-      ? clamp(Math.round(16 + r.between(-6, 6)))
-      : clamp(Math.round(52 + r.between(-8, 8))),
+    leadership: clamp(Math.round(52 + r.between(-8, 8))),
     // The country, carried over wholesale from the presidential game.
     economy: { gdpGrowth: 2.4, unemployment: 4.1, inflation: 3.0, debt: 34.2 },
     /**

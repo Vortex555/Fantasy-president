@@ -28,24 +28,6 @@ import { findIdeology } from "../public/js/data/ideologies.js";
  * not.
  */
 
-/**
- * A politics whose project is its own party rather than the other one.
- *
- * Every other radical in the game is an extreme version of its party and can, in
- * principle, rise inside it — a Freedom Caucus member becomes a chair, a
- * Democratic Socialist becomes a whip. A wrecker cannot, and the reason is the
- * distinction worth drawing: its founding activity was a campaign *against*
- * mainstream conservatism rather than against the left, and the institutions it
- * attacks are the ones that hand out gavels.
- *
- * So the ladder is closed to it outright. Not made harder — closed. It is the
- * only ideology in the game that can serve twenty years and end where it began,
- * and that is the honest mechanical statement of what the movement is: an
- * insurgency inside a party that will never seat it.
- */
-export const isWrecker = (scenario) =>
-  Boolean(findIdeology(scenario?.party, scenario?.ideology)?.wrecker);
-
 /** Which chamber a career is being played in. */
 export const chamberOf = (state) => (state?.office === "senate" ? "senate" : "house");
 
@@ -191,10 +173,6 @@ const chamberName = (state) => (chamberOf(state) === "senate" ? "Senate" : "Hous
  * waking up on a different committee would make the whole thing arbitrary.
  */
 export function assignCommittee(state) {
-  // No committee, ever. The caucus assigns rooms and it is not giving this one
-  // a room.
-  if (isWrecker(state.scenario)) return null;
-
   const seniority = state.seat?.seniority || 1;
   const standing = state.leadership ?? 50;
   // What leadership thinks you have earned, on the same 1–5 scale as prestige.
@@ -269,22 +247,6 @@ export function evaluateLadder(state) {
   const chamber = chamberOf(next);
   const was = next.rank || "member";
 
-  /**
-   * A wrecker is never promoted, however long they last or how the numbers look.
-   * The caucus does not reward an insurgency aimed at itself.
-   */
-  if (isWrecker(next.scenario)) {
-    next.rank = "member";
-    next.committee = null;
-    return {
-      state: next,
-      change: {
-        promoted: false, demoted: false,
-        note: `The caucus met to hand out gavels and your name was not read out. `
-          + `It will not be read out next time either. You knew that when you took the position.`,
-      },
-    };
-  }
   const wasCommittee = next.committee;
   const now = rankOf(next);
   next.rank = now;

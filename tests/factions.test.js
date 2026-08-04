@@ -6,7 +6,7 @@ import {
   factionLine, blocDelta, describeBloc, BLOC_START,
 } from "../src/factions.js";
 import { traitFor, signatureBonus, SIGNATURE_BONUS } from "../src/conviction.js";
-import { isWrecker, evaluateLadder } from "../src/committees.js";
+import { evaluateLadder } from "../src/committees.js";
 import { IDEOLOGIES } from "../public/js/data/ideologies.js";
 import { createHouseCareer, castVote, sponsorBill } from "../src/house.js";
 import { createSenateCareer } from "../src/senate.js";
@@ -255,14 +255,21 @@ test("holding a radical position is felt harder on every vote", () => {
 });
 
 // ---------------------------------------------------------------------------
-// A politics whose project is its own party
+// Every politics climbs the same ladder
 //
-// Every other radical is an extreme version of its party and can rise inside it.
-// This one cannot, and that is the whole distinction between modelling the
-// specific movement and modelling a generically very-online nationalist.
+// The Groyper used to carry `wrecker: true`, which closed the committee ladder
+// to it outright — no room, no gavel, no promotion, however long it served, and
+// a leadership standing of twelve to start. That was an honest statement of what
+// the movement is and a poor one of what a game is: the ideology was left with
+// no verbs but its vote, while bury, amend, the whip count and any realistic
+// chance of a hearing were all gated behind a rank it could never hold.
+//
+// Removed until the mode has something for an insurgent to *do*. The tests that
+// pinned the old behaviour are replaced by their opposites, so nobody
+// reintroduces it by accident.
 // ---------------------------------------------------------------------------
 
-const wrecker = (o = {}) => createHouseCareer({
+const insurgent = (o = {}) => createHouseCareer({
   office: "house", presidentName: "M", party: "Republican", startYear: 2025,
   ideology: "Groyper", ideologyAxis: 0.95, district: "OH-6", events: "classic", ...o,
 });
@@ -277,41 +284,34 @@ test("the generic entry is gone and the specific one replaced it", () => {
   assert.ok(names.includes("Groyper"));
 });
 
-test("it arrives already at war with its own leadership", () => {
-  assert.ok(wrecker().leadership < 30, "not merely to the right of the party");
-  assert.ok(orthodox().leadership > 40, "which an ordinary radical is not");
+test("no ideology starts at war with its own leadership", () => {
+  assert.ok(insurgent().leadership > 40, "it used to open at twelve and never recover");
+  assert.ok(orthodox().leadership > 40);
 });
 
-test("its own wing adores it for exactly that reason", () => {
-  assert.ok(wrecker().bloc > orthodox().bloc,
-    "crushed with leadership and enormous with the bloc are the same fact");
+test("every ideology is seated on a committee", () => {
+  assert.ok(insurgent().committee, "no room at all was the other half of the block");
+  assert.ok(orthodox().committee);
 });
 
-test("it is never given a committee", () => {
-  assert.equal(wrecker().committee, null);
-  assert.ok(orthodox().committee, "an ordinary radical is seated somewhere");
+test("the same seniority and standing promote anybody", () => {
+  const climb = (member) => {
+    const decorated = { ...member, leadership: 90 };
+    decorated.seat = { ...decorated.seat, seniority: 9 };
+    return evaluateLadder(decorated).state.rank;
+  };
+  assert.notEqual(climb(insurgent()), "member",
+    "nine terms and ninety with the caucus used to end where it began");
+  assert.equal(climb(insurgent()), climb(orthodox()),
+    "two ideologies with the same record reach the same rung");
 });
 
-test("the ladder is closed outright, not merely made harder", () => {
-  // Nine terms and leadership at ninety, which would make anybody else a chair.
-  const decorated = { ...wrecker(), leadership: 90 };
-  decorated.seat = { ...decorated.seat, seniority: 9 };
-  const out = evaluateLadder(decorated);
-
-  assert.equal(out.state.rank, "member", "twenty years and it ends where it began");
-  assert.equal(out.state.committee, null);
-  assert.match(out.change.note, /was not read out/);
-
-  const other = { ...orthodox(), leadership: 90 };
-  other.seat = { ...other.seat, seniority: 9 };
-  assert.notEqual(evaluateLadder(other).state.rank, "member", "the same numbers promote anybody else");
-});
-
-test("only wreckers are treated this way", () => {
-  assert.equal(isWrecker(wrecker().scenario), true);
-  assert.equal(isWrecker(orthodox().scenario), false);
-  assert.equal(isWrecker({ party: "Democrat", ideology: "Marxist–Leninist" }), false,
-    "an extreme version of your party is not the same as an insurgency against it");
+test("nothing in the data closes the ladder to a politics any more", () => {
+  for (const [party, list] of Object.entries(IDEOLOGIES)) {
+    for (const i of list) {
+      assert.equal(i.wrecker, undefined, `${party}/${i.value} still carries the flag`);
+    }
+  }
 });
 
 test("it still sits in the caucus nearest its politics", () => {

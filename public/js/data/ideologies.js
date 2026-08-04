@@ -186,16 +186,17 @@ export const IDEOLOGIES = {
      * What separates it is the direction of fire. Its founding activity was not
      * campaigning against the left but a sustained campaign against mainstream
      * conservatism — organised heckling of established conservative figures at
-     * their own events, on the grounds that they were insufficiently radical.
-     * It is an entryist insurgency aimed at capturing the institutions of its own
-     * side, and it is explicitly white-nationalist and antisemitic, which is what
-     * makes those institutions treat it as an infestation rather than a wing.
+     * their own events, on the grounds that they were insufficiently radical. It
+     * is an entryist insurgency aimed at capturing the institutions of its own
+     * side, and it is explicitly white-nationalist and antisemitic.
      *
-     * So the mechanics are the mirror image of every other radical here. The
-     * others are extreme versions of their party; this one is at war with its
-     * party, and the engine says so: its bloc standing is enormous, its standing
-     * with leadership is close to unrecoverable, and it is the only ideology in
-     * the game that cannot hold office in its own caucus at all.
+     * It used to carry `wrecker: true`, which closed the committee ladder to it
+     * outright — no room, no gavel, no promotion, however long it served. That
+     * was an honest statement of what the movement is and a poor one of what a
+     * game is: the ideology had no verbs left but its vote, and every other
+     * screen in the mode was addressed to somebody who could not use it. The
+     * ladder is open to it on the same terms as everybody else until the mode
+     * has something for an insurgent to *do*.
      */
     /**
      * Its anti-statism is a grievance, not a principle, so the number is
@@ -241,11 +242,10 @@ export const IDEOLOGIES = {
      * ideology wants opposite votes on them. `defectors` is the tool for those.
      */
     { value: "Groyper", axis: 0.95, economic: 0.1, diplomatic: 0.9, liberty: 0.2, culture: 0.9, pluralism: -0.95, sub: "+Young online right hard, −Party establishment hard, −Civil rights hard", reflex: { mandate_platform_moderation: "no", forbid_platform_removals: "yes", protect_firearms: "yes", weaken_civil_rights: "yes", expand_deportation: "yes" }, fringe: true,
-      wrecker: true,
       fx: { gun_owners: 14, faith: 8, civil_rights: -32, big_business: -24, wall_street: -22, pentagon: -14, stability: -20, approval: -12 },
       trait: {
         strength: "You can end a mainstream conservative's career from a phone. The swarm arrives within the hour, it costs nothing, and it does not disperse.",
-        limit: "Your own party treats you as an infestation. No committee, no gavel, no donor, no leadership post — not ever, however long you serve.",
+        limit: "Leadership will hand you a gavel and never once defend you holding it. Every donor call starts with an apology.",
         files: "procedure",
       } },
     { value: "Post-Liberal Integralist", axis: 0.88, economic: 0, diplomatic: 0.6, liberty: -0.8, culture: 0.95, pluralism: -0.7, sub: "+Faith hard, +State power, −Markets", fringe: true,
