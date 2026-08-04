@@ -49,6 +49,10 @@ import {
 } from "./senate.js";
 import { historicalHouseVerdict } from "./houseVerdict.js";
 import { STATES } from "./states.js";
+import {
+  shelvedBills, petitionCeiling, launchPetition, signPetition, advancePetition,
+  DISCHARGE_THRESHOLD,
+} from "./procedure.js";
 import { ISSUE_KEYS, issueKey } from "../public/js/data/ideologies.js";
 import { attachQuotes } from "./personas.js";
 import { applyDeployment, editFirstLady, FIRST_LADY_CAUSES } from "./firstLady.js";
@@ -58,7 +62,7 @@ import { REGIONS as FOREIGN_REGIONS } from "./foreign.js";
 import { SOCIETY_METRICS } from "./society.js";
 import { COVERT_ACTIONS } from "./covert.js";
 import { drawEvent, shouldUsePool } from "./eventPool.js";
-import { actOnBill } from "./bills.js";
+import { actOnBill, billById, scheduledBill } from "./bills.js";
 import { claudeAvailable, claudeTurn, claudeVoices, claudeOpening, claudeAdvisor, claudeDebate } from "./claude.js";
 import {
   docketFromModel, voicesFromModel, situationFromModel, falloutFromModel, staffReply, staffOf,
@@ -637,12 +641,29 @@ async function ensureDocket(state, { size, offline }) {
      * needs: the sponsor is drawn from the real chamber roster and must not
      * change when the floor screen repaints. See `attributeSponsors`.
      */
+    /**
+     * Anything dragged out by petition goes on the calendar first.
+     *
+     * The whole point of winning one is that leadership does not get to decide
+     * whether the vote happens, so this is not weighted or sampled — it is
+     * prepended, and cleared once it has been scheduled.
+     */
+    for (const id of state.discharged || []) {
+      const source = billById(id);
+      if (source) bills = [scheduledBill(source, { discharged: true }), ...bills];
+    }
     bills = attributeSponsors(state, bills);
     bills = crisisConsensus(state, bills);
     bills = await describeVoices(state, bills);
   }
 
-  const next = { ...state, docket: { term, month: state.month, bills, written } };
+  const next = {
+    ...state,
+    // Cleared here rather than on the win, so a bill forced onto the floor is
+    // scheduled exactly once however often this screen is repainted.
+    ...(state.discharged?.length ? { discharged: [] } : {}),
+    docket: { term, month: state.month, bills, written },
+  };
   return { state: next, bills, written };
 }
 
@@ -733,6 +754,16 @@ app.post("/api/house/floor", async (req, res) => {
     const committee = committeeById(state.committee);
     res.json({
       bills,
+      /**
+       * What leadership will not schedule, and whether you are forcing one of
+       * them. The only lever on the calendar a member without a gavel has.
+       */
+      shelf: shelvedBills(state).map((b) => ({
+        id: b.id, title: b.title, brief: b.brief, domain: b.domain,
+        floorVotes: b.yes, ownYes: b.ownYes, ...petitionCeiling(state, b),
+      })),
+      petition: state.petition || null,
+      dischargeNeeded: DISCHARGE_THRESHOLD(state),
       // The country the calendar was written out of, so the floor can show it.
       nation: nationCard(state),
       written,
@@ -892,11 +923,37 @@ async function nextNationalStory(out) {
 }
 
 /** End the month. At the end of a term, the district answers. */
+/**
+ * Forcing the floor.
+ *
+ * The one agenda-setting power that needs no rank, which is why it is on
+ * `/api/chamber/` rather than behind a committee gate.
+ */
+app.post("/api/chamber/petition", memberOnly((req, res, state) => {
+  try {
+    const action = String(req.body?.action || "launch");
+    const out = action === "sign"
+      ? signPetition(state, Number(req.body?.favours) || 0)
+      : launchPetition(state, String(req.body?.billId || ""), Number(req.body?.favours) || 0);
+    if (out.rejected) return res.status(400).json({ error: out.note });
+    res.json(out);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "The petition could not be filed." });
+  }
+}));
+
 app.post("/api/house/advance", async (req, res) => {
   try {
     const { state } = req.body || {};
     if (!state || state.office !== "house") return res.status(400).json({ error: "A House career is required." });
-    res.json(await nextNationalStory(advanceHouseMonth(state)));
+    const moved = advancePetition(state);
+    const out = advanceHouseMonth(moved.state);
+    // A signature drive is a month-by-month thing, so its news rides along with
+    // the month rather than needing a screen of its own.
+    if (moved.note) out.petitionNote = moved.note;
+    if (moved.discharged) out.discharged = moved.discharged;
+    res.json(await nextNationalStory(out));
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "The month could not be closed out." });
@@ -1227,7 +1284,13 @@ app.post("/api/senate/advance", async (req, res) => {
   try {
     const { state } = req.body || {};
     if (!state || state.office !== "senate") return res.status(400).json({ error: "A Senate career is required." });
-    res.json(await nextNationalStory(advanceSenateMonth(state)));
+    const moved = advancePetition(state);
+    const out = advanceSenateMonth(moved.state);
+    // A signature drive is a month-by-month thing, so its news rides along with
+    // the month rather than needing a screen of its own.
+    if (moved.note) out.petitionNote = moved.note;
+    if (moved.discharged) out.discharged = moved.discharged;
+    res.json(await nextNationalStory(out));
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "The month could not be closed out." });

@@ -7,6 +7,7 @@ import {
   houseFloor, houseVote, houseAdvance, houseSponsor, houseCommittee, houseWhip, houseArticles,
   senateFloor, senateVote, senateFilibuster, senateAdvance,
   senateSponsor, senateCommittee, senateWhip, senateArticles, senateConfirm,
+  filePetition, pushPetition,
 } from "../api.js";
 import {
   nationCard, falloutBlock, staffCard, wireStaff, resetStaffLogIfNewMonth,
@@ -154,6 +155,7 @@ function paint() {
           <p style="margin:10px 0 0">${escapeHtml(pendingCycle.ladder.note)}</p>
         </div>` : ""}
 
+    ${petitionCard(board)}
     ${board.articles ? articlesCard(board.articles) : ""}
     ${board.nomination ? nominationCard(board.nomination) : ""}
 
@@ -199,6 +201,7 @@ function paint() {
   if (board.articles) wireArticles();
   if (board.nomination) wireNomination();
   for (const b of pending) wireBill(b);
+  wirePetition();
   if (board.canSponsor) wireSponsor();
   wireStaff();
   const country = $("seeCountry");
@@ -300,6 +303,71 @@ function wireArticles() {
  * in the mode, and it only reads that way if you can see all three pressures at
  * once.
  */
+/**
+ * The one lever on the calendar a member without a gavel has.
+ *
+ * Burying a bill needs a chair, amending one needs a subchair, the whip count
+ * needs a whip — and until this, the schedule belonged entirely to leadership.
+ * A discharge petition needs no rank at all: enough signatures and the bill is
+ * voted on whether the people who set the floor want it voted on or not.
+ *
+ * Both numbers are shown because both are the decision. The ceiling is how many
+ * would ever sign, which is far short of how many would vote for it, and if it
+ * sits under the line then patience will never get there and only favours will.
+ */
+function petitionCard(board) {
+  const live = board.petition;
+  const shelf = board.shelf || [];
+  if (!live && !shelf.length) return "";
+
+  if (live) {
+    const short = live.needed - live.signatures;
+    const stalled = live.signatures >= live.ceiling;
+    return `<div class="card ${stalled ? "card--alarm" : "card--accent"}" id="petitionCard">
+      <span class="eyebrow">✍️ Your discharge petition</span>
+      <h3 class="display display--sm" style="margin:6px 0 4px">${escapeHtml(live.title)}</h3>
+      <div class="track" style="margin:10px 0 6px">
+        <i style="width:${Math.min(100, Math.round(live.signatures / live.needed * 100))}%;background:var(${
+          stalled ? "--amber" : "--green"})"></i>
+      </div>
+      <p class="hint" style="margin:0">
+        <b>${live.signatures}</b> of ${live.needed} signatures${
+          short > 0 ? ` — ${short} short` : " — it goes to the floor"}.
+        ${stalled
+          ? "Everyone who was ever going to sign already has. The rest are people who will vote for it and will not put their name on it."
+          : "Names are still coming in."}
+      </p>
+      <div class="whipbox__act" style="margin-top:12px">
+        <input type="range" min="0" max="${Math.floor(G.state.capital ?? 0)}" value="0" data-pet-range />
+        <span class="hint" data-pet-label>Call in 0 favours</span>
+        <button class="btn btn--sm" data-pet-go>Work the list</button>
+      </div>
+    </div>`;
+  }
+
+  return `<div class="card" id="petitionCard">
+    <span class="eyebrow">📂 Sitting in committee</span>
+    <p class="hint" style="margin:6px 0 12px">
+      These have the votes on the floor and cannot get the room, because most of
+      the majority is against them and the majority sets the calendar. Enough
+      signatures takes that decision away from leadership — and they will know
+      exactly whose name is at the top.
+    </p>
+    <div class="rows">
+      ${shelf.map((b) => `<button class="career office" data-petition="${escapeHtml(b.id)}">
+        <span class="office__text">
+          <span class="office__title">${escapeHtml(b.title)}</span>
+          <span class="office__lede">${escapeHtml(b.brief || "")}</span>
+          <span class="office__lede"><b>${b.floorVotes}</b> would vote for it ·
+            <b>${b.ceiling}</b> would sign of the ${board.dischargeNeeded} needed${
+              b.ceiling < board.dischargeNeeded ? " — the rest cost favours" : ""}</span>
+        </span>
+        <span class="career__go">▸</span>
+      </button>`).join("")}
+    </div>
+  </div>`;
+}
+
 function nominationCard(n) {
   const s = n.stance;
   const nom = n.nominee;
@@ -755,6 +823,44 @@ const countBlock = (count, spend) => `<div class="whipbox">
   <p class="hint" style="margin:6px 0 0">${escapeHtml(count.note)}</p>
   ${spend}
 </div>`;
+
+/** The shelf and the signature drive. */
+function wirePetition() {
+  const card = $("petitionCard");
+  if (!card) return;
+
+  card.onclick = async (e) => {
+    const pick = e.target.closest("[data-petition]");
+    if (!pick) return;
+    loader(true, "Filing the paperwork…");
+    try {
+      const data = await filePetition(G.state, pick.dataset.petition, 0);
+      G.state = data.state;
+      saveCareer();
+      renderFloor(handlers);
+    } catch (err) {
+      alert(err.message);
+    } finally { loader(false); }
+  };
+
+  const range = card.querySelector("[data-pet-range]");
+  if (!range) return;
+  const label = card.querySelector("[data-pet-label]");
+  range.oninput = () => {
+    label.textContent = `Call in ${range.value} favour${range.value === "1" ? "" : "s"}`;
+  };
+  card.querySelector("[data-pet-go]").onclick = async () => {
+    loader(true, "You are making calls…");
+    try {
+      const data = await pushPetition(G.state, Number(range.value));
+      G.state = data.state;
+      saveCareer();
+      renderFloor(handlers);
+    } catch (err) {
+      alert(err.message);
+    } finally { loader(false); }
+  };
+}
 
 function wireBill(bill) {
   const card = document.querySelector(`[data-bill="${bill.id}"]`);

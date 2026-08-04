@@ -57,6 +57,12 @@ export const houseDistricts = (party, presidentName, startYear) =>
 
 export const houseFloor = (state) => post("/api/house/floor", { state });
 
+/** Forcing the floor: the one agenda power that needs no rank. */
+export const filePetition = (state, billId, favours) =>
+  post("/api/chamber/petition", { state, action: "launch", billId, favours });
+export const pushPetition = (state, favours) =>
+  post("/api/chamber/petition", { state, action: "sign", favours });
+
 export const houseVote = (state, bill, vote) => post("/api/house/vote", { state, bill, vote });
 
 export const houseSponsor = (state, title, axis, domain, favours = 0) =>
