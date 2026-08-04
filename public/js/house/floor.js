@@ -8,6 +8,7 @@ import {
   senateFloor, senateVote, senateFilibuster, senateAdvance,
   senateSponsor, senateCommittee, senateWhip, senateArticles, senateConfirm,
   filePetition, pushPetition, moveVacate, callHearing, doCasework, askEarmark,
+  endorseAgainst, raiseForColleagues,
 } from "../api.js";
 import {
   nationCard, falloutBlock, staffCard, wireStaff, resetStaffLogIfNewMonth,
@@ -155,6 +156,7 @@ function paint() {
           <p style="margin:10px 0 0">${escapeHtml(pendingCycle.ladder.note)}</p>
         </div>` : ""}
 
+    ${partyCard(board)}
     ${districtCard(board)}
     ${hearingCard(board)}
     ${vacateCard(board)}
@@ -208,6 +210,7 @@ function paint() {
   wireVacate();
   wireHearing();
   wireDistrict();
+  wireParty();
   if (board.canSponsor) wireSponsor();
   wireStaff();
   const country = $("seeCountry");
@@ -309,6 +312,57 @@ function wireArticles() {
  * in the mode, and it only reads that way if you can see all three pressures at
  * once.
  */
+/**
+ * The war inside your own party.
+ *
+ * Every other lever points at the other side or at leadership. This is the only
+ * one pointed at the people sitting next to you — and congressional careers are
+ * ended by their own party far more often than by the other one.
+ */
+function partyCard(board) {
+  const p = board.party;
+  if (!p) return "";
+  const d = board.district || {};
+
+  return `<div class="card" id="partyCard">
+    <div class="card__head">
+      <span class="eyebrow">🔪 Your own side</span>
+      <span class="hint">${p.seatsTaken ? `${p.seatsTaken} seat${p.seatsTaken === 1 ? "" : "s"} taken` : ""}</span>
+    </div>
+
+    ${p.challenges.length ? `<p class="hint" style="margin:6px 0 12px">
+      ${p.challenges.map((c) => `Primary season: your challenger against <b>${escapeHtml(c.name)}</b>
+        — ${c.odds}% and counting.`).join("<br>")}
+    </p>` : ""}
+
+    ${p.challenges.length < p.maxChallenges && p.targets.length ? `
+      <p class="hint" style="margin:6px 0 12px">
+        An afternoon on the phone, every friend you had in leadership, and a
+        chance at a seat that comes back thinking like you.
+      </p>
+      <div class="rows">
+        ${p.targets.slice(0, 3).map((t) => `<button class="career office" data-endorse="${escapeHtml(t.seat)}">
+          <span class="office__text">
+            <span class="office__title">${escapeHtml(t.name)} · ${escapeHtml(t.seat)}</span>
+            <span class="office__lede">${escapeHtml(t.ideology)} — ${escapeHtml(t.faction)}</span>
+            <span class="office__lede">A challenger wins about <b>${t.odds}%</b> of the time</span>
+          </span>
+          <span class="career__go">▸</span>
+        </button>`).join("")}
+      </div>` : ""}
+
+    <div class="gavel" style="margin-top:14px">
+      <span class="eyebrow">🍗 The circuit</span>
+      <p class="hint" style="margin:6px 0 10px">
+        ${d.fundraisedThisMonth
+          ? "You have done the circuit this month. There are only so many rubber-chicken dinners in a calendar."
+          : "Four fundraisers in three states for members who need the money more than you do. None of it for your seat, and every one of them knows it."}
+      </p>
+      ${d.fundraisedThisMonth ? "" : `<button class="btn btn--sm" data-fundraise>Headline them</button>`}
+    </div>
+  </div>`;
+}
+
 /**
  * The half of the job nobody writes a story about.
  *
@@ -963,6 +1017,37 @@ const countBlock = (count, spend) => `<div class="whipbox">
   <p class="hint" style="margin:6px 0 0">${escapeHtml(count.note)}</p>
   ${spend}
 </div>`;
+
+/** Primaries, and the circuit. */
+function wireParty() {
+  const card = $("partyCard");
+  if (!card) return;
+  const run = async (fn, busy, confirmWith) => {
+    if (confirmWith && !confirm(confirmWith)) return;
+    loader(true, busy);
+    try {
+      const data = await fn();
+      G.state = data.state;
+      saveCareer();
+      alert(data.note);
+      renderFloor(handlers);
+    } catch (err) {
+      alert(err.message);
+    } finally { loader(false); }
+  };
+
+  card.onclick = (e) => {
+    const pick = e.target.closest("[data-endorse]");
+    if (pick) {
+      return run(() => endorseAgainst(G.state, pick.dataset.endorse),
+        "You are making the call…",
+        "Endorse a challenger against a member of your own party? Leadership will never forget it.");
+    }
+    if (e.target.closest("[data-fundraise]")) {
+      return run(() => raiseForColleagues(G.state), "Three states in four days…");
+    }
+  };
+}
 
 /** Casework and the project. */
 function wireDistrict() {

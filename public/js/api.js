@@ -75,6 +75,10 @@ export const callHearing = (state, arcId, compel) =>
 export const doCasework = (state, effort) => post("/api/chamber/casework", { state, effort });
 export const askEarmark = (state) => post("/api/chamber/earmark", { state });
 
+/** The war inside your own party. */
+export const endorseAgainst = (state, seat) => post("/api/chamber/endorse", { state, seat });
+export const raiseForColleagues = (state) => post("/api/chamber/fundraise", { state });
+
 export const houseVote = (state, bill, vote) => post("/api/house/vote", { state, bill, vote });
 
 export const houseSponsor = (state, title, axis, domain, favours = 0) =>

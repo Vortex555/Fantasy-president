@@ -3,7 +3,7 @@
 import { seeded } from "./rng.js";
 import { IDEOLOGIES, mainstreamIdeologies, fringeIdeologies } from "./ideologies.js";
 import { factionFor } from "./factions.js";
-import { ISSUE_KEYS } from "./ideologies.js";
+import { ISSUE_KEYS, findIdeology } from "./ideologies.js";
 
 /**
  * The people who actually hold office.
@@ -104,7 +104,7 @@ export function apportion(chamber, states) {
  * into real districts and the roster is ordered by state so it reads like a
  * directory.
  */
-export function buildChamber({ seed, chamber, seats, radical = false, states = {} }) {
+export function buildChamber({ seed, chamber, seats, radical = false, states = {}, primaried = [] }) {
   const r = seeded(`${seed}|${chamber}|${radical ? "radical" : "normal"}`);
   const used = new Set();
   const benches = {
@@ -160,7 +160,38 @@ export function buildChamber({ seed, chamber, seats, radical = false, states = {
     };
   });
 
-  return roster.sort((a, b) => a.seat.localeCompare(b.seat, undefined, { numeric: true }));
+  /**
+   * Seats whose member was primaried out, and who replaced them.
+   *
+   * The roster is derived from a seed rather than stored, so a member removed in
+   * a primary cannot simply be edited away — the next call would rebuild them.
+   * The replacements are kept on the state and applied here, which is also the
+   * only place that guarantees every downstream reader sees the same chamber:
+   * faction sizes, roll calls, discharge ceilings and the count on a motion to
+   * vacate all run off this list. See party.js.
+   */
+  const replaced = new Map((primaried || []).map((p) => [p.seat, p]));
+  const finished = replaced.size
+    ? roster.map((m) => {
+        const swap = replaced.get(m.seat);
+        if (!swap) return m;
+        const ideology = findIdeology(m.party, swap.ideology);
+        if (!ideology) return m;
+        return {
+          ...m,
+          name: swap.name || m.name,
+          ideology: ideology.value,
+          axis: ideology.axis,
+          ...Object.fromEntries(ISSUE_KEYS.map((k) => [k, ideology[k] ?? 0])),
+          faction: factionFor(m.party, ideology.value)?.id || null,
+          reflex: ideology.reflex || null,
+          fringe: Boolean(ideology.fringe),
+          primaried: true,
+        };
+      })
+    : roster;
+
+  return finished.sort((a, b) => a.seat.localeCompare(b.seat, undefined, { numeric: true }));
 }
 
 /**
@@ -173,11 +204,11 @@ export function buildCongress(state, states = {}) {
 
   return {
     house: buildChamber({
-      seed, chamber: "house", radical, states,
+      seed, chamber: "house", radical, states, primaried: state.primaried,
       seats: { Democrat: state.congress.houseD, Republican: state.congress.houseR },
     }),
     senate: buildChamber({
-      seed, chamber: "senate", radical, states,
+      seed, chamber: "senate", radical, states, primaried: state.primaried,
       seats: { Democrat: state.congress.senateD, Republican: state.congress.senateR },
     }),
   };

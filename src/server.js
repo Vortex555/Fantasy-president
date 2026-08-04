@@ -54,6 +54,10 @@ import {
   doCasework, resetCasework, requestEarmark, canEarmark, resetEarmarks, MAX_CASEWORK,
 } from "./district.js";
 import {
+  primaryTargets, challengeOdds, endorseChallenger, resolvePrimaries,
+  fundraiseForColleagues, resetFundraising, MAX_CHALLENGES,
+} from "./party.js";
+import {
   shelvedBills, petitionCeiling, launchPetition, signPetition, advancePetition,
   DISCHARGE_THRESHOLD, vacateCount, moveToVacate, resolveVacancy,
 } from "./procedure.js";
@@ -788,6 +792,17 @@ app.post("/api/house/floor", async (req, res) => {
         canEarmark: canEarmark(state),
         earmarkUsed: Boolean(state.earmarkThisTerm),
         cases: Math.round(state.casework ?? 0),
+        fundraisedThisMonth: Boolean(state.fundraisedThisMonth),
+      },
+      /**
+       * The war inside your own party — the only lever pointed at the people
+       * sitting next to you. See party.js.
+       */
+      party: {
+        targets: primaryTargets(state).map((t) => ({ ...t, odds: challengeOdds(state, t) })),
+        challenges: state.challenges || [],
+        maxChallenges: MAX_CHALLENGES,
+        seatsTaken: (state.primaried || []).length,
       },
       // The country the calendar was written out of, so the floor can show it.
       nation: nationCard(state),
@@ -1016,14 +1031,41 @@ app.post("/api/chamber/earmark", memberOnly((req, res, state) => {
   }
 }));
 
+/** Backing somebody else's opponent. */
+app.post("/api/chamber/endorse", memberOnly((req, res, state) => {
+  try {
+    const out = endorseChallenger(state, String(req.body?.seat || ""));
+    if (out.rejected) return res.status(400).json({ error: out.note });
+    res.json(out);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "The endorsement could not be made." });
+  }
+}));
+
+/** Headlining fundraisers for colleagues, which is casework run backwards. */
+app.post("/api/chamber/fundraise", memberOnly((req, res, state) => {
+  try {
+    const out = fundraiseForColleagues(state);
+    if (out.rejected) return res.status(400).json({ error: out.note });
+    res.json(out);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "The circuit could not be worked." });
+  }
+}));
+
 app.post("/api/house/advance", async (req, res) => {
   try {
     const { state } = req.body || {};
     if (!state || state.office !== "house") return res.status(400).json({ error: "A House career is required." });
     const moved = advancePetition(state);
-    const chair = resolveVacancy(resetCasework(resetHearings(moved.state)));
+    const season = resolvePrimaries(moved.state);
+    const chair = resolveVacancy(
+      resetFundraising(resetCasework(resetHearings(season.state))));
     const out = advanceHouseMonth(chair.state);
     if (chair.note) out.vacancyNote = chair.note;
+    if (season.results.length) out.primaryNote = season.note;
     // A signature drive is a month-by-month thing, so its news rides along with
     // the month rather than needing a screen of its own.
     if (moved.note) out.petitionNote = moved.note;
@@ -1360,9 +1402,12 @@ app.post("/api/senate/advance", async (req, res) => {
     const { state } = req.body || {};
     if (!state || state.office !== "senate") return res.status(400).json({ error: "A Senate career is required." });
     const moved = advancePetition(state);
-    const chair = resolveVacancy(resetCasework(resetHearings(moved.state)));
+    const season = resolvePrimaries(moved.state);
+    const chair = resolveVacancy(
+      resetFundraising(resetCasework(resetHearings(season.state))));
     const out = advanceSenateMonth(chair.state);
     if (chair.note) out.vacancyNote = chair.note;
+    if (season.results.length) out.primaryNote = season.note;
     // A signature drive is a month-by-month thing, so its news rides along with
     // the month rather than needing a screen of its own.
     if (moved.note) out.petitionNote = moved.note;
