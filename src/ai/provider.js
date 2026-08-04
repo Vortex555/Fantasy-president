@@ -1,5 +1,6 @@
 import { completeAnthropic, anthropicInfo } from "./anthropic.js";
 import { completeOpenAI, openAiInfo, discoverModel, probeLocal, forgetModel } from "./openai.js";
+import { driftedFromEnglish, foreignScript, promptText, ENGLISH_RETRY } from "./english.js";
 
 /**
  * Where the intelligence comes from.
@@ -145,6 +146,56 @@ function warnIfTruncated(req, out) {
   );
 }
 
+/** One attempt at whichever provider is configured. */
+const attempt = (id, req) => (id === "anthropic" ? completeAnthropic(req) : completeOpenAI(req));
+
+/**
+ * The answer, in the language the game is written in.
+ *
+ * A small model that drifts out of English does it silently and often only
+ * partway — three stance cards in Mandarin under English headings, the JSON
+ * perfectly well formed, every position correct. Nothing downstream can catch
+ * that, because nothing downstream reads prose; it is a property of the reply
+ * itself, so it belongs at the one point every reply in the game passes through.
+ *
+ * Asking again is the whole fix, and it nearly always works: the drift is a
+ * lapse rather than a decision, and a model told plainly that it just answered
+ * in the wrong language answers the same question again in the right one. That
+ * is worth an extra call, because the alternative is the month falling back to
+ * the hand-written pool for a reply whose only fault was its language.
+ *
+ * Twice is where it stops. A model that cannot stay in English through a direct
+ * instruction is not going to on the third attempt, and throwing here is the
+ * failure every caller in the game already knows how to survive.
+ */
+async function inEnglish(id, req) {
+  /**
+   * Checked against what was asked, not in isolation. A title or a name handed
+   * to the model and handed straight back is our own material returning, and
+   * counting it cost a real reply the first time this met a real model.
+   */
+  const given = promptText(req);
+
+  const first = await attempt(id, req);
+  if (!driftedFromEnglish(first.text, given)) return first;
+
+  const { count, share, sample } = foreignScript(first.text, given);
+  console.warn(`[language] the model wrote ${count} non-Latin characters of its own `
+    + `(${Math.round(share * 100)}% of the reply, e.g. "${sample}"). Asking again in English.`);
+
+  const second = await attempt(id, {
+    ...req,
+    system: [req.system, ENGLISH_RETRY].filter(Boolean).join("\n\n"),
+    // The reminder is appended after the cached prefix, so the retry pays full
+    // price for its input. It is one call in a rare failure; the alternative is
+    // a cache breakpoint that moves every turn.
+    cache: false,
+  });
+  if (!driftedFromEnglish(second.text, given)) return second;
+
+  throw new Error("The model answered in another language twice; the game is English-only.");
+}
+
 export async function complete(req) {
   const id = providerId();
   if (id !== "anthropic" && id !== "local") {
@@ -152,7 +203,7 @@ export async function complete(req) {
   }
 
   try {
-    const out = id === "anthropic" ? await completeAnthropic(req) : await completeOpenAI(req);
+    const out = await inEnglish(id, req);
     health = { ok: true, reason: null, at: Date.now(), failures: 0, id, model: out.model };
     warnIfTruncated(req, out);
     return out;

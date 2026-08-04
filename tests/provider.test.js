@@ -447,6 +447,81 @@ test("with no provider configured, nothing pretends otherwise", async () => {
 });
 
 // ---------------------------------------------------------------------------
+// The month it answered in Chinese
+//
+// A well-formed reply, every field present, every position correct, and three
+// of the four stance cards written in Mandarin under English headings. It is
+// the most ordinary failure of a Chinese-trained local model and the game could
+// not see it, because nothing downstream reads prose. So the reply is read
+// here, where every reply in the game passes through.
+// ---------------------------------------------------------------------------
+
+/** A runner that answers with each of `replies` in turn, then repeats the last. */
+async function saying(...replies) {
+  let asked = 0;
+  const local = await runner({
+    "/v1/models": (q, res) => json(res, 200, modelList("qwen2.5:7b")),
+    "/v1/chat/completions": (q, res, body) => {
+      const reply = replies[Math.min(asked, replies.length - 1)];
+      asked += 1;
+      local.seen.push(JSON.parse(body));
+      json(res, 200, completion(reply, "qwen2.5:7b"));
+    },
+  });
+  local.seen = [];
+  Object.defineProperty(local, "asked", { get: () => asked });
+  return local;
+}
+
+test("a model that drifts out of English is asked again rather than believed", async () => {
+  const local = await saying(
+    '{"voices":[{"party":"WV-2担心这会削弱法官的权威，影响地方案件判决。"}]}',
+    '{"voices":[{"party":"Leadership promised the agencies this renewal."}]}',
+  );
+  try {
+    const ai = await freshAi({ FP_LOCAL_URL: local.url });
+    const out = await ai.complete({ system: "You write the floor screen.", messages: [], cache: true });
+
+    assert.match(out.text, /Leadership promised/, "the second answer is the one that is used");
+    assert.equal(local.asked, 2, "and it took a second ask to get it");
+    assert.match(local.seen[1].messages[0].content, /NOT IN ENGLISH/,
+      "the retry says what was wrong with the first one");
+    assert.equal(ai.providerHealth().ok, true, "a drift that recovered is not a failure");
+  } finally {
+    await local.close();
+  }
+});
+
+test("a model that will not come back to English loses the turn, not the game", async () => {
+  const local = await saying('{"analysis":"这项法案将削弱司法独立性，影响地方案件判决。"}');
+  try {
+    const ai = await freshAi({ FP_LOCAL_URL: local.url });
+    await assert.rejects(() => ai.complete({ system: "s", messages: [] }), /another language/);
+    assert.equal(local.asked, 2, "twice is where it stops; a third ask is not going to work");
+
+    // Every caller in the game already knows how to survive a throw — this is
+    // the same fallback a malformed reply gets, and the badge says so.
+    const health = ai.providerHealth();
+    assert.equal(health.ok, false);
+    assert.equal(health.engine, "offline");
+    assert.match(health.reason, /English-only/);
+  } finally {
+    await local.close();
+  }
+});
+
+test("an English answer is never asked for twice", async () => {
+  const local = await saying('{"voices":[{"party":"Leadership promised the agencies this renewal."}]}');
+  try {
+    const ai = await freshAi({ FP_LOCAL_URL: local.url });
+    await ai.complete({ system: "s", messages: [] });
+    assert.equal(local.asked, 1, "the guard costs nothing on the path everybody takes");
+  } finally {
+    await local.close();
+  }
+});
+
+// ---------------------------------------------------------------------------
 // The hosted path
 //
 // A request to Anthropic cannot be made from a test without spending money, so

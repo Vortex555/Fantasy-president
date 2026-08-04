@@ -1,5 +1,6 @@
 import { complete, aiAvailable } from "./ai/provider.js";
 import { parseModelJson } from "./ai/json.js";
+import { ENGLISH_ONLY } from "./ai/english.js";
 import { seeded } from "./rng.js";
 import { normalizeDomain, activeArcs, ARC_DOMAIN_IDS } from "./arcs.js";
 import {
@@ -212,7 +213,8 @@ ${Object.entries(TOPIC_MEANINGS).map(([k, v]) => `    ${k} — ${v}`).join("\n")
 - THE MEMBER YOU ARE WRITING FOR DID NOT WRITE ANY OF THESE. Leadership sets this calendar and they only get to vote on it; filing their own legislation is a separate thing they do elsewhere. Never name them as an author, a sponsor or a champion of anything on this floor. Their name is given to you as context, not as material.
 - The seat's census composition is given to you as constituency arithmetic and nothing else. You may refer to a district's makeup the way a psephologist would — "a majority-Black seat", "a heavily Hispanic district" — where it is genuinely relevant to why a bill is on the floor. You must NEVER characterise, generalise about, or ascribe views, values or behaviour to any racial or ethnic group. Write about the place and the legislation, never about what a category of people is like.
 - Invent every name. No real politicians, no real organisations, no real publications.
-- Return exactly the number of bills you are asked for. No commentary outside the JSON.`;
+- Return exactly the number of bills you are asked for. No commentary outside the JSON.
+- ${ENGLISH_ONLY}`;
 
 /**
  * What leadership schedules, written to the month.
@@ -265,11 +267,19 @@ The four voices:
 You MUST respond with ONLY a single JSON object (no prose, no markdown fences):
 {
   "voices": [
-    { "title": "the bill's exact title as given", "party": "...", "district": "...", "bloc": "...", "conviction": "..." }
+    {
+      "title": "the bill's exact title as given",
+      // For each voice: COPY OUT the position you were given, then write the sentence for it.
+      "party_vote": "yes" | "no",        "party": "...",
+      "district_vote": "yes" | "no",     "district": "...",
+      "bloc_vote": "yes" | "no",         "bloc": "...",
+      "conviction_vote": "yes" | "no",   "conviction": "..."
+    }
   ]
 }
 
 Rules:
+- COPY THE POSITION BEFORE YOU EXPLAIN IT. Every "_vote" field is the position you were handed for that voice, written out again in your own answer immediately before the sentence it belongs to. This is not a question and you are not being asked to decide it — it is there because writing a sentence for the wrong side is the commonest failure here, and copying the side out first is what stops it. A "_vote" that disagrees with what you were given means you misread it, and the sentence beside it is thrown away unread.
 - ONE sentence per voice. Under 20 words. No preamble, no "they believe that".
 - Give the REASON, not the position. "Leadership promised the agencies this renewal in exchange for the budget deal" — not "leadership supports the bill".
 - Be specific to THIS bill. A sentence that would fit any bill in the domain is a wasted line.
@@ -277,7 +287,8 @@ Rules:
 - NEVER contradict the stated position. Read it again before each sentence. If a voice is YES you are explaining why they SUPPORT it, and the words "opposes", "rejects" and "against" must not appear. If a voice is NO you are explaining why they are AGAINST it. Getting this backwards is the single worst thing you can do here, and a line that does it is thrown away.
 - Use the district's own name. Never invent statistics, vote counts or named people.
 - The "conviction" line is the member's OWN belief and must never explain itself by another voice. "Aligned with the bloc", "agrees with leadership", "in line with the caucus" are not reasons and are thrown away — that card exists to be capable of disagreeing with the other three, and this is the one place on the screen where the player learns what they personally stand for.
-- Write the member as the politics described to you, not as you would like them to be. If their ideology is hostile to a group, a bill helping that group is not something they support reluctantly on principle — they oppose it, and the sentence should say why in their own terms. Never launder an ugly politics into a reasonable one; a flattering explanation that contradicts the stated politics is worse than no explanation, and will be thrown away.`;
+- Write the member as the politics described to you, not as you would like them to be. If their ideology is hostile to a group, a bill helping that group is not something they support reluctantly on principle — they oppose it, and the sentence should say why in their own terms. Never launder an ugly politics into a reasonable one; a flattering explanation that contradicts the stated politics is worse than no explanation, and will be thrown away.
+- ${ENGLISH_ONLY}`;
 
 /**
  * The engine hands over the positions; the model hands back the sentences.
@@ -292,11 +303,19 @@ export async function voicesFromModel(state, bills, positions) {
   const live = bills.filter((b) => positions[b.id]);
   if (!live.length) return {};
 
+  /**
+   * The four positions are laid out one per line, under the names the JSON
+   * asks for them back in, so copying them across is a transcription rather
+   * than a reading. They were on a single pipe-separated line and a small model
+   * given four labels and four values in a row will pair them up wrong.
+   */
   const described = live.map((b) => {
     const p = positions[b.id];
     return `- "${b.title}" — ${b.brief || "no summary"}\n`
-      + `    party: ${p.party.toUpperCase()} | district: ${p.district.toUpperCase()} | `
-      + `bloc (${p.blocName || "their caucus"}): ${p.bloc.toUpperCase()} | conviction: ${p.conviction.toUpperCase()}`;
+      + `    party_vote: ${p.party.toUpperCase()}\n`
+      + `    district_vote: ${p.district.toUpperCase()}\n`
+      + `    bloc_vote: ${p.bloc.toUpperCase()}   (their bloc is ${p.blocName || "their caucus"})\n`
+      + `    conviction_vote: ${p.conviction.toUpperCase()}`;
   }).join("\n");
 
   const user = `${memberSummary(state)}
@@ -338,7 +357,44 @@ const VOICE_KEYS = ["party", "district", "bloc", "conviction"];
  * it. Every other verb here takes the bill as its object; this one did not, so
  * it now has to name it.
  */
-const ARGUES_AGAINST = /\b(oppos\w+|reject\w*|refus\w+|resist\w+|object(s|ed|ing)?\b|vote[sd]? no|will not (back|support|vote)|against (it|this|the (bill|act|measure|legislation|proposal)))/i;
+/**
+ * The bill itself, whatever the sentence is calling it. Every pattern below
+ * takes it as an object, for the reason above: a voice can be against a great
+ * many things while being for the bill about them.
+ */
+const THE_BILL = "(?:it|this|the (?:bill|act|measure|legislation|proposal))";
+
+/**
+ * Calling the bill a bad thing, which is arguing against it without ever
+ * reaching for a verb the old pattern knew.
+ *
+ * "Leadership views it as a risk to judicial independence" was printed under a
+ * YES card, in English, on a screen whose whole job is to show the player which
+ * way each voice came down. Nothing in it opposes, rejects, refuses or votes no
+ * — it names the bill as a danger and lets that stand as the reason, which is
+ * how most people actually say they are against something.
+ *
+ * "risk", "threat" and "danger" only count with something to be a risk TO,
+ * because a risk on its own is as often a reason to vote yes as no: "leadership
+ * sees it as a risk worth taking" is a perfectly good line for a YES card and
+ * this must not eat it. The rest of the list has no such double life — nobody
+ * calls a bill an overreach on their way to voting for it.
+ */
+const HARM = "(?:(?:risk|threat|danger|blow|setback)s? to|(?:assault|attack|intrusion|encroachment)s? on"
+  + "|overreach|power ?grab|betrayal|mistake|boondoggle)";
+
+const ARGUES_AGAINST = new RegExp([
+  // "no" closes on a boundary: without one, "the relief vote nobody can be
+  // recorded against" is a member voting no, and a perfectly good line for a
+  // YES card was being thrown away by its own guard.
+  "\\b(?:oppos\\w+|reject\\w*|refus\\w+|resist\\w+|object(?:s|ed|ing)?\\b|vote[sd]? no\\b|will not (?:back|support|vote))",
+  `against ${THE_BILL}`,
+  // "views it as a risk to judicial independence", "calls it an overreach"
+  `\\b(?:views?|sees?|reads?|regards?|calls?|deems?|treats?|considers?|brands?|casts?)\\s+${THE_BILL}\\s+(?:as\\s+)?(?:an?\\s+)?${HARM}`,
+  // "it is an overreach", "this amounts to a power grab"
+  `\\b${THE_BILL}\\s+(?:is|would be|amounts? to)\\s+(?:an?\\s+)?${HARM}`,
+].join("|"), "i");
+
 const ARGUES_FOR = /\b(support\w*|back(s|ed|ing)?\b|favou?r\w*|endors\w*|champion(s|ed|ing)?\b|vote[sd]? (for|yes))/i;
 
 /**
@@ -378,6 +434,31 @@ function contradicts(text, position) {
 }
 
 /**
+ * The model's own account of which side it was writing for.
+ *
+ * Reading the sentence catches a line that argues the other way in plain words,
+ * and it will always be a step behind the ways there are of doing that — no
+ * pattern was ever going to have "views it as a risk to judicial independence"
+ * in it before a screenshot arrived with it printed under a YES card.
+ *
+ * So the model is asked to copy the position out before it writes, exactly as
+ * the docket call already asks it to name an axis's side before scoring it, and
+ * for the same reason: a small model that has misread which way a voice went
+ * says so, reliably, the moment it has to write the answer down. The engine's
+ * position is still the only one that counts — this decides whether the
+ * *sentence* is usable, never which way anybody votes.
+ *
+ * Silence is not disagreement. An older model, a truncated field or a reply
+ * that simply left it out falls through to the sentence check alone, which is
+ * exactly where this started.
+ */
+function misread(item, who, position) {
+  const echoed = String(item?.[`${who}_vote`] || "").trim().toLowerCase();
+  if (echoed !== "yes" && echoed !== "no") return null;
+  return echoed === position ? null : echoed;
+}
+
+/**
  * Bills are matched by title, because that is the only field the model is asked
  * to echo and the only one it reliably does. Each line is frozen beside the
  * position it was written for, so it retires itself the moment the bill moves.
@@ -404,7 +485,9 @@ export function validateVoices(raw, bills, positions) {
        * card the model never wrote — and there was no way to tell an over-eager
        * guard from a quiet model. Say which, and why.
        */
-      const refused = contradicts(text, position) ? "argues the opposite of its own position"
+      const wrongSide = misread(item, who, position);
+      const refused = wrongSide ? `was written for ${wrongSide.toUpperCase()}, and they voted ${position.toUpperCase()}`
+        : contradicts(text, position) ? "argues the opposite of its own position"
         : (who === "conviction" && defersToAnother(text)) ? "defers to another voice"
         : null;
       if (refused) {
@@ -668,7 +751,8 @@ Rules:
 - Name actors, deadlines and numbers. No "tensions continue to rise".
 - Invent every name. No real politicians, organisations or publications.
 - Roughly one month in five should be genuinely quiet — a procedural story, an economic datapoint, an appropriations deadline. Not every month is a catastrophe.
-- Never mention that this is a game. No markdown, no prose outside the JSON.`;
+- Never mention that this is a game. No markdown, no prose outside the JSON.
+- ${ENGLISH_ONLY}`;
 
 export async function situationFromModel(state) {
   /**
@@ -743,7 +827,8 @@ Rules:
 - Do not congratulate the member. You are not on their staff. A bill passing is not the same as a bill working, and most of these will not work.
 - Be compact. Headlines are headline-length; the analysis is three sentences and never four.
 - Constituents you invent are individuals with jobs and towns, never representatives of a demographic category. Never ascribe a view to anybody on the basis of race or ethnicity, and never write a quote whose point is the speaker's background.
-- Invent every name. No real people, organisations or publications. Never mention that this is a game.`;
+- Invent every name. No real people, organisations or publications. Never mention that this is a game.
+- ${ENGLISH_ONLY}`;
 
 export async function falloutFromModel(state, result) {
   const bill = result.bill || {};
@@ -816,7 +901,7 @@ export async function staffReply(state, history, message) {
   const sys = `You are ${chief.name}, Chief of Staff to ${state.scenario.presidentName}, ${
     state.scenario.party} ${state.office === "senate" ? "Senator" : "Representative"} for ${home}. You have run this office for years and you are ${chief.manner}.
 
-You are not a policy advisor and you do not talk about what is good for the country unless it is also good for the boss. Your job is counting: who is watching this vote, what it costs at home, what leadership will remember, and what it does to the next election. Be specific and be blunt. Speak in the first person, directly to them, in 2-4 sentences. Never use JSON, never mention that this is a game, and never invent a real politician.
+You are not a policy advisor and you do not talk about what is good for the country unless it is also good for the boss. Your job is counting: who is watching this vote, what it costs at home, what leadership will remember, and what it does to the next election. Be specific and be blunt. Speak in the first person, directly to them, in 2-4 sentences. Never use JSON, never mention that this is a game, and never invent a real politician. ${ENGLISH_ONLY}
 
 ${nationSummary(state)}
 

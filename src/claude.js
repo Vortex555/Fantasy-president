@@ -1,6 +1,7 @@
 import { STATES } from "./states.js";
 import { complete, aiAvailable } from "./ai/provider.js";
 import { parseModelJson } from "./ai/json.js";
+import { ENGLISH_ONLY } from "./ai/english.js";
 import { STAKEHOLDERS, partyControl, electoralCount, pacing } from "./gameEngine.js";
 import { describeArcs, ARC_DOMAIN_IDS } from "./arcs.js";
 import { rosterPrompt } from "./personas.js";
@@ -62,6 +63,7 @@ Rules:
 - Only include a stakeholder in "stakeholders" if it genuinely moved. Silence is a valid outcome; a list of eight near-zero changes is noise.
 - "ideologyFit" holds the president to what they campaigned as, which is a separate judgement from whether the policy was any good. The dashboard names their ideology; score how far this month's policy is from it. +3 is the purest possible expression of that politics; 0 is orthogonal or unremarkable; -3 is a direct betrayal of the thing they were elected to do. A Social Democrat cutting welfare is -3 whether or not it worked. A Libertarian nationalising a railway is -3 even if it saved the economy. Judge the fit, not the merit — the merit is already in every other number you are returning.
 - Keep it grounded in the scenario's era and the current dashboard. Never break character or mention that this is a game.
+- ${ENGLISH_ONLY}
 
 ===========================================================================
 WORKED EXAMPLES
@@ -375,6 +377,7 @@ Rules:
 - React to THIS month's decision specifically. Naming the concrete thing that happened is what makes a quote land; generic grumbling about politicians does not.
 - These people should sometimes disagree with each other about the very same facts, and someone should occasionally surprise you by breaking from their politics.
 - Never mention that this is a game. No hashtags, no emoji, no stage directions, no names of real public figures.
+- ${ENGLISH_ONLY}
 
 Respond with ONLY JSON: {"quotes": [{"id": "p01", "quote": "..."}]}. No markdown, no prose outside the JSON.`;
 
@@ -421,7 +424,7 @@ ${list}`;
 // stable for a given advisor, so it caches across a multi-message conversation.
 export async function claudeAdvisor(state, event, advisor, history, userMessage) {
   const control = partyControl(state);
-  const sys = `You are ${advisor.name}, the ${advisor.role} to President ${state.scenario.presidentName} (${state.scenario.party}). You are ${advisor.persona}. Your loyalty to the President is ${advisor.loyalty}/100 and your competence is ${advisor.competence}/100 — let these color your tone (a low-loyalty advisor is blunter and more self-interested; a low-competence one gives shakier advice). Stay in character at all times. Speak in the first person, directly to the President, in 2-4 sentences. Be specific to the situation and your area of focus (${advisor.focus}). Never mention that this is a game. Do not use JSON — just speak.
+  const sys = `You are ${advisor.name}, the ${advisor.role} to President ${state.scenario.presidentName} (${state.scenario.party}). You are ${advisor.persona}. Your loyalty to the President is ${advisor.loyalty}/100 and your competence is ${advisor.competence}/100 — let these color your tone (a low-loyalty advisor is blunter and more self-interested; a low-competence one gives shakier advice). Stay in character at all times. Speak in the first person, directly to the President, in 2-4 sentences. Be specific to the situation and your area of focus (${advisor.focus}). Never mention that this is a game. Do not use JSON — just speak. ${ENGLISH_ONLY}
 
 CURRENT SITUATION: ${event?.title || "General strategy"} — ${event?.brief || ""}
 DASHBOARD: approval ${state.approval}%, stability ${state.stability}%. Congress: ${control.house} House, ${control.senate} Senate. Supreme Court ${state.court.conservative}-${state.court.liberal} ${state.court.conservative >= state.court.liberal ? "conservative" : "liberal"}. Economy: ${state.economy.gdpGrowth}% GDP, ${state.economy.unemployment}% unemployment, ${state.economy.inflation}% inflation.`;
@@ -452,7 +455,7 @@ ROLE 2 — a neutral debate analyst. Score the PRESIDENT's answer for this round
 Debate topic this round: ${topic}.
 President: ${state.scenario.presidentName} (${state.scenario.party}), current approval ${state.approval}%.
 
-Respond with ONLY JSON: {"opponentLine": "...", "score": number, "pundit": "..."}. No markdown.`;
+Respond with ONLY JSON: {"opponentLine": "...", "score": number, "pundit": "..."}. No markdown. ${ENGLISH_ONLY}`;
 
   const messages = [];
   for (const h of (history || []).slice(-6)) {
@@ -468,7 +471,7 @@ Respond with ONLY JSON: {"opponentLine": "...", "score": number, "pundit": "..."
   return out;
 }
 
-const OPENING_SYSTEM = `You are the simulation engine for "Fantasy President." Generate the opening crisis a newly inaugurated president must face in their first weeks. It should be vivid, specific, and appropriate to the given era and president. Respond with ONLY JSON: {"title": "short headline", "brief": "3-5 sentence situation the player must respond to"}. No markdown, no prose outside the JSON.`;
+const OPENING_SYSTEM = `You are the simulation engine for "Fantasy President." Generate the opening crisis a newly inaugurated president must face in their first weeks. It should be vivid, specific, and appropriate to the given era and president. Respond with ONLY JSON: {"title": "short headline", "brief": "3-5 sentence situation the player must respond to"}. No markdown, no prose outside the JSON. ${ENGLISH_ONLY}`;
 
 export async function claudeOpening(scenario) {
   const resp = await complete({

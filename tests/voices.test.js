@@ -310,3 +310,106 @@ test("but naming the bill itself still trips it", () => {
     assert.equal(out.a, undefined, `should have been refused: "${text}"`);
   }
 });
+
+// ---------------------------------------------------------------------------
+// Arguing the other way without a verb for it
+// ---------------------------------------------------------------------------
+
+/**
+ * "Leadership views it as a risk to judicial independence", printed under a
+ * YES card on a judicial ethics bill.
+ *
+ * Nothing in that sentence opposes, rejects, refuses or votes no, so the guard
+ * that reads the sentence had nothing to catch — and it is how most people
+ * actually say they are against something. You do not announce your vote; you
+ * name the thing as a danger and let it stand as the reason.
+ */
+test("calling the bill a danger is arguing against it", () => {
+  const bills = [{ id: "a", title: "Judicial Accountability and Integrity Act" }];
+  const refuse = [
+    "Leadership views it as a risk to judicial independence.",
+    "The caucus sees it as an attack on the bench.",
+    "They call it an overreach the courts will not forgive.",
+    "WV-2 reads it as a blow to the coalfields.",
+    "This is a power grab dressed up as ethics reform.",
+    "Leadership regards it as a threat to the majority's own committee chairs.",
+  ];
+  for (const text of refuse) {
+    const out = validateVoices({ voices: [{ title: bills[0].title, party: text }] },
+      bills, { a: { party: "yes" } });
+    assert.equal(out.a, undefined, `should have been refused: "${text}"`);
+  }
+});
+
+/**
+ * And the sentences that read almost exactly like those and are fine, because a
+ * guard that eats good lines is how this screen ends up looking switched off. A
+ * risk with nothing to be a risk TO is as often a reason to vote yes as no.
+ */
+test("a risk worth taking is not a risk to anything", () => {
+  const bills = [{ id: "a", title: "T" }];
+  const keep = [
+    ["party", "yes", "Leadership sees it as a risk worth taking before the recess."],
+    ["party", "yes", "Leadership treats it as the disaster relief vote nobody can be recorded against."],
+    ["district", "yes", "WV-2 has watched the mine inspectors' power grab for a decade."],
+    ["bloc", "no", "They see it as a threat to the settlement they spent a decade building."],
+  ];
+  for (const [who, position, text] of keep) {
+    const out = validateVoices({ voices: [{ title: "T", [who]: text }] }, bills, { a: { [who]: position } });
+    assert.ok(out.a?.[who], `wrongly dropped: "${text}"`);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// The model saying which side it thought it was writing for
+// ---------------------------------------------------------------------------
+
+/**
+ * Reading the sentence will always be a step behind the ways there are of
+ * arguing the other way. So the model copies the position out before it writes,
+ * exactly as the docket call makes it name an axis's side before scoring it —
+ * and a model that has misread which way a voice went says so in that field,
+ * whatever words it then reaches for.
+ */
+test("a line written for the other side is dropped even when it reads innocently", () => {
+  const bills = [{ id: "a", title: "T" }];
+  const out = validateVoices({ voices: [{
+    title: "T",
+    party_vote: "no",
+    party: "The renewal was promised to the agencies in the budget deal.",
+  }] }, bills, { a: { party: "yes" } });
+  assert.equal(out.a, undefined, "the model said itself it was writing for NO");
+});
+
+test("a position copied out correctly changes nothing", () => {
+  const bills = [{ id: "a", title: "T" }];
+  const out = validateVoices({ voices: [{
+    title: "T", party_vote: "yes", party: "The renewal was promised in the budget deal.",
+  }] }, bills, { a: { party: "yes" } });
+  assert.match(out.a.party.text, /budget deal/);
+  assert.equal(out.a.party.position, "yes", "and the engine's position is still the one stored");
+});
+
+test("silence is not disagreement", () => {
+  // An older model, a truncated field, a reply that simply left it out: none of
+  // those is a claim about which side the sentence is for, and the sentence
+  // check alone is exactly where this started.
+  const bills = [{ id: "a", title: "T" }];
+  for (const echoed of [undefined, "", "unsure", null]) {
+    const out = validateVoices({ voices: [{
+      title: "T", party_vote: echoed, party: "The renewal was promised in the budget deal.",
+    }] }, bills, { a: { party: "yes" } });
+    assert.ok(out.a?.party, `wrongly dropped on a "_vote" of ${JSON.stringify(echoed)}`);
+  }
+});
+
+test("each voice is held to its own copy of its own position", () => {
+  const bills = [{ id: "a", title: "T" }];
+  const out = validateVoices({ voices: [{
+    title: "T",
+    party_vote: "yes", party: "Leadership needs the win before the recess.",
+    district_vote: "yes", district: "WV-2 wants the plant reopened.",
+  }] }, bills, { a: { party: "yes", district: "no" } });
+  assert.ok(out.a.party, "the one that matches is kept");
+  assert.equal(out.a.district, undefined, "and the one that does not is not");
+});
