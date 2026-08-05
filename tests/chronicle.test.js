@@ -101,30 +101,44 @@ test("applying an effect reports what actually landed, not what was asked", () =
   assert.ok(s.society.uninsured >= 0.3);
 });
 
-test("a passed bill moves the country; a failed one does not", () => {
+/**
+ * This test used to read "a passed bill moves the country". It does not any
+ * more, and that is the point of passage.js: a roll call in one chamber is not
+ * a law, so the society statistics are untouched either way and the difference
+ * between passing and failing is whether the bill is now somebody else's
+ * problem or nobody's.
+ */
+test("a passed bill leaves the room; neither one moves the country on its own", () => {
   const s = house({ month: 2 });
   const before = { ...s.society };
   const bill = { id: "universal_care", title: "Universal Coverage Act", axis: -0.55, domain: "health" };
 
   const out = castVote(s, bill, "yes");
-  if (out.result.passed) {
-    assert.notEqual(out.state.society.uninsured, before.uninsured);
-    assert.ok(Object.keys(out.result.moved).length);
-  } else {
-    assert.equal(out.state.society.uninsured, before.uninsured);
-    assert.deepEqual(out.result.moved, {});
-  }
+  assert.deepEqual(out.state.society, before, "no roll call has ever changed the country by itself");
+  assert.deepEqual(out.result.moved, {});
+  assert.equal((out.state.inFlight || []).length, out.result.passed ? 1 : 0,
+    "it carried and went onward, or it did not and went nowhere");
 });
 
-test("your own bill passing leaves a mark on the country", () => {
+/**
+ * Your own bill used to become law the moment it cleared your own chamber, and
+ * the country moved on the strength of one roll call. It now goes where every
+ * other bill goes — and it is the one bill on that ledger you are allowed to
+ * fight for. See passage.js.
+ */
+test("your own bill leaves the chamber rather than becoming law in it", () => {
   const s = house({ month: 2, rank: "chair", leadership: 90 });
   s.seat = { ...s.seat, seniority: 8 };
   const median = chamberMedian(buildCongress(s, STATES).house);
+  const before = { ...s.society };
   const out = sponsorBill(s, { title: "Rural Clinics Act", axis: median, domain: "health" });
 
   if (out.result.passed) {
-    assert.ok(Object.keys(out.result.moved).length,
-      "a law with your name on it must do something to the nation");
+    assert.equal(out.result.onward.stage, "far");
+    assert.deepEqual(out.state.society, before, "the country has not heard of it yet");
+    const waiting = out.state.inFlight.find((r) => r.bill.title === "Rural Clinics Act");
+    assert.ok(waiting, "it is waiting on the other chamber");
+    assert.equal(waiting.yours, true, "and it is yours to work");
   }
 });
 

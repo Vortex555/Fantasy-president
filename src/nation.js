@@ -107,7 +107,7 @@ export function domainsActedOn(state, month = state.month, term = state.term || 
 }
 
 /**
- * What the chamber disposed of this month, by problem and by area.
+ * What became law this month, by problem and by area.
  *
  * Matching on the *domain* alone turned out to be too loose a joint. A model
  * writing a bank-rescue bill tagged it `security` while the problem it was
@@ -118,13 +118,20 @@ export function domainsActedOn(state, month = state.month, term = state.term || 
  * So a written bill now names the problem it answers by id, and that is matched
  * first. The domain is kept as the fallback, because a bill drawn from the
  * hand-written pool has no such id and never will.
+ *
+ * This reads the enactment log rather than the vote log, and the difference is
+ * the entire point of passage.js. A bill that cleared the member's own chamber
+ * used to ease the country's problems on the strength of that alone — so a
+ * party-line statute killed in the Senate three weeks later still repaired the
+ * thing it was about, and nothing anywhere admitted it. The country responds to
+ * law, not to one chamber's opinion; the vote log stays what it always was,
+ * which is how this member voted.
  */
 export function actedOn(state, month = state.month, term = state.term || 1) {
   const domains = new Set();
   const problems = new Set();
-  for (const v of state.voteLog || []) {
+  for (const v of state.enacted || []) {
     if (v.month !== month || (v.term || 1) !== term) continue;
-    if (!v.passed) continue;
     if (v.addresses) problems.add(v.addresses);
     if (v.domain) domains.add(normalizeDomain(v.domain));
   }

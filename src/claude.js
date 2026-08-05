@@ -2,6 +2,7 @@ import { STATES } from "./states.js";
 import { complete, aiAvailable } from "./ai/provider.js";
 import { parseModelJson } from "./ai/json.js";
 import { ENGLISH_ONLY } from "./ai/english.js";
+import { inventedPress } from "./ai/prose.js";
 import { STAKEHOLDERS, partyControl, electoralCount, pacing } from "./gameEngine.js";
 import { describeArcs, ARC_DOMAIN_IDS } from "./arcs.js";
 import { rosterPrompt } from "./personas.js";
@@ -350,7 +351,15 @@ Simulate the consequences and return the JSON object.`;
   });
 
   logUsage("turn", resp.model, resp.usage);
-  return parseModelJson(resp.text);
+  const out = parseModelJson(resp.text);
+  /**
+   * The one thing the judge returns that is neither a number nor a judgement:
+   * the mastheads. This prompt says to invent every publication and the model
+   * borrows real ones anyway, which is a seam in a country where every other
+   * name is made up. See ai/prose.js.
+   */
+  if (Array.isArray(out?.press)) out.press = inventedPress(out.press, { label: "turn" });
+  return out;
 }
 
 // ---------------------------------------------------------------------------

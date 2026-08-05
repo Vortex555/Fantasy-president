@@ -11,6 +11,7 @@ import {
   rankById,
   assignCommittee,
   rankOf,
+  couldLead,
   rankIndex,
   evaluateLadder,
   inYourDomain,
@@ -237,10 +238,36 @@ test("voting with your caucus earns the capital you later spend", () => {
 // ---------------------------------------------------------------------------
 
 test("the Speaker decides what the floor even votes on", () => {
-  const speaker = { ...senior(), rank: "speaker", leadership: 96, seat: { ...senior().seat, seniority: 9 } };
-  assert.equal(rankOf(speaker), "speaker");
   const power = RANKS.find((r) => r.id === "speaker").power;
   assert.ok(/floor|schedule/i.test(power));
+});
+
+/**
+ * The chair is not on this ladder any more, and that is the point.
+ *
+ * It used to be: clear a seniority bar, clear a standing bar, hold the
+ * majority, and `rankOf` made you Speaker between one Congress and the next
+ * without a vote being taken. Nobody has ever become Speaker that way. Clearing
+ * the bar makes you a candidate; the whole House decides the rest. See
+ * speaker.js.
+ */
+test("clearing the bar makes you a candidate for the chair, not the Speaker", () => {
+  const ready = { ...senior(), leadership: 96, seat: { ...senior().seat, seniority: 9 } };
+  assert.equal(couldLead(ready), true, "the caucus would nominate them");
+  assert.notEqual(rankOf(ready), "speaker", "and the caucus does not get to elect them");
+  assert.equal(rankOf(ready), "whip", "they get the highest rung the caucus can actually hand out");
+});
+
+test("a Speaker the House already elected keeps the chair between votes", () => {
+  const speaker = { ...senior(), leadership: 96, seat: { ...senior().seat, seniority: 9 } };
+  assert.equal(rankOf(speaker, { electedSpeaker: true }), "speaker");
+});
+
+test("but a senator's leader is elected by their own conference, and always was", () => {
+  // The Senate Majority Leader is chosen behind a closed door by the people who
+  // caucus with them. There is no floor vote to withhold here.
+  const leader = seniorSenator({ leadership: 95, seat: { ...senate().seat, seniority: 4 } });
+  assert.equal(rankOf(leader), "speaker");
 });
 
 // ---------------------------------------------------------------------------
@@ -357,7 +384,9 @@ test("a senator's own bill is counted in the Senate", () => {
     { title: "A Senate Act", axis: -0.3, domain: "economy" });
   assert.equal(out.rejected, undefined);
   assert.equal(out.result.tally.total, 100);
-  assert.ok(!/House/.test(out.result.note), out.result.note);
+  // It may now mention the House as the chamber it has been sent *to* — what it
+  // must never say is that a senator's bill passed it.
+  assert.ok(!/passed the House/.test(out.result.note), out.result.note);
   assert.match(out.result.note, /Senate|committee/);
 });
 

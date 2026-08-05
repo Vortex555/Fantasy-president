@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import { stanceFit, ISSUE_AXES, ISSUE_WEIGHT_CAP, CONSENSUS } from "../src/bills.js";
-import { validateDocket } from "../src/chamberAi.js";
+import { validateDocket, UNLABELLED_CAP } from "../src/chamberAi.js";
 import { IDEOLOGIES, findIdeology, ideologyPosition } from "../public/js/data/ideologies.js";
 import { convictionView } from "../src/conviction.js";
 import { FACTIONS } from "../public/js/data/factions.js";
@@ -311,14 +311,34 @@ test("a label on its own supplies a sensible magnitude", () => {
   assert.ok(bill.pluralism < 0 && bill.pluralism >= -0.6);
 });
 
-test("a number on its own behaves exactly as it did before labels existed", () => {
-  assert.equal(docketOf({ diplomatic: 0.65 }).diplomatic, 0.65);
-  assert.equal(docketOf({ culture: -0.4 }).culture, -0.4);
+/**
+ * A number with no side named is a claim nobody can check, and the sign is the
+ * thing this model gets wrong — a National Prayer Day Resolution came back at
+ * culture -0.2, which on an axis where positive is tradition puts a day of
+ * national prayer on the progressive side.
+ *
+ * Binning unlabelled axes would throw away most of what the model volunteers,
+ * since it omits the side far more often than it states it. So the direction is
+ * kept and the strength is capped below the band real bills occupy: a correct
+ * sign still counts for something, a wrong one cannot drag a roll call.
+ */
+test("a number with no side named is kept, but not at its own valuation", () => {
+  assert.equal(docketOf({ diplomatic: 0.65 }).diplomatic, UNLABELLED_CAP);
+  assert.equal(docketOf({ culture: -0.4 }).culture, -UNLABELLED_CAP);
 });
 
-test("a label nobody recognises is ignored rather than believed", () => {
+test("a modest unlabelled number is under the cap already and passes through", () => {
+  assert.equal(docketOf({ diplomatic: 0.2 }).diplomatic, 0.2);
+  assert.equal(docketOf({ culture: -0.1 }).culture, -0.1);
+});
+
+test("a label nobody recognises is no label at all", () => {
   const bill = docketOf({ economic: 0.7, economic_side: "sideways" });
-  assert.equal(bill.economic, 0.7);
+  assert.equal(bill.economic, UNLABELLED_CAP);
+});
+
+test("and a side that is named is believed at full strength", () => {
+  assert.equal(docketOf({ economic: 0.7, economic_side: "markets" }).economic, 0.7);
 });
 
 test("saying nothing on an axis still says nothing", () => {

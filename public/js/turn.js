@@ -140,10 +140,23 @@ async function submitPolicy() {
     setTimeout(() => (input.style.borderColor = ""), 900);
     return;
   }
-  loader(true, G.meta.ai ? "Your team is war-gaming the decision…" : "The consequences are unfolding…");
+  await endTheMonth(policy, $("publicMessage").value.trim());
+}
+
+/**
+ * Closing the month, with or without a president in it.
+ *
+ * The policy used to be the month: this screen was the only way to reach the
+ * next one, so it could demand something be written before the calendar moved.
+ * The Situation Room is now one appointment among six and none of them is
+ * compulsory, so ending the month is its own act and an empty policy is a
+ * legitimate answer — an expensive one, but the player's to give. See rooms.js.
+ */
+export async function endTheMonth(policy = "", publicMessage = "") {
+  loader(true, G.meta.ai ? "Your team is war-gaming the decision…" : "The month is closing…");
   try {
     const before = G.state.approval;
-    const data = await playTurn(G.state, G.event, policy, $("publicMessage").value.trim());
+    const data = await playTurn(G.state, G.event, policy, publicMessage);
     G.state = data.state;
     G.pendingEvent = data.result.nextEvent;
     // Which brain answered this month. If the model was unreachable the turn
@@ -202,6 +215,30 @@ function renderConsequences(result, delta) {
       <span class="eyebrow">🛠️ Rollout</span>
       <p class="analysis" style="margin-top:8px">${escapeHtml(result.rollout.name)}, your
         ${escapeHtml(result.rollout.role)}, ${escapeHtml(result.rollout.note)}.</p>
+    </div>`);
+  }
+
+  /**
+   * What the rooms you did not enter did about it.
+   *
+   * This has to be the first thing on the verdict screen and it very nearly
+   * shipped as nothing at all: the break was computed, the approval came off,
+   * and the player was shown a number moving with no cause anywhere on the
+   * page. A punishment nobody can trace is indistinguishable from a bug.
+   */
+  if (result.roomEvents?.length) {
+    sections.push(`<div class="card card--alarm">
+      <span class="eyebrow">🚪 The rooms you were not in</span>
+      <div style="margin-top:12px">
+        ${result.roomEvents.map((e) => `
+          <div class="arc-event">
+            <div class="arc-event__top">
+              <span class="badge badge--red">Unattended</span>
+              <span class="arc-event__title">${escapeHtml(e.name || "")}</span>
+            </div>
+            <div class="arc-event__detail">${escapeHtml(e.note || "")}</div>
+          </div>`).join("")}
+      </div>
     </div>`);
   }
 

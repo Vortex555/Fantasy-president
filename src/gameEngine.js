@@ -12,6 +12,8 @@ import { buildSociety, applySociety } from "./society.js";
 import { buildDeployments, tickDeployments } from "./deployments.js";
 import { buildCovert, tickCovert } from "./covert.js";
 import { rememberEvent } from "./eventPool.js";
+import { appointments } from "./cabinet.js";
+import { createStatehouseCareer } from "./statehouse.js";
 import { buildCourt, cabinetIdeology } from "../public/js/data/government.js";
 import { originateBills, ageBills } from "./bills.js";
 import { tickJeopardy, emptyJeopardy } from "./impeachment.js";
@@ -146,6 +148,10 @@ const NATIONAL_PULL = 0.3;
  * the presidential game, unchanged.
  */
 export function createGame(scenario, career = null) {
+  // The bottom rung, where careers actually start. See statehouse.js.
+  if (scenario?.office === "statehouse") {
+    return seedFromCareer(createStatehouseCareer(scenario), career);
+  }
   if (scenario?.office === "house") return seedFromCareer(createHouseCareer(scenario), career);
   if (scenario?.office === "senate") return seedFromCareer(createSenateCareer(scenario), career);
   const sign = partySign(scenario.party);
@@ -339,6 +345,7 @@ const FIRST_NAMES = ["Margaret", "James", "Elena", "Marcus", "Priya", "David", "
 const LAST_NAMES = ["Whitfield", "Okafor", "Castellano", "Nguyen", "Brennan", "Al-Rashid", "Sundqvist", "Delgado", "Harrington", "Petrov", "Osei", "Kaplan", "Romano", "Fairbanks", "Mbeki", "Larsson"];
 
 export function buildCabinet(scenario) {
+  const named = appointments(scenario);
   const rng = mulberry32(hashString(scenario.presidentName + scenario.party));
   const usedFirst = new Set();
   const usedLast = new Set();
@@ -359,6 +366,20 @@ export function buildCabinet(scenario) {
       loyalty: Math.round(45 + rng() * 45),     // 45-90
       competence: Math.round(45 + rng() * 50),  // 45-95
     };
+    /**
+     * And whoever the president actually appointed.
+     *
+     * A transition used to produce eleven strangers hashed off the president's
+     * own name, which stopped being cosmetic the moment the rooms started
+     * asking those strangers for plans. A scenario that named a doctrine gets
+     * the government it chose; one that did not — every save made before this
+     * existed — falls through to exactly the roster it has always had. See
+     * cabinet.js.
+     */
+    const appointed = named?.[r.id];
+    if (appointed) {
+      return { ...member, name: appointed.name, loyalty: appointed.loyalty, competence: appointed.competence };
+    }
     // The player picks their own running mate, so the VP is not randomised.
     if (r.id === "vp" && scenario.vp) {
       const vp = scenario.vp;
@@ -843,6 +864,18 @@ export function applyResult(state, policy, result) {
     headline: result.press?.[0]?.headline || result.analysis?.slice(0, 90),
     approval: next.approval,
     approvalChange: result.approvalChange,
+    /**
+     * And which rooms went wrong in your absence.
+     *
+     * Without this a term reads back as a list of policies and headlines with
+     * unexplained holes in the approval line — the month the press corps turned
+     * on you leaves no mark anywhere, because the only place it was ever said
+     * out loud was a screen the player has since clicked past. A break that
+     * cannot be found again afterwards is a number moving on its own.
+     */
+    ...(result.roomEvents?.length
+      ? { unattended: result.roomEvents.map((e) => e.name) }
+      : {}),
   });
   rememberEvent(next, result.usedEvent);
 

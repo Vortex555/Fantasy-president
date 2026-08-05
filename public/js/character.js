@@ -99,6 +99,25 @@ const OFFICE = {
     compositionLabel: "The Chamber You Arrive In",
     compositionNote: "(your caucus's strength in the Senate — it decides who holds the gavels)",
   },
+  /**
+   * The bottom rung.
+   *
+   * Missing from this table, a state representative fell through
+   * `OFFICE[office] || OFFICE.president` and was shown presidential copy and
+   * presidential rules on the way into a chamber that has neither a cabinet nor
+   * a foreign policy. The fallback is the right behaviour for an unknown office
+   * and the wrong behaviour for one the game actually has.
+   */
+  statehouse: {
+    lede: "Create the state legislator you are about to become.",
+    next: "Choose Your State →",
+    savedNoun: "character",
+    mandate: false,
+    compositionLabel: "The Chamber You Arrive In",
+    // The composition of a state legislature is drawn from the state itself, so
+    // there is nothing here for a player to set.
+    compositionNote: "(drawn from the state you pick — most state chambers are far more lopsided than Congress)",
+  },
 };
 
 const officeOf = () => OFFICE[context.office] || OFFICE.president;

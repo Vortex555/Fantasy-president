@@ -223,17 +223,57 @@ const LADDER = {
 /** The three rungs that only exist for a caucus that runs the chamber. */
 const GAVEL_RANKS = ["speaker", "whip", "chair"];
 
-export function rankOf(state) {
+/**
+ * What the caucus makes of you, which for every rank but one is the whole
+ * story.
+ *
+ * The Speakership used to be in here with the rest: clear a seniority bar,
+ * clear a standing bar, hold the majority, and the chair was yours between one
+ * Congress and the next without a vote being taken. Nobody has ever become
+ * Speaker that way. It is the only officer of the House named in the
+ * Constitution, it is filled by the whole chamber on the record by name, and a
+ * caucus of 220 can nominate somebody unanimously and watch five of its own
+ * members keep them out of the chair for a fortnight.
+ *
+ * So this hands out gavels and never the chair. Clearing the bar makes you a
+ * *candidate*, and the election is held in speaker.js. A member who was Speaker
+ * and still clears the bar keeps it — the House does not re-run the vote
+ * mid-Congress — but a new Congress elects again, as a new Congress must.
+ */
+export function rankOf(state, { electedSpeaker = false } = {}) {
   const seniority = state.seat?.seniority || 1;
   const standing = state.leadership ?? 50;
   const majority = holdsMajority(state);
+  const house = chamberOf(state) === "house";
   const gates = LADDER[chamberOf(state)];
 
   const earns = (id) => seniority >= gates[id][0] && standing >= gates[id][1];
-  for (const id of GAVEL_RANKS) if (majority && earns(id)) return id;
+  for (const id of GAVEL_RANKS) {
+    /**
+     * The two leaders are chosen by different rooms, and only one of them is a
+     * public vote of the whole chamber.
+     *
+     * A Senate Majority Leader is elected by their own conference behind a
+     * closed door, and a conference that trusts you is the whole of it — which
+     * is exactly what this ladder already models. The Speaker of the House is
+     * elected on the floor by every member, by name, on the record, and a
+     * majority of the caucus is not enough to get there. So the House's top
+     * rung is withheld here and settled in speaker.js.
+     */
+    if (id === "speaker" && house && !electedSpeaker) continue;
+    if (majority && earns(id)) return id;
+  }
   if (earns("subchair")) return "subchair";
   return "member";
 }
+
+/** Whether this member clears the bar their caucus would nominate from. */
+export const couldLead = (state) => {
+  const gates = LADDER[chamberOf(state)];
+  return holdsMajority(state)
+    && (state.seat?.seniority || 1) >= gates.speaker[0]
+    && (state.leadership ?? 50) >= gates.speaker[1];
+};
 
 /**
  * Work out the rank between terms and say what changed.
@@ -248,7 +288,13 @@ export function evaluateLadder(state) {
   const was = next.rank || "member";
 
   const wasCommittee = next.committee;
-  const now = rankOf(next);
+  /**
+   * A sitting Speaker keeps the chair through this: the House elects one at the
+   * start of a Congress and does not re-run the vote because somebody's
+   * standing moved. Losing it happens two ways and both are votes — the next
+   * Congress electing somebody else, and a motion to vacate. See speaker.js.
+   */
+  const now = rankOf(next, { electedSpeaker: was === "speaker" });
   next.rank = now;
 
   // A career that predates the two committee lists being separated can be

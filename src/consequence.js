@@ -128,11 +128,20 @@ function fromAuthored(bill) {
  * point it had left to give rather than the four the bill was worth. The record
  * has to be able to survive being read back years later and still add up.
  */
-export function applyConsequence(state, bill) {
+/**
+ * `strength` is what a bill gutted in the far chamber is worth. A conference
+ * that halves an appropriation halves what it buys, and the record should say
+ * the smaller number rather than the one the bill was introduced at. Everything
+ * that becomes law as written passes 1 and behaves exactly as before.
+ */
+export function applyConsequence(state, bill, strength = 1) {
+  const scale = Number.isFinite(strength) ? Math.max(0, strength) : 1;
   const wanted = effectsOf(bill);
   const moved = {};
 
-  for (const [key, delta] of Object.entries(wanted)) {
+  for (const [key, raw] of Object.entries(wanted)) {
+    const delta = round2(raw * scale);
+    if (!delta) continue;
     if (ECONOMY_KEYS.has(key) && state.economy) {
       const before = state.economy[key];
       state.economy[key] = boundEconomy(key, before + delta);

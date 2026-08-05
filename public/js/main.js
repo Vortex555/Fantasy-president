@@ -11,14 +11,17 @@ import { renderLadderRace } from "./ladder/race.js";
 import { renderWilderness } from "./ladder/wilderness.js";
 import { renderBio } from "./bio.js";
 import { renderRunningMate } from "./runningmate.js";
+import { renderCabinet } from "./cabinet.js";
 import { renderDashboardAsync } from "./dashboard.js";
-import { renderBriefing } from "./turn.js";
+import { cabinetDoctrines } from "./api.js";
+import { renderBriefing, endTheMonth } from "./turn.js";
 import { renderCampaign } from "./campaign.js";
 import { renderMidterms } from "./elections.js";
 import { renderTwentyFifth, renderOath } from "./succession.js";
 import { renderPrimary } from "./primary.js";
-import { renderOffice, renderDistricts, renderStates } from "./house/setup.js";
+import { renderOffice, renderDistricts, renderStates, renderStateSeats } from "./house/setup.js";
 import { renderFloor } from "./house/floor.js";
+import { renderStateFloor } from "./house/statefloor.js";
 import { renderCountry } from "./house/country.js";
 import { renderHouseElection } from "./house/election.js";
 import { renderHouseLegacy } from "./house/legacy.js";
@@ -40,11 +43,22 @@ const goScenarios = () => renderScenarios(onEraChosen);
  * The home screen of a career, whichever office it is for. Resuming a saved
  * House career must never land on the presidential dashboard — it has no
  * cabinet, no stakeholders and no map to draw.
+ *
+ * One list rather than four. Adding the state legislature meant adding an
+ * office to three separate `["house", "senate"]` literals scattered through
+ * this file, and the one that was missed sent a newly sworn-in state
+ * representative to the presidential dashboard — which reads a cabinet and an
+ * economy they do not have, inside an async call nobody awaited, so the failure
+ * was a screen that simply stopped with no error anywhere. Every office that is
+ * not the presidency belongs here.
  */
-const goDashboard = (delta = null) => (["house", "senate"].includes(G.state?.office)
-  ? renderFloor(houseHooks)
+const LEGISLATURES = ["house", "senate", "statehouse"];
+const inLegislature = (state = G.state) => LEGISLATURES.includes(state?.office);
+
+const goDashboard = (delta = null) => (inLegislature()
+  ? goPlay()
   : renderDashboardAsync(dashHandlers, delta));
-const goLegacy = () => (["house", "senate"].includes(G.state?.office)
+const goLegacy = () => (inLegislature()
   ? renderHouseLegacy(goCareers)
   : renderLegacy(goCareers));
 const electionHooks = { onLegacy: () => goLegacy(), onDashboard: () => goDashboard(null) };
@@ -126,6 +140,9 @@ async function takeNewOffice(choice) {
 function goPlay() {
   closeDrawer();
   if (G.state.over) return goLegacy();
+  // The bottom rung has its own screen: almost nothing on the congressional
+  // floor exists in a state legislature. See statefloor.js.
+  if (G.state.office === "statehouse") return renderStateFloor(houseHooks);
   // A member of the House plays a completely different month.
   if (G.state.office === "house" || G.state.office === "senate") return renderFloor(houseHooks);
   if (G.state.phase === "campaign") return goCampaign();
@@ -141,7 +158,22 @@ function goPlay() {
 
 const dashHandlers = {
   onCareers: () => { saveCareer(); goCareers(); },
-  onPlay: goPlay,
+  /**
+   * The button on the dashboard used to open the one screen a month contained.
+   * The month is now a schedule the player works through in any order they
+   * like, so this ends it — carrying whatever was written in the Situation
+   * Room, or nothing at all. The special phases still have screens of their
+   * own and `goPlay` still routes to them.
+   */
+  onPlay: () => {
+    const phase = G.state?.phase;
+    if (G.state?.office === "house" || G.state?.office === "senate"
+        || phase === "campaign" || phase === "midterms" || phase === "primary"
+        || phase === "twentyfifth" || G.state?.over) {
+      return goPlay();
+    }
+    return endTheMonth(String(G.state?.policy || ""), "");
+  },
   onLegacy: goLegacy,
   onResign: resign,
 };
@@ -182,6 +214,14 @@ function onCharacterReady(draft) {
     if (pending.office === "senate") {
       return renderStates(d, onStateChosen, () => onOfficeChosen(pending.office));
     }
+    // A state seat needs both: which state, and then which district inside it.
+    if (pending.office === "statehouse") {
+      return renderStates(d, (code) => renderStateSeats(
+        { ...d, seatState: code },
+        (seatId) => launch({ ...d, office: "statehouse", seatState: code, district: seatId }),
+        () => renderStates(d, () => {}, () => onOfficeChosen(pending.office)),
+      ), () => onOfficeChosen(pending.office));
+    }
     renderRunningMate(d, onRunningMateReady);
   };
   if (draft.bio) {
@@ -199,8 +239,24 @@ async function onStateChosen(seatState) {
   await launch({ ...pending.draft, office: "senate", seatState });
 }
 
+/**
+ * The running mate is chosen, and then the rest of the government is.
+ *
+ * A president used to be sworn in with eleven strangers already at the table.
+ * They are now a decision, because the rooms ask those people for plans and a
+ * plan is only as good as whoever you appointed. A transition that cannot reach
+ * the server for its slates is not a reason to block an inauguration, so a
+ * failure here goes straight to the oath with the old random cabinet.
+ */
 async function onRunningMateReady(vp) {
-  await launch({ ...pending.draft, vp });
+  const draft = { ...pending.draft, vp };
+  try {
+    const { doctrines, posts } = await cabinetDoctrines();
+    if (!doctrines?.length) return launch(draft);
+    return renderCabinet(draft, (cabinet) => launch({ ...draft, ...cabinet }), doctrines, posts);
+  } catch {
+    return launch(draft);
+  }
 }
 
 /** Start whatever career was just built, and go wherever it belongs. */
@@ -215,7 +271,8 @@ async function launch(scenario) {
     G.chats = {};
     newCareerId();
     saveCareer();
-    if (["house", "senate"].includes(G.state.office)) return renderFloor(houseHooks);
+    // Anything that is not the presidency plays its own chamber's screen.
+    if (inLegislature()) return goPlay();
     goDashboard(null);
   } catch (err) {
     alert("Could not start the game: " + err.message);

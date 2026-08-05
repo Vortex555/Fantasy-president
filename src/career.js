@@ -1,5 +1,6 @@
 import { clamp, round1 } from "./rng.js";
 import { STATES } from "./states.js";
+import { canRunAgain } from "./termLimits.js";
 import { profileEarned } from "./oversight.js";
 
 /**
@@ -25,6 +26,16 @@ import { profileEarned } from "./oversight.js";
  * additions here rather than rewrites everywhere else.
  */
 export const LADDER = [
+  /**
+   * Where careers actually start.
+   *
+   * Almost nobody's first office is the United States House. It is a state
+   * legislature: a chamber nobody outside the state has heard of, sitting three
+   * or four months a year, paying an amount of money that decides who can
+   * afford to serve in it. Twenty-one is the commonest age floor and two years
+   * the commonest term. See statehouse.js.
+   */
+  { id: "statehouse", title: "State Representative", termYears: 2, constituency: "district", minAge: 21 },
   { id: "house", title: "US Representative", termYears: 2, constituency: "district", minAge: 25 },
   { id: "senate", title: "US Senator", termYears: 6, constituency: "state", minAge: 30 },
   { id: "president", title: "President", termYears: 4, constituency: "nation", minAge: 35 },
@@ -467,14 +478,23 @@ export function nextChoices(career, state) {
   const seatClass = state.seat?.class || 1;
   const home = state.seat?.state || null;
 
+  /**
+   * Re-election, unless the state will not let you file.
+   *
+   * Fifteen states limit how long anybody may sit in their legislature, and a
+   * limited member offered "run for re-election" would be offered something
+   * that does not exist. See termLimits.js.
+   */
+  const clock = holding === "statehouse" ? canRunAgain(state) : { can: true, reason: null };
+
   const choices = [{
     id: "re-elect",
     office: holding,
     where: state.seat?.district || home,
     label: "Run for re-election",
     collides: false,
-    eligible: true,
-    reason: null,
+    eligible: clock.can,
+    reason: clock.reason,
   }];
 
   for (const rung of LADDER) {

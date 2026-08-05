@@ -9,6 +9,7 @@ import { openDrawer } from "./drawer.js";
 import { institutionsCard, wireInstitutions } from "./cards/institutions.js";
 import { firstLadyCard, wireFirstLady } from "./cards/firstLady.js";
 import { specialActionsCard, wireSpecialActions, loadActions } from "./cards/specialActions.js";
+import { roomsCard, wireRooms, loadRooms } from "./cards/rooms.js";
 import { approvalChart } from "./cards/chart.js";
 import { foreignCard, societyCard, warCard, covertCard } from "./cards/world.js";
 import { chamberRow, courtCard } from "./cards/legislature.js";
@@ -142,13 +143,13 @@ export function renderDashboard(handlers, delta) {
       <h3 class="display display--sm">This Month</h3>
       <p class="hint" style="margin:6px 0 14px">${state.over
         ? "This career is over. Look back at the record, or start another."
-        : "A new situation is waiting for your response."}</p>
+        : "Your schedule is below. Nothing on it is compulsory, and the month ends when you say so."}</p>
       <div class="btn-row">
         <button class="btn" id="toCareers">← Back to Careers</button>
         ${state.over ? "" : `<button class="btn btn--danger" id="resignBtn">Resign as President</button>`}
         ${state.over
           ? `<button class="btn btn--primary" id="legacyBtn">See Your Legacy →</button>`
-          : `<button class="btn btn--blue" id="playBtn">Play ${shortMonthLabel(absoluteMonth(state), startYear)} →</button>`}
+          : `<button class="btn btn--blue" id="playBtn">End ${shortMonthLabel(absoluteMonth(state), startYear)} →</button>`}
       </div>
     </div>
 
@@ -161,6 +162,7 @@ export function renderDashboard(handlers, delta) {
     </div>
 
     ${primaryWarning(state)}
+    ${roomsCard()}
     ${congressCard(state)}
     ${billsCard(state)}
     ${jeopardyCard(state)}
@@ -201,8 +203,12 @@ export function renderDashboard(handlers, delta) {
 export async function renderDashboardAsync(handlers, delta) {
   renderDashboard(handlers, delta);
   if (G.state && !G.state.over) {
-    await loadActions(G.state);
+    // The schedule and the special actions both come from the server, so they
+    // are fetched together and the dashboard is painted twice: once instantly
+    // from what is already known, once when the building has answered.
+    await Promise.all([loadActions(G.state), loadRooms(G.state, G.event)]);
     renderDashboard(handlers, delta);
+    wireRooms(handlers);
     // The statehouses fetch their own roster and re-paint in place, so a slow
     // call never holds up the rest of the dashboard.
     wireGovernors(() => renderDashboardAsync(handlers, delta));

@@ -3,7 +3,12 @@ import { STATES } from "./states.js";
 import { BILL_POOL, billById, rollCall, FRINGE_BILLS, fringeChance, consensusOf, stanceFit, voiceFor, scheduledBill } from "./bills.js";
 import { houseRaces, nationalEnvironment, runCongressionalCycle } from "./elections.js";
 import { buildCongress } from "../public/js/data/government.js";
-import { assignCommittee, earnCapital, evaluateLadder, committeeById } from "./committees.js";
+import {
+  assignCommittee, earnCapital, evaluateLadder, committeeById, couldLead,
+} from "./committees.js";
+import { openRace, tickChair } from "./speaker.js";
+// The arithmetic of removing a Speaker does not change with who is asking.
+import { vacateCount } from "./procedure.js";
 import { emptyArticles, tickArticles } from "./articles.js";
 import { nextChoices } from "./career.js";
 import { seedNation, advanceNation, absoluteMonth } from "./nation.js";
@@ -13,9 +18,15 @@ import {
 } from "./demographics.js";
 import { buildSociety } from "./society.js";
 import {
-  applyConsequence, applyDetonationDamage, driftSociety, applyMigration, migrationPopulation,
+  // Consequences are applied in passage.js now, at the one point a bill becomes
+  // law. This file no longer changes the country at all — it changes a member.
+  applyDetonationDamage, driftSociety, migrationPopulation,
 } from "./consequence.js";
 import { recordMonth, noteEvent, EVENT } from "./chronicle.js";
+import {
+  sendOnward, advancePassage, resolveOverride, farChamberName,
+} from "./passage.js";
+import { tickRooms } from "./rooms.js";
 import {
   convictionView, recordConviction, describeConviction, baseTurnout, primaryThreat,
   INTEGRITY_START, signatureBonus,
@@ -664,7 +675,18 @@ export function castVote(state, bill, vote) {
   if (!["yes", "no", "abstain"].includes(vote)) {
     return { state, rejected: true, note: "Vote yes, vote no, or abstain." };
   }
-  if (votedThisCongress(state, bill.id)) {
+  /**
+   * Voting on a bill twice is the whole idea of an override.
+   *
+   * The guard is by bill id within a Congress, and an override carries the same
+   * id as the bill it is trying to rescue — because it *is* that bill. So the
+   * one vote the pipeline exists to produce was refused every time it reached
+   * the floor: the chamber was offered it, the player clicked it, and nothing
+   * happened until the ledger quietly gave up on it two months later. Nothing
+   * on screen said why, because from the outside it looked exactly like a
+   * member who had not got round to it.
+   */
+  if (!bill.override && votedThisCongress(state, bill.id)) {
     return { state, rejected: true, note: "You have already voted on that this Congress." };
   }
 
@@ -727,7 +749,14 @@ export function castVote(state, bill, vote) {
    */
   const swung = (next.swung || {})[bill.id] || 0;
   const yourYes = vote === "yes" ? 1 : 0;
-  const passed = tally.yes + swung + yourYes >= tally.threshold;
+  /**
+   * A veto override is the one vote in the mode with a different bar.
+   *
+   * Two thirds, and it is the only vote where a member of the President's own
+   * party is being asked to break with them in public. See passage.js.
+   */
+  const bar = bill.override ? tally.overrideThreshold : tally.threshold;
+  const passed = tally.yes + swung + yourYes >= bar;
 
   next.voteLog = [...(next.voteLog || []), {
     id: bill.id, title: bill.title, axis: bill.axis, vote,
@@ -741,27 +770,40 @@ export function castVote(state, bill, vote) {
     addresses: bill.addresses || null,
     month: next.month, term: next.term || 1,
     withDistrict, withParty, passed,
+    // Two entries can now share an id in one Congress — the bill, and the vote
+    // to save it from the President. They are different votes and read back as
+    // different votes.
+    ...(bill.override ? { override: true } : {}),
   }];
 
-  const decisive = tally.yes + swung + yourYes === tally.threshold && vote === "yes";
+  const decisive = tally.yes + swung + yourYes === bar && vote === "yes";
 
   /**
-   * A bill that carried changes the country.
+   * Where a bill goes when it carries, which is not into law.
    *
-   * The single largest gap in the mode until now: every bill in the pool has
-   * carried effects since the day it was written, and a chamber career read
-   * none of them. This is where a vote stops being a number on your own
-   * dashboard and becomes something a player can point at on a chart in their
-   * third term.
+   * This was `applyConsequence`, fired the moment the gavel came down, and it
+   * was the largest lie the mode told: a party-line bill cleared one chamber
+   * and the country simply did as it was told, with the other five hundred
+   * people in the building and the man with the pen treated as though they did
+   * not exist.
+   *
+   * A bill that carries is now *sent*, and nothing outside this room hears
+   * about it until the far chamber and the desk have finished. The single
+   * exception is the vote that only exists because the desk already refused:
+   * an override that reaches two thirds is law as it is gavelled, with nowhere
+   * left to send it. See passage.js.
    */
-  const moved = passed ? applyConsequence(next, bill) : {};
-  // Immigration law changes who arrives, which is the only lever in the game
-  // that reaches national composition. See consequence.js.
-  const migration = passed ? applyMigration(next, bill) : 0;
-  next.pending = [...(next.pending || []), noteEvent(passed ? EVENT.PASSED : EVENT.FAILED, {
-    title: bill.title, domain: bill.domain, moved, vote,
-    tally: `${tally.yes + swung + yourYes}-${tally.total - tally.yes - swung - yourYes}`,
-  })];
+  const override = bill.override ? resolveOverride(next, bill, passed) : null;
+  if (passed && !bill.override) {
+    sendOnward(next, bill, { yours: Boolean(bill.yours), vote });
+  }
+  const moved = override?.moved || {};
+  const migration = 0;
+  next.pending = [...(next.pending || []), noteEvent(
+    passed ? (bill.override ? EVENT.ENACTED : EVENT.SENT) : EVENT.FAILED, {
+      title: bill.title, domain: bill.domain, moved, vote,
+      tally: `${tally.yes + swung + yourYes}-${tally.total - tally.yes - swung - yourYes}`,
+    })];
 
   const result = {
     bill, yourVote: vote, passed, decisive, moved,
@@ -785,9 +827,19 @@ export function castVote(state, bill, vote) {
      * the law did to the country is the chronicle's business.
      */
     blocs: blocsOnVote,
-    tally: { ...tally, yes: tally.yes + swung + yourYes, no: tally.total - tally.yes - swung - yourYes },
+    tally: { ...tally, bar, yes: tally.yes + swung + yourYes, no: tally.total - tally.yes - swung - yourYes },
     district: { ...district, delta: districtDelta },
     party: { ...party, delta: leadershipDelta },
+    /**
+     * What happens to it next, which on most bills is now the interesting half
+     * of the screen. An override says so itself; everything else has just been
+     * handed to a chamber the member has no vote in.
+     */
+    onward: override
+      ? { stage: "override", enacted: override.enacted, note: override.note }
+      : passed
+        ? { stage: "far", to: farChamberName(next), note: `It goes to ${farChamberName(next)}.` }
+        : null,
     note: describeVote({ withDistrict, withParty, vote, passed, decisive, district, party }),
   };
 
@@ -923,12 +975,26 @@ export function sponsorBill(state, { title, axis, domain, favours = 0 }) {
    * now it leaves a mark on the nation that outlives you.
    */
   let moved = {};
+  let sent = null;
   if (passed) {
     next.approval = clamp(round1(next.approval + 4));
     next.leadership = clamp(round1(next.leadership + 6));
-    moved = applyConsequence(next, { id: null, title, axis: billAxis, domain: domain || "economy" });
-    next.pending = [...(next.pending || []), noteEvent(EVENT.PASSED, {
-      title: `${title} (yours)`, domain: domain || "economy", moved, vote: "sponsor",
+    /**
+     * And then it goes where everybody else's does.
+     *
+     * The standing is banked here and the country is not, because passing your
+     * own chamber is a real achievement in a career and is not the same thing
+     * as a law. This is the one bill on the ledger the member is allowed to
+     * fight for afterwards — see `pushFarChamber` — which is what makes the
+     * favours banked on caucus votes worth banking twice over.
+     */
+    sent = sendOnward(next, {
+      id: `own_${next.term || 1}_${next.month}`,
+      title: String(title || "An Act").slice(0, 90),
+      axis: billAxis, domain: domain || "economy", support: "partyline",
+    }, { yours: true, vote: "sponsor" });
+    next.pending = [...(next.pending || []), noteEvent(EVENT.SENT, {
+      title: `${title} (yours)`, domain: domain || "economy", vote: "sponsor",
       tally: `${tally.yes}-${tally.no}`,
     })];
   } else if (reachedFloor) {
@@ -941,8 +1007,10 @@ export function sponsorBill(state, { title, axis, domain, favours = 0 }) {
     result: {
       title, axis: billAxis, odds, reachedFloor, passed, cosponsors, tally, chamberName, moved,
       favours: called, push, capital: next.capital,
+      onward: sent ? { stage: "far", to: farChamberName(next), key: sent.key } : null,
       note: passed
-        ? `It passed the ${chamberName} ${tally.yes}–${tally.no}. Your name is on a law.`
+        ? `It passed the ${chamberName} ${tally.yes}–${tally.no}, and went straight to `
+          + `${farChamberName(next)}, where most bills with one backbencher's name on them stop.`
         : reachedFloor
           ? `It got a floor vote and failed ${tally.yes}–${tally.no}. That is further than most freshmen get.`
           : `It died in committee, like almost every bill. ${cosponsors} members signed on.`,
@@ -1207,17 +1275,60 @@ export function advanceHouseMonth(state) {
   next.leadership = clamp(round1(next.leadership + (52 - next.leadership) * 0.05));
 
   /**
+   * The rest of the building moves first.
+   *
+   * Bills sent onward are taken up, killed, cut down or signed before the
+   * country is rolled, because a statute signed this month is one the country
+   * has to have noticed by the time its problems are re-scored. Reverse the two
+   * and every law is a month late. See passage.js.
+   */
+  /**
+   * And the five rooms of a congressional office, for the months nobody was in
+   * them. Same engine as the presidency's schedule, different building. See
+   * chamberRooms.js.
+   */
+  for (const gone of tickRooms(next, next.situation || null)) {
+    next.pending = [...(next.pending || []), noteEvent(EVENT.FAILED, {
+      title: gone.name, domain: null,
+    })];
+    next.roomBreaks = [...(next.roomBreaks || []), {
+      room: gone.room, name: gone.name, note: gone.note,
+      month: next.month, term: next.term || 1,
+    }].slice(-12);
+  }
+
+  next.pending = [...(next.pending || []), ...advancePassage(next)];
+
+  /**
    * The country moves before the calendar does.
    *
-   * This reads the votes just cast — so a bill that passed eases the problem it
-   * was about, and one nobody scheduled lets that problem get worse — and then
-   * walks the economy and leans on the President's approval accordingly. All of
-   * it is deterministic; the model only ever writes the words on top.
+   * This reads what actually became law — so a bill that cleared every gate
+   * eases the problem it was about, and one nobody scheduled lets that problem
+   * get worse — and then walks the economy and leans on the President's
+   * approval accordingly. All of it is deterministic; the model only ever
+   * writes the words on top.
    */
   advanceNation(next);
   // Next month is a new calendar. Whatever was scheduled for this one is spent.
   next.docket = null;
   closeTheMonth(next);
+
+  /**
+   * And if you hold the chair, the bill for how you got it.
+   *
+   * A speakership is not a power so much as a standing threat, priced by the
+   * concessions made on the way in. See `chairThreat` in speaker.js.
+   */
+  if (next.rank === "speaker" && next.office === "house") {
+    const filed = tickChair(next, vacateCount(next, 0));
+    if (filed) {
+      next.chairMotions = [...(next.chairMotions || []), filed].slice(-8);
+      next.pending = [...(next.pending || []), noteEvent(
+        filed.carried ? EVENT.FAILED : EVENT.BLOCKED,
+        { title: filed.carried ? "You were vacated from the chair" : "A motion to vacate failed" },
+      )];
+    }
+  }
 
   // The presidency moves whether or not it is yours, and the wave you run in is
   // made of it.
@@ -1271,8 +1382,26 @@ export function advanceHouseMonth(state) {
   // a caucus that has just lost the chamber discovers it has no gavels to hand
   // anybody.
   const ladder = evaluateLadder(next);
+  /**
+   * And then the House elects a Speaker, because a new House always does.
+   *
+   * The first act of every Congress, before members are sworn or committees
+   * exist. A member whose caucus would nominate them gets a race; everybody
+   * else is told who won it. The race is opened here and resolved on its own
+   * screen, so the ballots are something the player sits through rather than a
+   * line in a summary. See speaker.js.
+   */
+  if (couldLead(ladder.state)) {
+    ladder.state.speakerRace = openRace(ladder.state);
+  } else if (ladder.state.rank === "speaker") {
+    // A sitting Speaker whose standing has fallen below what the caucus would
+    // nominate does not get re-elected to it.
+    ladder.state.rank = "chair";
+  }
+
   return {
     state: ladder.state, reelection: result, ladder: ladder.change, cycle,
+    speakerRace: ladder.state.speakerRace || null,
     // A term ending is where a career decides whether to stay where it is.
     choices: next.career ? nextChoices(next.career, ladder.state) : null,
   };

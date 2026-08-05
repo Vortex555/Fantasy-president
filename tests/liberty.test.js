@@ -7,7 +7,7 @@ import { convictionView } from "../src/conviction.js";
 import { partyLine, districtView, createHouseCareer, floorBills as houseFloorBills } from "../src/house.js";
 import { IDEOLOGIES, findIdeology, ideologyPosition } from "../public/js/data/ideologies.js";
 import { buildCongress } from "../public/js/data/government.js";
-import { validateDocket } from "../src/chamberAi.js";
+import { validateDocket, UNLABELLED_CAP } from "../src/chamberAi.js";
 import { STATES } from "../src/states.js";
 
 /**
@@ -255,9 +255,9 @@ test("an AI bill may state a liberty position, and is trusted no further than th
   const state = { term: 1, month: 4, arcs: [], voteLog: [] };
   const [bill] = validateDocket({ bills: [{
     title: "Warrant Requirement Act", brief: "b", axis: -0.1, liberty: 0.8,
-    domain: "justice", support: "contested",
+    liberty_side: "liberty", domain: "justice", support: "contested",
   }] }, state, 1);
-  assert.equal(bill.liberty, 0.8);
+  assert.equal(bill.liberty, 0.8, "the side is named, so the number stands");
 
   const [silent] = validateDocket({ bills: [{
     title: "Highway Funding Act", brief: "b", axis: 0.1, domain: "economy",
@@ -270,9 +270,16 @@ test("an AI bill may state a liberty position, and is trusted no further than th
   assert.equal(junk.liberty, 0, "an unparseable claim is not a claim");
 
   const [wild] = validateDocket({ bills: [{
-    title: "Overreach Act", brief: "b", axis: 0.1, liberty: 9, domain: "justice",
+    title: "Overreach Act", brief: "b", axis: 0.1, liberty: 9,
+    liberty_side: "liberty", domain: "justice",
   }] }, state, 1);
   assert.equal(wild.liberty, 1, "clamped like everything else the model volunteers");
+
+  // And the same wild number with no side named is a claim nobody can check.
+  const [unchecked] = validateDocket({ bills: [{
+    title: "Unnamed Act", brief: "b", axis: 0.1, liberty: 9, domain: "justice",
+  }] }, state, 1);
+  assert.equal(unchecked.liberty, UNLABELLED_CAP);
 });
 
 test("the pool carries the case that exposed the gap", () => {

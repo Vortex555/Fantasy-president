@@ -219,3 +219,60 @@ test("every topic the model is offered comes with a definition", () => {
   assert.match(TOPIC_MEANINGS.mandate_platform_moderation, /hate speech|harassment/,
     "the case that was mis-tagged should be named in the definition");
 });
+
+// ---------------------------------------------------------------------------
+// A topic the bill does not actually do
+// ---------------------------------------------------------------------------
+
+/**
+ * A topic has to be corroborated by the bill's own numbers.
+ *
+ * From a live month on a 14b: a bill giving grants and tax breaks to rural
+ * manufacturing came back tagged `expand_surveillance`, with liberty at 0 and
+ * economic at +0.6. Nothing contradicted the topic because the bill said
+ * nothing about liberty at all — and the docket prompt is explicit that a wrong
+ * topic is worse than none, because a topic decides those members' votes
+ * outright, ahead of everything else on the card.
+ */
+const docketWith = (item) => validateDocket(
+  { bills: [{ title: "An Act", brief: "b", axis: 0.3, domain: "economy", ...item }] },
+  { term: 1, month: 4, arcs: [], voteLog: [] }, 1,
+)[0];
+
+test("a topic the bill's own numbers do not support is dropped", () => {
+  const bill = docketWith({
+    title: "Manufacturing Assistance Act",
+    brief: "Grants and tax breaks for rural manufacturing.",
+    economic: 0.6, economic_side: "markets",
+    topics: ["expand_surveillance"],
+  });
+  assert.deepEqual(bill.topics, [],
+    "a bill that widens what agencies may collect is never silent on liberty");
+});
+
+test("and one it does support is kept", () => {
+  const bill = docketWith({
+    title: "Collection Authorities Act",
+    liberty: -0.6, liberty_side: "authority",
+    topics: ["expand_surveillance"],
+  });
+  assert.deepEqual(bill.topics, ["expand_surveillance"]);
+});
+
+test("a topic pointed the opposite way to the bill is dropped too", () => {
+  const bill = docketWith({
+    title: "Warrant Requirement Act",
+    liberty: 0.6, liberty_side: "liberty",
+    topics: ["expand_surveillance"],
+  });
+  assert.deepEqual(bill.topics, [], "this bill restrains the agencies; it cannot also widen them");
+});
+
+test("the topics with no axis to check against are taken at their word", () => {
+  // Guns and the platform topics are deliberately unchecked: this game's
+  // liberty axis is the state's coercive power over a person, which is not
+  // obviously where either of them sits, and a rule built on a guess would
+  // throw away good topics to catch nothing.
+  const bill = docketWith({ topics: ["protect_firearms", "forbid_platform_removals"] });
+  assert.deepEqual(bill.topics, ["protect_firearms", "forbid_platform_removals"]);
+});

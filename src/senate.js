@@ -16,8 +16,11 @@ import { seedNation, advanceNation } from "./nation.js";
 import { activeArcs } from "./arcs.js";
 import { stateProfile, seedCountry } from "./demographics.js";
 import { buildSociety } from "./society.js";
-import { applyConsequence, applyMigration } from "./consequence.js";
 import { noteEvent, EVENT } from "./chronicle.js";
+import {
+  sendOnward, advancePassage, resolveOverride, farChamberName,
+} from "./passage.js";
+import { tickRooms } from "./rooms.js";
 import {
   convictionView, recordConviction, describeConviction, baseTurnout, primaryThreat,
   INTEGRITY_START, signatureBonus,
@@ -269,7 +272,8 @@ export function castVote(state, bill, vote) {
   if (!["yes", "no", "abstain"].includes(vote)) {
     return { state, rejected: true, note: "Vote yes, vote no, or abstain." };
   }
-  if (votedThisCongress(state, bill.id)) {
+  // An override is the same bill a second time, deliberately. See house.js.
+  if (!bill.override && votedThisCongress(state, bill.id)) {
     return { state, rejected: true, note: "You have already voted on that this Congress." };
   }
 
@@ -335,17 +339,27 @@ export function castVote(state, bill, vote) {
     addresses: bill.addresses || null,
     month: next.month, term: next.term || 1,
     withDistrict: withHome, withParty, passed,
+    ...(bill.override ? { override: true } : {}),
   }];
 
-  // A bill that carried changes the country, exactly as in the House. See
-  // consequence.js — this is where a vote becomes something you can point at on
-  // a chart six years later.
-  const moved = passed ? applyConsequence(next, bill) : {};
-  const migration = passed ? applyMigration(next, bill) : 0;
-  next.pending = [...(next.pending || []), noteEvent(passed ? EVENT.PASSED : EVENT.FAILED, {
-    title: bill.title, domain: bill.domain, moved, vote,
-    tally: `${yes}-${tally.total - yes}`,
-  })];
+  /**
+   * And then it goes to the House, exactly as in the House it goes to here.
+   *
+   * A senator's sixty votes are the hard part of American legislating and they
+   * are still only half of it. See passage.js — a bill that survives cloture
+   * and dies in a House committee is the most ordinary story in the building.
+   */
+  const override = bill.override ? resolveOverride(next, bill, passed) : null;
+  if (passed && !bill.override) {
+    sendOnward(next, bill, { yours: Boolean(bill.yours), vote });
+  }
+  const moved = override?.moved || {};
+  const migration = 0;
+  next.pending = [...(next.pending || []), noteEvent(
+    passed ? (bill.override ? EVENT.ENACTED : EVENT.SENT) : EVENT.FAILED, {
+      title: bill.title, domain: bill.domain, moved, vote,
+      tally: `${yes}-${tally.total - yes}`,
+    })];
 
   const result = {
     bill, yourVote: vote, passed, decisive, filibustered, bar, moved,
@@ -364,6 +378,11 @@ export function castVote(state, bill, vote) {
     tally: { ...tally, yes, no: tally.total - yes },
     district: { ...home, delta: homeDelta },
     party: { ...party, delta: leadershipDelta },
+    onward: override
+      ? { stage: "override", enacted: override.enacted, note: override.note }
+      : passed
+        ? { stage: "far", to: farChamberName(next), note: `It goes to ${farChamberName(next)}.` }
+        : null,
     note: describeVote({ withHome, withParty, vote, passed, decisive, filibustered, bar, yes }),
   };
 
@@ -501,8 +520,25 @@ export function advanceSenateMonth(state) {
   next = decayed.state;
   next.leadership = clamp(round1(next.leadership + (52 - next.leadership) * 0.04));
 
-  // The country first: what this chamber passed this month eases the problems
-  // it was about, and what it ignored gets worse. See nation.js.
+  // The rest of the building first — what the House did with the bills this
+  // chamber sent it, and what the President did with the survivors. Then the
+  // country, which responds to law rather than to a roll call. See passage.js.
+  /**
+   * And the five rooms of a congressional office, for the months nobody was in
+   * them. Same engine as the presidency's schedule, different building. See
+   * chamberRooms.js.
+   */
+  for (const gone of tickRooms(next, next.situation || null)) {
+    next.pending = [...(next.pending || []), noteEvent(EVENT.FAILED, {
+      title: gone.name, domain: null,
+    })];
+    next.roomBreaks = [...(next.roomBreaks || []), {
+      room: gone.room, name: gone.name, note: gone.note,
+      month: next.month, term: next.term || 1,
+    }].slice(-12);
+  }
+
+  next.pending = [...(next.pending || []), ...advancePassage(next)];
   advanceNation(next);
   next.docket = null;
   closeTheMonth(next);

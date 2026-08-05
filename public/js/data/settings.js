@@ -17,7 +17,11 @@
  * else rather than shown and ignored.
  */
 
-const ALL_OFFICES = ["president", "house", "senate"];
+/**
+ * Every office, so that a rule with no explicit list is offered in all of them.
+ * Leaving the state legislature out of this hid every general rule from it.
+ */
+const ALL_OFFICES = ["president", "house", "senate", "statehouse"];
 
 export const SETTINGS = [
   {

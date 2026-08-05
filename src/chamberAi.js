@@ -1,6 +1,7 @@
 import { complete, aiAvailable } from "./ai/provider.js";
 import { parseModelJson } from "./ai/json.js";
 import { ENGLISH_ONLY } from "./ai/english.js";
+import { inventedPress, guessesGender } from "./ai/prose.js";
 import { seeded } from "./rng.js";
 import { normalizeDomain, activeArcs, ARC_DOMAIN_IDS } from "./arcs.js";
 import {
@@ -248,6 +249,132 @@ Schedule exactly ${count} bill${count === 1 ? "" : "s"} for this month's floor i
 
   logUsage("docket", resp.model, resp.usage);
   return validateDocket(parseModelJson(resp.text), state, count, { fringe });
+}
+
+// ---------------------------------------------------------------------------
+// The other legislature
+// ---------------------------------------------------------------------------
+
+const STATE_DOCKET_SYSTEM = `You write the legislative calendar for a single UNITED STATES STATE LEGISLATURE in "Fantasy President," a serious, non-partisan political strategy game. The player holds one seat in the lower chamber of one state.
+
+This is not Congress and writing it like Congress is the failure to avoid. A state legislature does roads, schools, Medicaid, occupational licensing, the sentencing code, water systems, the university system, county courts, hunting seasons and the budget. It has no foreign policy, no army, no central bank and no immigration authority. It cannot declare war, print money or regulate interstate commerce.
+
+You MUST respond with ONLY a single JSON object (no prose, no markdown fences):
+{
+  "bills": [
+    {
+      "title": "the name it will be known by — an Act, a Resolution, a Joint Resolution",
+      "brief": "ONE sentence, maximum 30 words, saying concretely what the bill DOES: the agency, the money, the threshold, the date. Name real mechanisms, not aims.",
+      "axis": number,          // -1 (hard left) to +1 (hard right)
+      "cost": number,          // MILLIONS out of the state's own budget, which must balance. Negative if it saves money.
+      "domain": "one of: ${DOMAINS}",
+      "because": "6-12 words on the local problem that produced it",
+      "support": "one of: partyline | contested | bipartisan | unanimous",
+      "economic_side": "equality" | "markets" | null,
+      "economic": number,
+      "liberty_side": "authority" | "liberty" | null,
+      "liberty": number,
+      "culture_side": "progress" | "tradition" | null,
+      "culture": number,
+      "pluralism_side": "hierarchy" | "protection" | null,
+      "pluralism": number
+    }
+  ]
+}
+
+Rules:
+- "axis" IS WHOSE BILL THIS IS. Not how much it spends, and not what mechanism it uses. This is the mistake most often made here and it is made in both directions:
+    Tax breaks and grants for COAL in West Virginia: a Republican bill, about +0.5.
+    Tax credits and grants for RENEWABLE ENERGY in Vermont: a Democratic bill, about -0.5.
+  The mechanism in those two is identical — public money to an industry, through the tax code — and the politics is entirely in which industry. A subsidy is not right-wing because it is a tax break and not left-wing because it is spending. Ask which party's members carry the bill onto the floor, and score that.
+  A memorial highway, a county boundary or a procurement fix is near 0 and nobody has a position on it at all.
+- WRITE FOR THE STATE YOU ARE GIVEN, by name. A bill about coal is a West Virginia bill; a bill about water rights is an Arizona one; a bill about ski resorts is Vermont's. A calendar that would fit any state is a failure.
+- "cost" is the whole difference between this chamber and Congress. Every state but one is constitutionally required to balance its budget and none of them can print money, so a spending bill is never a question of whether the money exists — it is a question of which other line it comes out of. Be honest and be specific: a teacher pay raise is tens of millions, a bridge programme is tens of millions, a licensing repeal saves single millions, a social bill often costs nothing at all.
+- Most of a state legislature's work is dull and local and that is what to write: a reauthorisation, a county boundary, a fee schedule, a procurement rule, a memorial highway. At least one bill in three should be something no journalist would cover.
+- The rest is the part that gets on the national news: guns, abortion, school curricula, trans healthcare, immigration enforcement by state police, election administration. These are where a state legislator's career is actually made and ended. Write them straight and write them as the state's own politics would.
+- NAME THE SIDE BEFORE YOU SCORE IT on every axis the bill touches, and leave both fields out on the axes it does not. Most bills are about one thing.
+- Invent every name. No real politicians, no real organisations, no real publications.
+- Return exactly the number of bills you are asked for. No commentary outside the JSON.
+- ${ENGLISH_ONLY}`;
+
+/**
+ * The state's own calendar, written to the state.
+ *
+ * The hand-written pool in statehouse.js is fifteen bills, which is a session
+ * and a half — and every state gets the same fifteen, so a Vermont career and a
+ * Texas one legislate about identical things. This is the same trade the
+ * congressional docket already makes: the model supplies the subjects and the
+ * numbers, the engine trusts none of it, and a model that is unreachable leaves
+ * the mode playing exactly as it did on the pool.
+ */
+export async function stateDocketFromModel(state, count) {
+  const seat = state.seat || {};
+  const seen = (state.voteLog || []).slice(-10).map((v) => v.title).filter(Boolean);
+  const chamber = state.chamber || {};
+
+  const user = `THE STATE: ${seat.stateName}. ${chamber.seats || "The"} members in the lower chamber, `
+    + `${chamber.majority || "no"} majority${chamber.pay ? `, paying $${chamber.pay.toLocaleString()} a year` : ""}.
+THE MEMBER: ${state.scenario?.presidentName}, ${state.scenario?.party}, ${state.scenario?.ideology || "no stated ideology"}, representing ${seat.district} — a seat that leans ${Math.abs(seat.lean || 0).toFixed(0)} points ${(seat.lean || 0) < 0 ? "Democratic" : "Republican"}.
+THE BUDGET: ${state.budget >= 0 ? `$${Math.round(state.budget)}m in hand` : `$${Math.abs(Math.round(state.budget))}m short`}, and it has to balance before the session ends.
+${state.governor ? `THE GOVERNOR: ${state.governor.name} (${state.governor.party}), who signs or vetoes all of this.` : ""}
+${seen.length ? `ALREADY VOTED ON — do not schedule these again:\n${seen.map((t) => `- ${t}`).join("\n")}` : ""}
+
+Schedule exactly ${count} bill${count === 1 ? "" : "s"} for this month's floor in the ${seat.stateName} House. Return the JSON object.`;
+
+  const resp = await complete({
+    system: STATE_DOCKET_SYSTEM,
+    messages: [{ role: "user", content: user }],
+    tier: "judge",
+    maxTokens: 2000,
+    json: true,
+    cache: true,
+  });
+
+  logUsage("state docket", resp.model, resp.usage);
+  return validateStateDocket(parseModelJson(resp.text), state, count);
+}
+
+/**
+ * Trusted exactly as little as the congressional docket is.
+ *
+ * The extra field is `cost`, and it is the one a state bill cannot do without:
+ * a chamber that must balance its budget needs to know what every bill takes
+ * out of it, and a model that omits the number is not describing a state bill.
+ * Clamped hard, because a model asked for millions will occasionally answer in
+ * billions and hand a legislature a bill that bankrupts the state in one vote.
+ */
+export function validateStateDocket(raw, state, count) {
+  const list = Array.isArray(raw?.bills) ? raw.bills : [];
+  const out = [];
+  const titles = new Set();
+
+  for (const item of list) {
+    if (out.length >= count) break;
+    const title = String(item?.title || "").trim().slice(0, 90);
+    if (!title || titles.has(title.toLowerCase())) continue;
+    if (item?.axis === null || item?.axis === undefined || item?.axis === "") continue;
+    const axis = Number(item.axis);
+    if (!Number.isFinite(axis)) continue;
+
+    titles.add(title.toLowerCase());
+    const issues = Object.fromEntries(ISSUE_AXES.map((a) => [a.id, issueValue(item, a, title)]));
+
+    out.push({
+      id: `st_${state.term || 1}_${state.month}_${out.length + 1}`,
+      title,
+      brief: String(item?.brief || "").trim().slice(0, 240),
+      axis: Math.max(-1, Math.min(1, Math.round(axis * 100) / 100)),
+      ...issues,
+      // A single bill cannot be worth more than a fair slice of a state's
+      // discretionary spending, whatever the model believes.
+      cost: Math.max(-200, Math.min(400, Math.round(Number(item?.cost) || 0))),
+      domain: normalizeDomain(item?.domain),
+      because: String(item?.because || "").trim().slice(0, 120) || null,
+      support: CONSENSUS_TIERS.includes(item?.support) ? item.support : "partyline",
+      written: true,
+    });
+  }
+  return out;
 }
 
 // ---------------------------------------------------------------------------
@@ -574,12 +701,36 @@ const LABELLED_STRENGTH = 0.45;
  * The override is logged rather than swallowed: how often a model contradicts
  * itself here is worth knowing, and nobody knows it yet.
  */
+/**
+ * The most an axis is worth when the model scored it and never named the side.
+ *
+ * A number on its own cannot be checked, and the sign is the thing this model
+ * gets wrong: a National Prayer Day Resolution came back at culture -0.2, which
+ * on an axis where positive is tradition puts a day of national prayer on the
+ * progressive side. The label check exists to catch exactly that and could not,
+ * because there was no label to check it against.
+ *
+ * Dropping unlabelled axes outright would throw away most of what the model
+ * volunteers, since it omits the side far more often than it states it. So an
+ * unverifiable claim is capped instead of trusted or binned: below the 0.3–0.6
+ * band the prompt says real bills occupy, which leaves a correct sign counting
+ * for something and a wrong one unable to drag a roll call off its axis.
+ */
+export const UNLABELLED_CAP = 0.25;
+
 function issueValue(item, axis, title) {
   const number = clampedIssue(item?.[axis.id]);
   const said = String(item?.[`${axis.id}_side`] || "").trim().toLowerCase();
   const wants = said === axis.high ? 1 : said === axis.low ? -1 : 0;
 
-  if (!wants) return number;                                  // no label: as before
+  if (!wants) {
+    if (!number) return 0;
+    if (Math.abs(number) <= UNLABELLED_CAP) return number;
+    console.warn(`[axis] "${title}" scored ${axis.id} at ${number} without naming a side, `
+      + `so it is capped at ${UNLABELLED_CAP}. An unnamed side cannot be checked, and the `
+      + "sign is what gets got wrong.");
+    return Math.sign(number) * UNLABELLED_CAP;
+  }
   if (!number) return wants * LABELLED_STRENGTH;              // label only
   if (Math.sign(number) === wants) return number;             // agree: keep the precision
 
@@ -591,6 +742,42 @@ function issueValue(item, axis, title) {
 const TOPIC_IDS = new Set(BILL_TOPICS);
 
 /**
+ * The axis a topic cannot be true without.
+ *
+ * A bill that widens what agencies may collect is a bill that builds out the
+ * state's power over a person; there is no version of it that is silent on
+ * liberty. So a topic has to be *corroborated* by the bill's own numbers rather
+ * than merely not contradicted by them — which is the difference between
+ * catching the failure and watching it go past.
+ *
+ * The failure, from a live month on a 14b: a bill giving grants and tax breaks
+ * to rural manufacturing came back tagged `expand_surveillance`, with liberty
+ * at 0 and economic at +0.6. Nothing contradicted the topic because the bill
+ * said nothing about liberty at all — and the docket prompt is explicit that a
+ * wrong topic is worse than none, because it decides those members' votes
+ * outright, ahead of everything else on the card.
+ *
+ * Only the topics whose axis is beyond argument are listed. Guns and the two
+ * platform topics are deliberately absent: this game's `liberty` axis is the
+ * state's coercive power over a person, which is not obviously where either of
+ * them sits, and a corroboration rule built on a guess would throw away good
+ * topics to catch nothing.
+ */
+const TOPIC_AXIS = {
+  expand_surveillance: { id: "liberty", sign: -1 },
+  restrict_surveillance: { id: "liberty", sign: 1 },
+  fund_incarceration: { id: "liberty", sign: -1 },
+  weaken_civil_rights: { id: "pluralism", sign: -1 },
+  strengthen_civil_rights: { id: "pluralism", sign: 1 },
+  expand_deportation: { id: "diplomatic", sign: 1 },
+  restrict_abortion: { id: "culture", sign: 1 },
+  protect_abortion: { id: "culture", sign: -1 },
+};
+
+/** How much of a claim on that axis counts as the bill actually doing it. */
+const CORROBORATION = 0.15;
+
+/**
  * The named actions a bill takes, out of whatever was offered.
  *
  * A pick-from-a-list field, which is the form this file already established as
@@ -598,10 +785,26 @@ const TOPIC_IDS = new Set(BILL_TOPICS);
  * than repaired, because a topic that matches no reflex is silent and a topic
  * that matches the wrong one decides a vote.
  */
-const validTopics = (raw) => (Array.isArray(raw) ? raw : [])
-  .map((t) => String(t || "").trim())
-  .filter((t, i, all) => TOPIC_IDS.has(t) && all.indexOf(t) === i)
-  .slice(0, MAX_TOPICS);
+function validTopics(raw, issues, title) {
+  const out = [];
+  for (const value of (Array.isArray(raw) ? raw : [])) {
+    if (out.length >= MAX_TOPICS) break;
+    const topic = String(value || "").trim();
+    if (!TOPIC_IDS.has(topic) || out.includes(topic)) continue;
+
+    const wants = TOPIC_AXIS[topic];
+    if (wants) {
+      const scored = Number(issues?.[wants.id]) || 0;
+      if (Math.sign(scored) !== wants.sign || Math.abs(scored) < CORROBORATION) {
+        console.warn(`[topic] "${title}" claimed ${topic} but scored ${wants.id} at ${scored}; `
+          + "dropping the claim. A bill that does that thing says so on that axis.");
+        continue;
+      }
+    }
+    out.push(topic);
+  }
+  return out;
+}
 
 const FACTION_IDS = new Set(FACTIONS.map((f) => f.id));
 
@@ -658,6 +861,12 @@ export function validateDocket(raw, state, count, { fringe = null } = {}) {
 
     titles.add(title.toLowerCase());
     const clamped = Math.max(-1, Math.min(1, Math.round(axis * 100) / 100));
+    /**
+     * Settled before the bill is assembled, because the topics are checked
+     * against them. A topic claims the bill does a specific thing; these are
+     * where the bill says whether it does. See `validTopics`.
+     */
+    const issues = Object.fromEntries(ISSUE_AXES.map((a) => [a.id, issueValue(item, a, title)]));
     out.push({
       // Stable within the month and unique across the career, which is all the
       // vote log, the committee log and the whip ledger need from an id.
@@ -676,7 +885,7 @@ export function validateDocket(raw, state, count, { fringe = null } = {}) {
        * instead of dropping the bill, and at 0 an axis takes none of the vote.
        * See `stanceFit` in bills.js.
        */
-      ...Object.fromEntries(ISSUE_AXES.map((axis) => [axis.id, issueValue(item, axis, title)])),
+      ...issues,
       /**
        * Blocs the model says break from where their own politics would put them.
        *
@@ -693,7 +902,7 @@ export function validateDocket(raw, state, count, { fringe = null } = {}) {
        * Actions the bill takes, which a politics may hold a fixed position on
        * however the rest of it is built. Usually empty. See BILL_TOPICS.
        */
-      topics: validTopics(item?.topics),
+      topics: validTopics(item?.topics, issues, title),
       defectors: validDefectors(item?.defectors),
       domain: normalizeDomain(item?.domain),
       /**
@@ -863,22 +1072,38 @@ Write the aftermath and return the JSON object.`;
 
   const out = parseModelJson(resp.text);
   const lean = (v) => (["left", "center", "right"].includes(v) ? v : "center");
+  const member = state.scenario?.presidentName || "";
+
+  /**
+   * Two rules this prompt states and the model breaks anyway, both found by
+   * reading a live month rather than a fixture: a masthead borrowed from the
+   * real world, and a gender decided on behalf of a player who never stated
+   * one. Neither is a number, which is exactly why nothing downstream could
+   * ever have noticed. See ai/prose.js.
+   */
+  const analysis = String(out?.analysis || "").trim().slice(0, 600);
+
   return {
-    analysis: String(out?.analysis || "").trim().slice(0, 600),
-    press: (Array.isArray(out?.press) ? out.press : []).slice(0, 3)
+    analysis: guessesGender(analysis, member) ? "" : analysis,
+    press: inventedPress((Array.isArray(out?.press) ? out.press : []).slice(0, 3)
       .filter((p) => p?.headline)
       .map((p) => ({
         outlet: String(p.outlet || "").slice(0, 60),
         lean: lean(p.lean),
         headline: String(p.headline).slice(0, 140),
-      })),
+      })), { label: "fallout" }),
     voices: (Array.isArray(out?.voices) ? out.voices : []).slice(0, 4)
       .filter((v) => v?.quote)
       .map((v) => ({
         name: String(v.name || "A constituent").slice(0, 50),
         who: String(v.who || "").slice(0, 60),
         quote: String(v.quote).slice(0, 320),
-      })),
+      }))
+      .filter((v) => {
+        if (!guessesGender(v.quote, member)) return true;
+        console.warn(`[fallout] dropped a quote that guessed the member's gender: "${v.quote.slice(0, 60)}"`);
+        return false;
+      }),
   };
 }
 

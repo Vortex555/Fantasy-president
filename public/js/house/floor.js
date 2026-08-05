@@ -8,11 +8,14 @@ import {
   senateFloor, senateVote, senateFilibuster, senateAdvance,
   senateSponsor, senateCommittee, senateWhip, senateArticles, senateConfirm,
   filePetition, pushPetition, moveVacate, callHearing, doCasework, askEarmark,
-  endorseAgainst, raiseForColleagues,
+  endorseAgainst, raiseForColleagues, pushOnward,
+  statehouseFloor, statehouseVote, statehouseAdvance,
 } from "../api.js";
 import {
   nationCard, falloutBlock, staffCard, wireStaff, resetStaffLogIfNewMonth,
 } from "./nation.js";
+import { roomsCard, wireRooms, loadRooms } from "../cards/rooms.js";
+import { speakerCard, calendarCard, wireSpeaker, wireCalendar } from "./speaker.js";
 
 /**
  * Both chambers run through this screen.
@@ -38,6 +41,19 @@ const CHAMBER = {
     term: 72, seatWord: "state", chamberName: "Senate",
     floor: senateFloor, vote: senateVote, advance: senateAdvance,
     sponsor: senateSponsor, committee: senateCommittee, whip: senateWhip, articles: senateArticles,
+  },
+  /**
+   * And the chamber below both of them.
+   *
+   * Deliberately missing most of the entries. A state representative cannot
+   * file through this screen, has no committee gavel worth modelling, sees no
+   * whip count and votes on no articles of impeachment — so the calls are
+   * absent rather than pointed somewhere harmless, and every card that needs
+   * one is simply not drawn. See statehouse.js.
+   */
+  statehouse: {
+    term: 24, seatWord: "district", chamberName: "State House",
+    floor: statehouseFloor, vote: statehouseVote, advance: statehouseAdvance,
   },
 };
 
@@ -74,6 +90,9 @@ export async function renderFloor(hooks) {
       G.state = board.state;
       saveCareer();
     }
+    // And the five rooms of the office, which are read from the same state the
+    // calendar was just settled against. See chamberRooms.js.
+    await loadRooms(G.state, G.state.situation || null);
   } catch (err) {
     alert("The floor schedule could not be read: " + err.message);
     return handlers.onDashboard();
@@ -156,7 +175,11 @@ function paint() {
           <p style="margin:10px 0 0">${escapeHtml(pendingCycle.ladder.note)}</p>
         </div>` : ""}
 
+    ${speakerCard(board)}
+    ${calendarCard(board)}
     ${partyCard(board)}
+    ${roomsCard()}
+    ${onwardCard(board)}
     ${districtCard(board)}
     ${hearingCard(board)}
     ${vacateCard(board)}
@@ -207,6 +230,10 @@ function paint() {
   if (board.nomination) wireNomination();
   for (const b of pending) wireBill(b);
   wirePetition();
+  wireOnward();
+  wireRooms(handlers);
+  wireSpeaker(() => renderFloor(handlers));
+  wireCalendar(() => renderFloor(handlers));
   wireVacate();
   wireHearing();
   wireDistrict();
@@ -494,6 +521,64 @@ function vacateCard(board) {
       <span class="hint" data-vac-label>Call in 0 favours</span>
       <button class="btn btn--danger btn--sm" data-vac-go>Move it</button>
     </div>
+  </div>`;
+}
+
+/**
+ * Everything you have passed that is not law.
+ *
+ * The half of legislating that used to be invisible, because it did not exist:
+ * a bill that cleared this floor became law where it stood and the rest of the
+ * building was a rumour. It is now a queue, and reading it is most of what
+ * makes a vote feel like one move in something longer — three bills sitting in
+ * the Senate, one of them yours, one of them four votes short since March.
+ *
+ * Only your own carries a lever. A member has no whip over the far chamber and
+ * never will; what they have is the debts of people who owe them and a reason
+ * to spend those on the bill with their name on it.
+ */
+function onwardCard(board) {
+  const onward = board.onward;
+  const waiting = onward?.waiting || [];
+  if (!waiting.length) return "";
+
+  const stageWord = { far: "waiting", desk: "on the desk", override: "back on this floor" };
+  const mine = waiting.filter((w) => w.yours && w.stage === "far");
+
+  return `<div class="card" id="onwardCard">
+    <span class="eyebrow">📤 Passed here, not law yet</span>
+    <p class="hint" style="margin:6px 0 12px">
+      Clearing this chamber is half of it. ${escapeHtml(onward.far.replace(/^the /, "The "))}
+      takes up what it feels like taking up, most of it never comes back, and nothing
+      you sent changes the country until it is signed.
+    </p>
+    <div class="rows">
+      ${waiting.map((w) => `<div class="career office" style="cursor:default">
+        <span class="office__text">
+          <span class="office__title">${escapeHtml(w.title)}${w.yours ? " ⚑" : ""}</span>
+          <span class="office__lede">${escapeHtml(w.note || "")}</span>
+          <span class="office__lede">
+            ${escapeHtml(stageWord[w.stage] || w.stage)} in ${escapeHtml(w.where)}
+            ${w.waited ? ` · ${w.waited} month${w.waited === 1 ? "" : "s"}` : ""}
+            ${w.gutted ? " · cut down" : ""}
+            ${w.favours ? ` · ${w.favours} favours spent` : ""}
+          </span>
+        </span>
+      </div>`).join("")}
+    </div>
+    ${mine.length ? `
+      <div class="whipbox__act" style="margin-top:12px">
+        <select data-onward-pick>
+          ${mine.map((w) => `<option value="${escapeHtml(w.key)}">${escapeHtml(w.title)}</option>`).join("")}
+        </select>
+        <input type="range" min="0" max="${Math.floor(G.state.capital ?? 0)}" value="0" data-onward-range />
+        <span class="hint" data-onward-label>Call in 0 favours</span>
+        <button class="btn btn--sm" data-onward-go>Work ${escapeHtml(onward.far)}</button>
+      </div>
+      <p class="hint" style="margin:8px 0 0">
+        ${onward.price} favours buys one member over there a reason to look at it.
+        They are not your colleagues and the rate says so.
+      </p>` : ""}
   </div>`;
 }
 
@@ -882,13 +967,20 @@ function supportNote(bill) {
 
 function billCard(bill) {
   const split = bill.party.position !== bill.district.position;
-  return `<div class="card${bill.fringe || split ? " card--alarm" : ""}" data-bill="${escapeHtml(bill.id)}">
+  return `<div class="card${bill.override || bill.fringe || split ? " card--alarm" : ""}" data-bill="${escapeHtml(bill.id)}">
     <div class="card__head">
-      <span class="eyebrow">${bill.fringe
-        ? `🔥 ${bill.axis < 0 ? "The far left" : "The far right"} has the floor`
-        : split ? "⚔️ They disagree" : "🤝 They agree"}</span>
+      <span class="eyebrow">${bill.override
+        ? "🏛️ Veto override — two thirds"
+        : bill.fringe
+          ? `🔥 ${bill.axis < 0 ? "The far left" : "The far right"} has the floor`
+          : split ? "⚔️ They disagree" : "🤝 They agree"}</span>
       <span class="hint">${escapeHtml(bill.domain)}</span>
     </div>
+    ${bill.override ? `<p class="hint" style="margin:6px 0 0">
+      This chamber passed it, the other chamber passed it, and the President sent it back.
+      A majority is not enough now — and the members who have to move are the President's
+      own party, in public, on the record.
+    </p>` : ""}
     ${bill.fringe ? `<p class="hint" style="margin:6px 0 0">
       This is not an ordinary bill. It would not adjust the settlement, it would replace it —
       and there is no way to vote on it that nobody remembers.
@@ -1123,6 +1215,31 @@ function wireVacate() {
   };
 }
 
+/** Favours spent on the far chamber, on your own bill only. */
+function wireOnward() {
+  const card = $("onwardCard");
+  const go = card?.querySelector("[data-onward-go]");
+  if (!go) return;
+
+  const range = card.querySelector("[data-onward-range]");
+  const label = card.querySelector("[data-onward-label]");
+  const pick = card.querySelector("[data-onward-pick]");
+  range.oninput = () => {
+    label.textContent = `Call in ${range.value} favour${range.value === "1" ? "" : "s"}`;
+  };
+  go.onclick = async () => {
+    loader(true, "You are on the phone to the other end of the building…");
+    try {
+      const data = await pushOnward(G.state, pick.value, Number(range.value));
+      G.state = data.state;
+      saveCareer();
+      renderFloor(handlers);
+    } catch (err) {
+      alert(err.message);
+    } finally { loader(false); }
+  };
+}
+
 /** The shelf and the signature drive. */
 function wirePetition() {
   const card = $("petitionCard");
@@ -1259,6 +1376,9 @@ function paintVoteResult(card, result) {
       ? `<p class="hint" style="margin:10px 0 0"><b>🪞 ${escapeHtml(result.conviction.note)}</b></p>` : ""}
     ${result.bloc?.note
       ? `<p class="hint" style="margin:8px 0 0"><b>🪧 ${escapeHtml(result.bloc.note)}</b></p>` : ""}
+    ${result.onward
+      ? `<p class="hint" style="margin:8px 0 0"><b>${
+        result.onward.stage === "override" ? "🏛️" : "📤"} ${escapeHtml(result.onward.note)}</b></p>` : ""}
     ${blocMoves(result.blocs)}
     ${falloutBlock(result.fallout)}`;
   // The two headline numbers moved; keep the tiles honest.

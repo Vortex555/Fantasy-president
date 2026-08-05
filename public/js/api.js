@@ -50,6 +50,20 @@ export const finishMidterms = (state, spend) => post("/api/midterms/finish", { s
 
 export const getVerdict = (state) => post("/api/verdict", { state });
 
+/** The transition: the house style, and the three people who would take each post. */
+export const cabinetDoctrines = () => post("/api/cabinet/doctrines", {});
+export const cabinetSlate = (scenario, role) => post("/api/cabinet/slate", { scenario, role });
+
+/**
+ * The month as a building: what is waiting in each room, walking into one, and
+ * what the room made of what you said. None of the three advances the month —
+ * `runTurn` still does that, whether you went in anywhere or not.
+ */
+export const roomsBoard = (state, event) => post("/api/rooms/board", { state, event });
+export const roomOpen = (state, room, event) => post("/api/rooms/open", { state, room, event });
+export const roomAnswer = (state, room, opening, answer, event) =>
+  post("/api/rooms/answer", { state, room, opening, answer, event });
+
 // --- The House -------------------------------------------------------------
 
 export const houseDistricts = (party, presidentName, startYear) =>
@@ -62,6 +76,22 @@ export const filePetition = (state, billId, favours) =>
   post("/api/chamber/petition", { state, action: "launch", billId, favours });
 export const pushPetition = (state, favours) =>
   post("/api/chamber/petition", { state, action: "sign", favours });
+
+/**
+ * Working a bill of your own across the building, after it has left your floor.
+ * One route for both chambers, because a member has exactly as little standing
+ * in the far one whichever this one is. See passage.js.
+ */
+export const pushOnward = (state, key, amount) =>
+  post(`/api/${state.office === "senate" ? "senate" : "house"}/onward`, { state, key, amount });
+
+/** Electing a Speaker: the floor votes, ballot by ballot, until somebody has 218. */
+export const speakerAction = (state, action, bloc = null) =>
+  post("/api/chamber/speaker", { state, action, bloc });
+
+/** The Speaker's own act: deciding what reaches the floor and what never does. */
+export const setCalendar = (state, chosen) =>
+  post("/api/chamber/calendar", { state, chosen });
 
 /** Moving against your own Speaker. */
 export const moveVacate = (state, favours) =>
@@ -93,6 +123,17 @@ export const houseWhip = (state, bill, amount) =>
   post("/api/house/whip", { state, bill, amount });
 
 export const houseArticles = (state, vote) => post("/api/house/articles", { state, vote });
+
+// --- The state legislature -------------------------------------------------
+
+/** The bottom rung: a chamber that sits four months a year and must balance. */
+export const statehouseSeats = (code) => post("/api/statehouse/seats", { state: code });
+export const statehouseFloor = (state) => post("/api/statehouse/floor", { state });
+export const statehouseHearing = (state, bill, hear) =>
+  post("/api/statehouse/hearing", { state, bill, hear });
+export const statehouseVote = (state, bill, vote) =>
+  post("/api/statehouse/vote", { state, bill, vote });
+export const statehouseAdvance = (state) => post("/api/statehouse/advance", { state });
 
 // --- The Senate ------------------------------------------------------------
 

@@ -46,8 +46,21 @@ const withProblem = (o = {}, arc = {}) => house({
   ...o,
 });
 
-/** A roll call this chamber actually carried, in a given domain. */
-const passedVote = (domain, o = {}) => ({
+/**
+ * A bill that became law in a given domain.
+ *
+ * This used to be a roll call in the member's own chamber, because clearing
+ * that chamber was the whole of a bill's life. It is now the middle of one —
+ * the far chamber and the desk both get a say — so the country reads the
+ * enactment log and no longer reads the vote log at all. See passage.js.
+ */
+const becameLaw = (domain, o = {}) => ({
+  id: "b1", title: "An Act", axis: -0.3, domain,
+  month: 1, term: 1, addresses: null, ...o,
+});
+
+/** How this member voted, which is a different question. */
+const votedFor = (domain, o = {}) => ({
   id: "b1", title: "An Act", axis: -0.3, vote: "yes", domain,
   month: 1, term: 1, withDistrict: true, withParty: true, passed: true, ...o,
 });
@@ -117,7 +130,7 @@ test("a problem cannot get worse than the scale allows", () => {
 
 test("a bill that passes eases the problem it was about", () => {
   const state = advanceNation(withProblem({
-    month: 1, voteLog: [passedVote("economy")],
+    month: 1, enacted: [becameLaw("economy")],
   }, { severity: 3, ignoredStreak: 4 }));
 
   assert.equal(state.arcs[0].severity, 2, "real progress");
@@ -127,7 +140,7 @@ test("a bill that passes eases the problem it was about", () => {
 
 test("a bill about something else does not count", () => {
   const state = advanceNation(withProblem({
-    month: 1, voteLog: [passedVote("justice")],
+    month: 1, enacted: [becameLaw("justice")],
   }, { severity: 3, ignoredStreak: 1 }));
 
   assert.equal(state.arcs[0].severity, 4, "adjacency is not action; it escalated");
@@ -135,17 +148,35 @@ test("a bill about something else does not count", () => {
 
 test("a bill that failed does not count either", () => {
   const state = advanceNation(withProblem({
-    month: 1, voteLog: [passedVote("economy", { passed: false })],
+    month: 1, voteLog: [votedFor("economy", { passed: false })],
   }, { severity: 3, ignoredStreak: 1 }));
 
   assert.equal(state.arcs[0].severity, 4);
+});
+
+/**
+ * The rule the whole pipeline exists for.
+ *
+ * A bill that carried this chamber and is sitting in the far one has done
+ * nothing to the country yet, and used to do all of it. A member could pass a
+ * party-line statute through a House whose Senate would never take it up, and
+ * the problem it was about would ease anyway.
+ */
+test("a bill that passed this chamber but is not law yet changes nothing", () => {
+  const state = advanceNation(withProblem({
+    month: 1,
+    voteLog: [votedFor("economy")],
+    inFlight: [{ key: "b1|1|1", stage: "far", bill: { id: "b1", domain: "economy" } }],
+  }, { severity: 3, ignoredStreak: 1 }));
+
+  assert.equal(state.arcs[0].severity, 4, "it escalated, because nothing has actually happened");
 });
 
 test("the chamber's record counts, not the member's vote", () => {
   // One of 435 people voted no and it carried anyway. The country does not care
   // which way you personally went — only what came out of the building.
   const state = advanceNation(withProblem({
-    month: 1, voteLog: [passedVote("economy", { vote: "no", withParty: false })],
+    month: 1, enacted: [becameLaw("economy")], voteLog: [votedFor("economy", { vote: "no", withParty: false })],
   }, { severity: 3 }));
 
   assert.equal(state.arcs[0].severity, 2);
@@ -153,7 +184,7 @@ test("the chamber's record counts, not the member's vote", () => {
 
 test("legislating a problem all the way down finishes it", () => {
   const state = advanceNation(withProblem({
-    month: 1, voteLog: [passedVote("economy")],
+    month: 1, enacted: [becameLaw("economy")],
   }, { severity: 1 }));
 
   assert.equal(state.arcs.length, 0, "it is over");
@@ -164,7 +195,7 @@ test("legislating a problem all the way down finishes it", () => {
 test("only this month's votes are read", () => {
   const acted = domainsActedOn({
     month: 4, term: 1,
-    voteLog: [passedVote("economy", { month: 3 }), passedVote("health", { month: 4 })],
+    enacted: [becameLaw("economy", { month: 3 }), becameLaw("health", { month: 4 })],
   }, 4, 1);
   assert.deepEqual([...acted], ["health"]);
 });
@@ -172,7 +203,7 @@ test("only this month's votes are read", () => {
 test("a vote from a previous term is not this term's work", () => {
   const acted = domainsActedOn({
     month: 1, term: 2,
-    voteLog: [passedVote("economy", { month: 1, term: 1 })],
+    enacted: [becameLaw("economy", { month: 1, term: 1 })],
   }, 1, 2);
   assert.equal(acted.size, 0);
 });
@@ -368,7 +399,7 @@ test("a bill that names the problem it answers eases that problem", () => {
   const state = advanceNation(withProblem({
     month: 1,
     // Tagged the wrong domain on purpose — the id is what should carry it.
-    voteLog: [passedVote("security", { addresses: "arc_1" })],
+    enacted: [becameLaw("security", { addresses: "arc_1" })],
   }, { severity: 3, domain: "economy", ignoredStreak: 2 }));
 
   assert.equal(state.arcs[0].severity, 2);
@@ -378,7 +409,7 @@ test("a bill that names the problem it answers eases that problem", () => {
 test("a bill naming nothing still eases by domain, so the pool keeps working", () => {
   // Hand-written pool bills have no `addresses` and never will.
   const state = advanceNation(withProblem({
-    month: 1, voteLog: [passedVote("economy", { addresses: null })],
+    month: 1, enacted: [becameLaw("economy", { addresses: null })],
   }, { severity: 3, domain: "economy" }));
 
   assert.equal(state.arcs[0].severity, 2);
@@ -386,7 +417,7 @@ test("a bill naming nothing still eases by domain, so the pool keeps working", (
 
 test("naming a problem that is not this one does not ease this one", () => {
   const state = advanceNation(withProblem({
-    month: 1, voteLog: [passedVote("justice", { addresses: "arc_9" })],
+    month: 1, enacted: [becameLaw("justice", { addresses: "arc_9" })],
   }, { severity: 3, domain: "economy", ignoredStreak: 1 }));
 
   assert.equal(state.arcs[0].severity, 4, "it escalated, as an ignored problem should");
@@ -404,12 +435,12 @@ test("a new problem is born worth two bills, not one", () => {
   });
   assert.equal(state.arcs[0].severity, 2);
 
-  const after = advanceNation({ ...state, month: 2, voteLog: [passedVote("health", { month: 2 })] });
+  const after = advanceNation({ ...state, month: 2, enacted: [becameLaw("health", { month: 2 })] });
   assert.equal(after.arcs.length, 1, "one bill eases it");
   assert.equal(after.arcs[0].severity, 1, "it does not finish it");
 
   // And a second one does.
-  const done = advanceNation({ ...after, month: 3, voteLog: [passedVote("health", { month: 3 })] });
+  const done = advanceNation({ ...after, month: 3, enacted: [becameLaw("health", { month: 3 })] });
   assert.equal(done.arcs.length, 0);
 });
 
@@ -519,7 +550,7 @@ test("it does not blow up on a month it was not due to escalate", () => {
 
 test("a problem the chamber is working on never blows up", () => {
   const state = advanceNation(maxed({
-    month: 1, voteLog: [passedVote("economy")],
+    month: 1, enacted: [becameLaw("economy")],
   }));
   assert.equal(state.detonation, null);
   assert.equal(state.arcs[0].severity, 4, "it came down instead");

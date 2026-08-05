@@ -66,6 +66,20 @@ export const EVENT = {
   RESOLVED: "resolved",
   DETONATED: "detonated",
   ELECTION: "election",
+  /**
+   * What the other end of the building did with it.
+   *
+   * Clearing your own chamber used to be the end of a bill's life and the
+   * moment the country changed. It is now the middle of the story, so the
+   * record needs words for the rest of it: sent onward, killed over there,
+   * cut down to something the far chamber would take, vetoed, and — the only
+   * one of them that moves a number — signed into law.
+   */
+  SENT: "sent",
+  BLOCKED: "blocked",
+  GUTTED: "gutted",
+  VETOED: "vetoed",
+  ENACTED: "enacted",
 };
 
 /**

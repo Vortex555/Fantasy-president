@@ -1,7 +1,7 @@
 "use strict";
 
 import { $, show, escapeHtml, loader } from "../util.js";
-import { houseDistricts, senateStates } from "../api.js";
+import { houseDistricts, senateStates, statehouseSeats } from "../api.js";
 
 /**
  * Choosing an office, and then a seat.
@@ -27,6 +27,13 @@ const OFFICES = [
       "by the time you are on the ballot — which is the only reason this chamber is capable of " +
       "doing unpopular things. Your one vote in a hundred decides real outcomes, and you can " +
       "stop the chamber on your own.",
+  },
+  {
+    id: "statehouse", icon: "🏚️", title: "State Representative",
+    lede: "Where almost every career actually starts.",
+    detail: "A chamber nobody outside the state has heard of, sitting three or four months a " +
+      "year for money you cannot live on. No foreign policy, no army, no printing press — and " +
+      "a budget that has to balance, which is the only legislating in America that does.",
   },
   {
     id: "house", icon: "🪑", title: "Member of the House of Representatives",
@@ -143,6 +150,76 @@ export async function renderStates(draft, onPick, onBack) {
   $("districtBody").onclick = (e) => {
     const btn = e.target.closest("[data-seat-state]");
     if (btn) onPick(btn.dataset.seatState);
+  };
+  $("districtBack").onclick = onBack;
+  show("district");
+  window.scrollTo(0, 0);
+}
+
+/**
+ * A seat inside one state legislature.
+ *
+ * Two screens rather than one: which state, and then which of its districts.
+ * The second is where the chamber itself is explained, because the numbers vary
+ * so wildly between states that a New Hampshire seat and a California one are
+ * barely the same job — 3,300 people against half a million, four hundred
+ * members against eighty, $100 a year against $128,000. See statehouse.js.
+ */
+export async function renderStateSeats(draft, onPick, onBack) {
+  loader(true, "Finding the districts…");
+  let data;
+  try {
+    data = await statehouseSeats(draft.seatState);
+  } catch (err) {
+    alert("The seats could not be drawn: " + err.message);
+    return onBack();
+  } finally {
+    loader(false);
+  }
+
+  const chamber = data.chamber;
+  const months = ["January", "February", "March", "April", "May", "June",
+    "July", "August", "September", "October", "November", "December"];
+
+  $("seatTitle").textContent = "Your Seat";
+  $("seatLede").textContent = "One district, in one state legislature.";
+  $("districtBody").innerHTML = `
+    <div class="card" style="margin-bottom:18px">
+      <span class="eyebrow">🏚️ The chamber</span>
+      <p style="margin:8px 0 0">
+        <b>${chamber.seats}</b> members. Terms of <b>${chamber.term}</b> years.
+        It sits ${escapeHtml(months[chamber.session[0] - 1])} to ${escapeHtml(months[chamber.session[1] - 1])},
+        and pays <b>${chamber.pay ? `$${chamber.pay.toLocaleString()}` : "nothing at all"}</b> a year.
+      </p>
+      ${chamber.unicameral ? `<p class="hint" style="margin:8px 0 0">
+        Unicameral — there is no second chamber${chamber.nonpartisan
+          ? ", and no party labels on the ballot either" : ""}.
+      </p>` : ""}
+      ${!chamber.full ? `<p class="hint" style="margin:8px 0 0">
+        Part-time. Everybody in this chamber has another job, and that fact decides who can
+        afford to serve in it.
+      </p>` : ""}
+    </div>
+
+    <div class="rows">
+      ${data.seats.map((d) => `
+        <button class="career seat-row" data-state-seat="${escapeHtml(d.seat)}">
+          <span class="seat-row__code">${escapeHtml(d.seat)}</span>
+          <span class="seat-row__text">
+            <span class="seat-row__name">${escapeHtml(STATE_KIND[d.kind]?.label || d.kind)}</span>
+            <span class="seat-row__meta">Lean ${d.lean > 0 ? "R+" : "D+"}${Math.abs(d.lean).toFixed(1)}
+              · about ${d.people.toLocaleString()} people</span>
+          </span>
+          <span class="career__go">▸</span>
+        </button>`).join("")}
+    </div>
+    <div class="btn-row" style="margin-top:22px">
+      <button class="btn" id="districtBack">← Back</button>
+    </div>`;
+
+  $("districtBody").onclick = (e) => {
+    const btn = e.target.closest("[data-state-seat]");
+    if (btn) onPick(btn.dataset.stateSeat);
   };
   $("districtBack").onclick = onBack;
   show("district");
