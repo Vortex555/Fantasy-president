@@ -1,7 +1,6 @@
 # 🏛️ Fantasy President
 
-An AI-powered political simulator in the spirit of
-[fantasypresidentcareer.com](https://fantasypresidentcareer.com). You take the
+You take the
 oath of office and, each month, respond to an unfolding crisis by **writing a
 free-form policy in your own words**. An AI simulation engine then plays out the
 consequences across every corner of American politics:
